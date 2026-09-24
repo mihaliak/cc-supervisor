@@ -1,0 +1,20 @@
+# Xcode / build
+macos/*.xcodeproj/
+build/
+DerivedData/
+
+# Python
+python/.venv/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+
+# throwaway spike code (P00)
+spikes/
+
+.DS_Store

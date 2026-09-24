@@ -1,0 +1,170 @@
+#!/usr/bin/env python3
+"""Fake `claude` executable for tests (ADR-0013).
+
+Behavior is driven by a JSON scenario file (env FAKE_CLAUDE_SCENARIO) keyed by mode:
+
+    version      {"stdout": "...", "exit": 0}
+    agents       {"sessions": [...], "exit": 0}              -> `claude agents --json`
+    auth_status  {"json": {...}, "exit": 0}                  -> `claude auth status [--json]`
+    auth_login   {"stdout": "...", "exit": 0, "delay": 0}    -> `claude auth login`
+    stream       {"get_usage": {"response": {...}} | {"error": "..."}, "delay": 0}
+                                                             -> `claude -p --input-format stream-json …`
+    print        {"stdout": "ok", "exit": 0, "delay": 0}     -> `claude -p <prompt>`
+    interactive  {"banner": "FAKE-TUI ready"}                -> no subcommand (TUI mode)
+
+Every mode also accepts "stderr", "exit" and "delay" (seconds, before output).
+Each invocation appends one JSON line {argv, env, cwd, mode} to $FAKE_CLAUDE_LOG.
+Unknown subcommands exit 2. Later plans extend the modes.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+import time
+from typing import Any
+
+LOGGED_ENV_PREFIXES = ("CLAUDE_CONFIG_DIR", "CCS_")
+
+
+def load_scenario() -> dict[str, Any]:
+    path = os.environ.get("FAKE_CLAUDE_SCENARIO")
+    if not path:
+        return {}
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    return data if isinstance(data, dict) else {}
+
+
+def log_call(argv: list[str], mode: str) -> None:
+    path = os.environ.get("FAKE_CLAUDE_LOG")
+    if not path:
+        return
+    env = {k: v for k, v in os.environ.items() if k.startswith(LOGGED_ENV_PREFIXES)}
+    line = json.dumps({"argv": argv, "env": env, "cwd": os.getcwd(), "mode": mode})
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(line + "\n")
+
+
+def detect_mode(argv: list[str]) -> str:
+    if "--version" in argv or "-v" in argv:
+        return "version"
+    if argv[:1] == ["agents"]:
+        return "agents"
+    if argv[:2] == ["auth", "status"]:
+        return "auth_status"
+    if argv[:2] == ["auth", "login"]:
+        return "auth_login"
+    if argv[:1] == ["auth"]:
+        return "unknown"
+    if "-p" in argv or "--print" in argv:
+        if "stream-json" in argv:
+            return "stream"
+        return "print"
+    if argv and not argv[0].startswith("-"):
+        # a positional word that is not a known subcommand is a prompt only when flags came first;
+        # bare unknown words are treated as unknown subcommands.
+        return "unknown"
+    return "interactive"
+
+
+def finish(spec: dict[str, Any], default_stdout: str = "") -> int:
+    delay = float(spec.get("delay", 0))
+    if delay:
+        time.sleep(delay)
+    out = spec.get("stdout", default_stdout)
+    if out:
+        sys.stdout.write(out if out.endswith("\n") else out + "\n")
+        sys.stdout.flush()
+    err = spec.get("stderr")
+    if err:
+        sys.stderr.write(err if err.endswith("\n") else err + "\n")
+        sys.stderr.flush()
+    return int(spec.get("exit", 0))
+
+
+def run_stream(spec: dict[str, Any]) -> int:
+    delay = float(spec.get("delay", 0))
+    for raw in sys.stdin:
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            msg = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if msg.get("type") != "control_request":
+            continue
+        request = msg.get("request", {})
+        request_id = msg.get("request_id")
+        subtype = request.get("subtype")
+        handler = spec.get(subtype, {}) if isinstance(subtype, str) else {}
+        if delay:
+            time.sleep(delay)
+        if "error" in handler:
+            response: dict[str, Any] = {
+                "subtype": "error",
+                "request_id": request_id,
+                "error": handler["error"],
+            }
+        else:
+            response = {
+                "subtype": "success",
+                "request_id": request_id,
+                "response": handler.get("response", {}),
+            }
+        sys.stdout.write(json.dumps({"type": "control_response", "response": response}) + "\n")
+        sys.stdout.flush()
+    return int(spec.get("exit", 0))
+
+
+def run_interactive(spec: dict[str, Any]) -> int:
+    sys.stdout.write(spec.get("banner", "FAKE-TUI ready") + "\n")
+    sys.stdout.flush()
+    buf = b""
+    fd = sys.stdin.fileno()
+    while True:
+        chunk = os.read(fd, 1024)
+        if not chunk:
+            break
+        buf += chunk
+        sys.stdout.write("RECV " + chunk.hex() + "\n")
+        sys.stdout.flush()
+        if b"/exit\r" in buf:
+            break
+    return int(spec.get("exit", 0))
+
+
+def main() -> int:
+    argv = sys.argv[1:]
+    mode = detect_mode(argv)
+    log_call(argv, mode)
+    scenario = load_scenario()
+    spec = scenario.get(mode, {})
+    if not isinstance(spec, dict):
+        spec = {}
+    if mode == "unknown":
+        sys.stderr.write(f"fake claude: unknown mode for argv {argv!r}\n")
+        return 2
+    if mode == "version":
+        return finish(spec, "0.0.0-fake (Claude Code)")
+    if mode == "agents":
+        if "sessions" in spec and "stdout" not in spec:
+            spec = {**spec, "stdout": json.dumps(spec["sessions"])}
+        return finish(spec, "[]")
+    if mode == "auth_status":
+        if "json" in spec and "stdout" not in spec:
+            spec = {**spec, "stdout": json.dumps(spec["json"])}
+        return finish(spec, json.dumps({"loggedIn": False}))
+    if mode == "auth_login":
+        return finish(spec, "Login successful.")
+    if mode == "stream":
+        return run_stream(spec)
+    if mode == "print":
+        return finish(spec, "ok")
+    return run_interactive(spec)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

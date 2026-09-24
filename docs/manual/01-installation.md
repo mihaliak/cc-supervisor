@@ -71,6 +71,22 @@ It:
 
 `ccs --<profile>` also regenerates an outdated statusline script by itself. If `ccs doctor` still reports one, for example for a profile you only use with plain `claude`, run `ccs statusline generate --profile <id>`.
 
+## For developers
+`make help` lists these targets:
+
+| Target | Does |
+|--------|------|
+| `make venv` | Creates `python/.venv` with the dev tools: pytest, ruff, mypy. |
+| `make install-dev` | Editable pipx install of `ccs` into `~/.local/bin`. It uses the real interpreter behind any pyenv shim. |
+| `make test` | Python tests plus Swift unit tests. `SKIP_SWIFT=1` skips Swift. |
+| `make test-python` / `make test-swift` | One half only. |
+| `make test-live` | Tests marked `live`, which use the real `claude`. Opt-in only. |
+| `make lint` / `make fmt` | ruff check, format check, and mypy `--strict` / auto-format. |
+| `make project` | Generates `macos/CCSupervisor.xcodeproj` with XcodeGen. It is not committed. |
+| `make app-build` | Builds the app and widgets (Release, ad-hoc signed) into `build/xcode`. |
+| `make app` | `app-build`, then copies the app to `~/Applications/`. |
+| `make clean` | Removes build outputs, caches, and the generated project. |
+
 ## Uninstall
 ```sh
 make uninstall

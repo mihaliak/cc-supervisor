@@ -1,0 +1,93 @@
+name: CCSupervisor
+options:
+  bundleIdPrefix: local.ccsupervisor
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ""
+    ENABLE_HARDENED_RUNTIME: NO
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  CCSupervisor:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+      - path: Shared
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: CC Supervisor
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSUIElement: true
+        LSMinimumSystemVersion: "26.0"
+        CFBundleURLTypes:
+          - CFBundleURLName: local.ccsupervisor.app
+            CFBundleURLSchemes:
+              - ccsupervisor
+    entitlements:
+      path: App/App.entitlements
+      properties: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.ccsupervisor.app
+        PRODUCT_NAME: CC Supervisor
+    dependencies:
+      - target: CCSupervisorWidgets
+        embed: true
+  CCSupervisorWidgets:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: Widgets
+      - path: Shared
+    info:
+      path: Widgets/Info.plist
+      properties:
+        CFBundleDisplayName: CC Supervisor Widgets
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: Widgets/Widgets.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.temporary-exception.files.home-relative-path.read-only:
+          - /.local/state/ccs/widget/
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.ccsupervisor.app.widgets
+        PRODUCT_NAME: CCSupervisorWidgets
+        SKIP_INSTALL: YES
+  CCSupervisorTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: CCSupervisor
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.ccsupervisor.app.tests
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/CC Supervisor.app/Contents/MacOS/CC Supervisor
+        BUNDLE_LOADER: $(TEST_HOST)
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  CCSupervisor:
+    build:
+      targets:
+        CCSupervisor: all
+        CCSupervisorWidgets: all
+    test:
+      targets:
+        - CCSupervisorTests

@@ -1,0 +1,176 @@
+{
+ "type": "control_response",
+ "response": {
+  "subtype": "success",
+  "request_id": "fixture-1",
+  "response": {
+   "session": {
+    "total_cost_usd": 0,
+    "total_api_duration_ms": 0,
+    "total_duration_ms": 708,
+    "total_lines_added": 0,
+    "total_lines_removed": 0,
+    "model_usage": {}
+   },
+   "subscription_type": "max",
+   "rate_limits_available": true,
+   "rate_limits": {
+    "five_hour": {
+     "utilization": 15,
+     "resets_at": "2026-09-24T20:00:00.742595+00:00",
+     "limit_dollars": null,
+     "used_dollars": null,
+     "remaining_dollars": null,
+     "locked_reason": null
+    },
+    "seven_day": {
+     "utilization": 52,
+     "resets_at": "2026-09-26T06:00:00.742622+00:00",
+     "limit_dollars": null,
+     "used_dollars": null,
+     "remaining_dollars": null,
+     "locked_reason": null
+    },
+    "seven_day_oauth_apps": null,
+    "seven_day_opus": null,
+    "seven_day_sonnet": null,
+    "cinder_cove": null,
+    "extra_usage": {
+     "is_enabled": false,
+     "monthly_limit": 1000,
+     "used_credits": 0,
+     "utilization": 0,
+     "currency": "EUR",
+     "disabled_reason": "out_of_credits",
+     "decimal_places": 2,
+     "user_disabled": false,
+     "spend_limit_reached": false,
+     "credits_ever_enabled": true,
+     "daily": null,
+     "weekly": null
+    },
+    "limits": [
+     {
+      "kind": "session",
+      "group": "session",
+      "percent": 15,
+      "resets_at": "2026-09-24T20:00:00.742595+00:00",
+      "severity": "normal",
+      "is_active": false,
+      "scope": null
+     },
+     {
+      "kind": "weekly_all",
+      "group": "weekly",
+      "percent": 52,
+      "resets_at": "2026-09-26T06:00:00.742622+00:00",
+      "severity": "normal",
+      "is_active": true,
+      "scope": null
+     },
+     {
+      "kind": "weekly_scoped",
+      "group": "weekly",
+      "percent": 4,
+      "resets_at": "2026-09-26T06:00:00.742951+00:00",
+      "severity": "normal",
+      "is_active": false,
+      "scope": {
+       "model": {
+        "display_name": "Fable",
+        "id": null
+       },
+       "surface": null
+      }
+     }
+    ],
+    "seven_day_cowork": null,
+    "seven_day_omelette": null,
+    "tangelo": null,
+    "iguana_necktie": null,
+    "omelette_promotional": null,
+    "nimbus_quill": {
+     "utilization": 0,
+     "resets_at": null,
+     "limit_dollars": null,
+     "used_dollars": null,
+     "remaining_dollars": null,
+     "locked_reason": null
+    },
+    "copper_kite": null,
+    "brass_thimble": null,
+    "harbor_lantern": null,
+    "wattle_ember": null,
+    "amber_ladder": null,
+    "amber_cistern": null,
+    "juniper_tide": null,
+    "cedar_ember": null,
+    "amber_gauge": null,
+    "spend": {
+     "used": {
+      "amount_minor": 0,
+      "currency": "EUR",
+      "exponent": 2
+     },
+     "limit": {
+      "amount_minor": 1000,
+      "currency": "EUR",
+      "exponent": 2
+     },
+     "percent": 0,
+     "severity": "normal",
+     "enabled": false,
+     "disabled_reason": "out_of_credits",
+     "cap": {
+      "money": {
+       "amount_minor": 1000,
+       "currency": "EUR",
+       "exponent": 2
+      },
+      "credits": null
+     },
+     "balance": null,
+     "auto_reload": null,
+     "disclaimer": "Usage credits cover you when you hit your plan limits. [Learn more](https://support.claude.com/articles/12429409)",
+     "can_purchase_credits": false,
+     "can_toggle": false
+    },
+    "member_dashboard_available": false,
+    "seven_day_breakdown": {
+     "as_of": "2026-09-24T17:50:47.767913+00:00",
+     "window_started_at": "2026-09-19T06:00:00.742622+00:00",
+     "rows": [
+      {
+       "key": "claude_code",
+       "display_name": "Claude Code",
+       "percent": 97
+      },
+      {
+       "key": "chat",
+       "display_name": "Chats",
+       "percent": 3
+      },
+      {
+       "key": "cowork",
+       "display_name": "Cowork",
+       "percent": 0
+      },
+      {
+       "key": "other",
+       "display_name": "Other",
+       "percent": 0
+      }
+     ]
+    },
+    "model_scoped": [
+     {
+      "display_name": "Fable",
+      "utilization": 4,
+      "resets_at": "2026-09-26T06:00:00.742951+00:00"
+     }
+    ]
+   },
+   "behaviors": null
+  }
+ }
+}

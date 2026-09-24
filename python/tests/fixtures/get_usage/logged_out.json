@@ -1,0 +1,21 @@
+{
+ "type": "control_response",
+ "response": {
+  "subtype": "success",
+  "request_id": "fixture-1",
+  "response": {
+   "session": {
+    "total_cost_usd": 0,
+    "total_api_duration_ms": 0,
+    "total_duration_ms": 242,
+    "total_lines_added": 0,
+    "total_lines_removed": 0,
+    "model_usage": {}
+   },
+   "subscription_type": null,
+   "rate_limits_available": false,
+   "rate_limits": null,
+   "behaviors": null
+  }
+ }
+}
