@@ -78,7 +78,7 @@ def run_cli(capsys: pytest.CaptureFixture[str], *argv: str) -> tuple[int, dict[s
 
 def test_scheduler_is_a_registered_extension() -> None:
     assert "ccs.daemon.scheduler" in extensions.EXTENSIONS
-    assert extensions.resolve(extensions.EXTENSIONS) == [scheduler.install]
+    assert scheduler.install in extensions.resolve(extensions.EXTENSIONS)
 
 
 def test_warmup_end_to_end(env: Path, capsys: pytest.CaptureFixture[str]) -> None:

@@ -66,11 +66,11 @@ def launcher_env(
     return env
 
 
-def ensure_statusline(profile: Profile) -> str | None:
+def ensure_statusline(profile: Profile, config: Config | None = None) -> str | None:
     """The statusLine command for the profile, or None.
 
-    P07 provides `ccs.statusline.apply.ensure_script(profile) -> str | None` (regenerates the
-    script if missing/outdated). Until then: use the script only if it already exists.
+    Delegates to `ccs.statusline.apply.ensure_script(profile, config)` (P07: regenerates the
+    script if missing/outdated). Fallback without P07: use the script only if it exists.
     """
     try:
         module = importlib.import_module("ccs.statusline.apply")
@@ -79,7 +79,7 @@ def ensure_statusline(profile: Profile) -> str | None:
     ensure = getattr(module, "ensure_script", None) if module is not None else None
     if callable(ensure):
         try:
-            result = ensure(profile)
+            result = ensure(profile, config)
         except Exception as exc:
             eprint(f"ccs: statusline unavailable: {exc}")
             return None
@@ -90,7 +90,9 @@ def ensure_statusline(profile: Profile) -> str | None:
     return f"{shlex.quote(sys.executable)} -S -E {shlex.quote(str(script))}"
 
 
-def statusline_args(profile: Profile, claude_args: Sequence[str]) -> list[str]:
+def statusline_args(
+    profile: Profile, claude_args: Sequence[str], config: Config | None = None
+) -> list[str]:
     """`--settings '{"statusLine":…}'` to prepend, or [] (ADR-0006, ADR-0013)."""
     if not profile.statusline.enabled:
         return []
@@ -100,7 +102,7 @@ def statusline_args(profile: Profile, claude_args: Sequence[str]) -> list[str]:
             f"(run: ccs statusline apply --profile {profile.id})"
         )
         return []
-    command = ensure_statusline(profile)
+    command = ensure_statusline(profile, config)
     if command is None:
         return []
     settings = {"statusLine": {"type": "command", "command": command}}
@@ -239,7 +241,7 @@ def run(
         return 0
     wrapper_id = str(uuid.uuid4())
     env = launcher_env(profile, wrapper_id=wrapper_id)
-    argv = [claude, *statusline_args(profile, args), *args]
+    argv = [claude, *statusline_args(profile, args, config), *args]
     link = None
     if not spec.no_supervise:
         link = DaemonLink(profile.id, wrapper_id, sock_path=sock_path, launchd=launchd, err=eprint)

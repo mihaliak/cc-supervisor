@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from ccs.config.models import Profile
+from ccs.config.models import Config, Profile
 from ccs.launcher import inject, prompt, session_map
 from ccs.launcher.main import (
     has_settings,
@@ -232,16 +232,17 @@ def test_modes() -> None:
     assert not has_settings(["-c"])
 
 
-def test_statusline_args_uses_existing_script(tmp_path: Path) -> None:
+def test_statusline_args_generates_script(tmp_path: Path) -> None:
     p = profile(tmp_path)
-    assert statusline_args(p, []) == []  # no script yet (P07 not installed)
     (tmp_path / "cfg").mkdir()
-    (tmp_path / "cfg" / "ccs-statusline.py").write_text("print('x')\n")
-    args = statusline_args(p, ["-c"])
+    (tmp_path / "cfg" / "ccs-statusline.py").write_text("print('x')\n")  # outdated → regenerated
+    cfg = Config.from_dict({"version": 1, "default_profile": "work", "profiles": [p.to_dict()]})
+    args = statusline_args(p, ["-c"], cfg)
     assert args[0] == "--settings"
     cmd = json.loads(args[1])["statusLine"]
     assert cmd["type"] == "command"
     assert cmd["command"].endswith("-S -E " + str(tmp_path / "cfg" / "ccs-statusline.py"))
+    assert "print('x')" not in (tmp_path / "cfg" / "ccs-statusline.py").read_text()
 
 
 def test_statusline_not_injected_with_user_settings(
