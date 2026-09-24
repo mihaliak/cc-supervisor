@@ -416,3 +416,50 @@ async def auth_status(
     except ValueError:
         return None
     return data if isinstance(data, dict) else None
+
+
+LOGIN_TIMEOUT_S = 600.0
+LOGOUT_TIMEOUT_S = 30.0
+
+
+async def auth_login(
+    claude: str,
+    profile: Profile,
+    *,
+    mode: str,
+    timeout: float = LOGIN_TIMEOUT_S,
+) -> Completed:
+    """`claude auth login --claudeai` for the profile (ADR-0003, P00-S4).
+
+    - `tty`: inherits this process's stdio and foreground process group, no timeout, so the
+      user sees the URL and Ctrl-C works. `stdout`/`stderr` of the result are empty.
+    - `headless`: stdin closed, output captured. Claude opens the browser itself and waits
+      for the OAuth callback on localhost, so it completes without a terminal.
+      Raises `ClaudeTimeout` after `timeout` seconds.
+
+    `--claudeai` is always passed so no login-method prompt can appear.
+    """
+    argv = [claude, "auth", "login", "--claudeai"]
+    env = profile_env(profile)
+    if mode == "headless":
+        return await run(argv, env=env, timeout=timeout)
+    if mode != "tty":
+        raise ValueError(f"unknown login mode: {mode}")
+    started = time.monotonic()
+    try:
+        proc = await asyncio.create_subprocess_exec(*argv, env=env)
+    except OSError as exc:
+        raise ClaudeNotFound(f"cannot execute {claude}: {exc}") from exc
+    _track_spawn(proc.pid)
+    try:
+        rc = await proc.wait()
+    finally:
+        _track_exit(proc.pid)
+    return Completed(rc=rc, stdout="", stderr="", duration=time.monotonic() - started)
+
+
+async def auth_logout(
+    claude: str, profile: Profile, *, timeout: float = LOGOUT_TIMEOUT_S
+) -> Completed:
+    """`claude auth logout` for the profile. Raises `ClaudeCliError` subclasses on failure."""
+    return await run([claude, "auth", "logout"], env=profile_env(profile), timeout=timeout)

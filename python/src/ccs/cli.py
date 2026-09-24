@@ -7,6 +7,7 @@ from collections.abc import Callable
 from typing import cast
 
 from ccs import __version__
+from ccs import auth as auth_cli
 from ccs.config import cli as config_cli
 from ccs.daemon import cli as daemon_cli
 from ccs.usage import cli as usage_cli
@@ -23,6 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
     config_cli.register(sub)
     usage_cli.register(sub)
     daemon_cli.register(sub)
+    auth_cli.register(sub)
     return parser
 
 

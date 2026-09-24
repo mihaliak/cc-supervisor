@@ -65,28 +65,39 @@ ccs profile remove client
 - **Terminal:** `ccs auth login --profile work`
 
 What happens:
-1. Claude Code's own login starts for that profile's config dir, and your browser opens claude.ai.
-2. You approve. Claude Code stores the login in the macOS Keychain:
+1. Claude Code's own login (`claude auth login --claudeai`) starts for that profile's config dir, and your browser opens claude.ai.
+2. You approve in the browser. Claude Code stores the login in the macOS Keychain:
    - service `Claude Code-credentials` for `~/.claude`
    - `Claude Code-credentials-<8 hex>` for other dirs
-3. The supervisor refreshes usage right away, and widgets show data within about a minute.
+3. `ccs` checks the result and prints who you're signed in as, for example `Signed in 💼 Work as you@example.com · team.`
+4. If the supervisor is running, it refreshes usage right away, and widgets show data within about a minute.
+
+Where the sign-in runs:
+- **From a terminal** (`ccs auth login` typed by you): in that terminal. You see Claude Code's own messages, and Ctrl-C cancels.
+- **From the app:** in the background. Only your browser opens; the app waits up to 10 minutes for you to finish.
+- **`ccs auth login --terminal`:** opens a new Terminal window that runs `ccs auth login --profile <id>`. Use it if the browser sign-in from the app doesn't work for you. The window's small script lives in `~/.local/state/ccs/tmp/` only while you sign in and is deleted afterwards; it holds no secrets.
 
 Notes:
-- If the login needs a terminal, the app opens a terminal window running `ccs auth login --profile <id>`. Finish the steps there. (Whether this is needed is still being verified.)
+- Always sign in to the claude.ai account whose limits this profile should track. The status (below) shows the account, so you can spot a wrong one.
 - The login is **shared with plain Claude Code**: after signing in here, `CLAUDE_CONFIG_DIR=~/.claude-work claude` is signed in too, and the other way round.
-- CC Supervisor stores **no tokens, cookies, or passwords**.
+- CC Supervisor stores **no tokens, cookies, or passwords**, and never reads the Keychain.
 
 ## Checking sign-in status
 ```sh
 ccs auth status --profile work
 ```
+```
+💼 Work (~/.claude-work)
+  signed in as you@example.com · team
+  keychain item: Claude Code-credentials-1e91dd84
+```
 The app shows the same status per profile. When a profile's login expires or is missing:
 - widgets and the menu bar show **Sign in required**
-- you get a notification
+- you get a notification (at most once an hour per profile)
 - warm-ups for that profile are skipped
 
 ## Signing out
-- **App:** Settings → Profiles → *profile* → **Sign out**.
-- **Terminal:** `ccs auth logout --profile work`
+- **App:** Settings → Profiles → *profile* → **Sign out** (the app asks you to confirm).
+- **Terminal:** `ccs auth logout --profile work`, which asks `Log out 💼 Work (~/.claude-work)? [y/N]`.
 
-This signs that config dir out of Claude Code itself, so plain `claude` with that dir is signed out too. You'll be asked to confirm.
+This signs that config dir out of Claude Code itself, so plain `claude` with that dir is signed out too.

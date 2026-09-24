@@ -63,6 +63,9 @@ ccs daemon install       # (re)install: rewrites the LaunchAgent with your curre
 | Widgets missing from the gallery | App not in `~/Applications` or never opened; build signing (see [Installation](01-installation.md#signing-local-builds)) | Open the app once; rebuild with `make app` |
 | Ctrl-Z in a `ccs` session | `ccs` handles Ctrl-Z itself: it suspends the whole session and returns you to the shell | `fg` brings it back and repaints the screen |
 | Sign in opens the browser but nothing happens | The browser flow didn't reach Claude Code's local callback (e.g. the tab was closed) | Retry **Sign in**, or run `ccs auth login --profile <id> --terminal` |
+| Sign in fails with "timed out after 600 s" | The browser step wasn't finished within 10 minutes | Retry and complete the claude.ai approval in the browser |
+| No browser or Terminal window opens for sign-in | `open` couldn't launch the browser or Terminal (for example, run over SSH) | Run `ccs auth login --profile <id>` in a local terminal; Claude Code prints the sign-in URL there |
+| Signed in to the wrong account | The browser was logged into a different claude.ai account | `ccs auth status --profile <id>` shows the account. `ccs auth logout --profile <id>`, switch accounts on claude.ai, then sign in again |
 
 ## Reset or start over
 ```sh

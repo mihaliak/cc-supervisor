@@ -117,7 +117,34 @@ Start a session window now ([Warm-up](08-warm-up.md)).
 
 ## Setup
 ### `ccs auth login [--terminal] | status | logout --profile <id> [--json]`
-Claude Code's own sign-in for the profile's config dir ([Profiles & sign-in](02-profiles-and-sign-in.md)). `--terminal` is the variant the app uses when sign-in has to run in a terminal window.
+Claude Code's own sign-in for the profile's config dir ([Profiles & sign-in](02-profiles-and-sign-in.md)). `--profile` is required.
+
+| Subcommand | Does |
+|------------|------|
+| `login` | Runs `claude auth login --claudeai` for the profile. In a terminal it runs right there; without one (the app) it runs in the background and only the browser opens. `--terminal` opens a new Terminal window for it instead. Waits up to 10 min, then prints the account. Asks a running supervisor to refresh usage. |
+| `status` | Signed in or not, the account and plan, and the Keychain item name Claude Code uses (the Keychain itself is never read). |
+| `logout` | Signs the profile out of Claude Code after asking `[y/N]` (`--json` skips the question: the caller confirmed). |
+
+Exit codes:
+- `status`: 0 whether or not you're signed in, 1 only if `claude` can't be run.
+- `login`: 0 when signed in at the end, 1 otherwise, 130 if you cancel with Ctrl-C.
+- `logout`: 0 when signed out, 1 if you answer no or it fails.
+
+```sh
+$ ccs auth status --profile work --json
+{
+  "account": "you@example.com",
+  "auth_method": "claude.ai",
+  "config_dir": "/Users/you/.claude-work",
+  "error": null,
+  "keychain_service": "Claude Code-credentials-1e91dd84",
+  "logged_in": true,
+  "ok": true,
+  "profile_id": "work",
+  "subscription_type": "team"
+}
+```
+`login --json` prints `{ok, profile_id, mode, logged_in, account, subscription_type, daemon_refreshed, error}`, where `mode` is `tty`, `headless` or `terminal`. `logout --json` prints `{ok, profile_id, logged_in, daemon_refreshed, error}`.
 
 ### `ccs statusline generate | apply | revert | preview --profile <id> [--json]`
 Details in [Statusline](06-statusline.md).

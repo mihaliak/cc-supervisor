@@ -7,13 +7,20 @@ Behavior is driven by a JSON scenario file (env FAKE_CLAUDE_SCENARIO) keyed by m
     agents       {"sessions": [...], "exit": 0}              -> `claude agents --json`
                  string values "$PID<n>" become the n-th pid of $FAKE_CLAUDE_AGENTS_PIDS
     auth_status  {"json": {...}, "exit": 0}                  -> `claude auth status [--json]`
-    auth_login   {"stdout": "...", "exit": 0, "delay": 0}    -> `claude auth login`
+                 or {"stateful": true, "logged_in_json": {...}, "logged_out_json": {...}}:
+                 logged in iff the auth marker exists (default JSON: fixtures/auth_status/*.json;
+                 exit 0 logged in, 1 logged out, like the real claude)
+    auth_login   {"stdout": "...", "exit": 0, "delay": 0, "sets_auth": false}
+                                                             -> `claude auth login`
+                 "sets_auth": true creates the auth marker when exit == 0
+    auth_logout  {"stdout": "...", "exit": 0}                -> `claude auth logout` (removes the marker)
     stream       {"get_usage": {...}, "delay": 0, "registry": false, "ignore_sigterm": false}
                                                              -> `claude -p --input-format stream-json …`
                  get_usage handler, either legacy {"response": {...}} | {"error": "..."} or
-                 {"mode": ok|logged_out|malformed|slow|no_response|exit_early,
+                 {"mode": ok|logged_out|malformed|slow|no_response|exit_early|auth_marker,
                   "payload": {...} (ok/slow; default: fixtures/get_usage/ok_max.json),
                   "delay_s": 0 (slow), "exit_on_eof": false (no_response)}
+                 auth_marker: ok when the auth marker exists, else logged_out
                  Emits `system/hook_started` lines unless `--settings` disables all hooks.
                  "registry": true writes <CLAUDE_CONFIG_DIR>/sessions/<pid>.json + <pid>.fake.key,
                  removed again only on a graceful (stdin EOF) exit, like the real claude.
@@ -21,6 +28,7 @@ Behavior is driven by a JSON scenario file (env FAKE_CLAUDE_SCENARIO) keyed by m
     interactive  {"banner": "FAKE-TUI ready"}                -> no subcommand (TUI mode)
 
 Every mode also accepts "stderr", "exit" and "delay" (seconds, before output).
+The auth marker is `<CLAUDE_CONFIG_DIR>/.fake-auth` (per profile, never a real config dir in tests).
 Each invocation appends one JSON line {argv, env, cwd, mode} to $FAKE_CLAUDE_LOG.
 Unknown subcommands exit 2. Later plans extend the modes.
 """
@@ -65,6 +73,8 @@ def detect_mode(argv: list[str]) -> str:
         return "auth_status"
     if argv[:2] == ["auth", "login"]:
         return "auth_login"
+    if argv[:2] == ["auth", "logout"]:
+        return "auth_logout"
     if argv[:1] == ["auth"]:
         return "unknown"
     if "-p" in argv or "--print" in argv:
@@ -94,6 +104,38 @@ def finish(spec: dict[str, Any], default_stdout: str = "") -> int:
 
 
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fixtures", "get_usage")
+AUTH_FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fixtures", "auth_status")
+
+
+def auth_marker() -> str | None:
+    base = os.environ.get("CLAUDE_CONFIG_DIR")
+    return os.path.join(base, ".fake-auth") if base else None
+
+
+def marker_exists() -> bool:
+    marker = auth_marker()
+    return bool(marker) and os.path.exists(marker)
+
+
+def set_marker(present: bool) -> None:
+    marker = auth_marker()
+    if not marker:
+        return
+    if present:
+        os.makedirs(os.path.dirname(marker), exist_ok=True)
+        with open(marker, "w", encoding="utf-8") as fh:
+            fh.write("fake\n")
+    else:
+        try:
+            os.remove(marker)
+        except FileNotFoundError:
+            pass
+
+
+def auth_fixture(name: str) -> dict[str, Any]:
+    with open(os.path.join(AUTH_FIXTURES, name), encoding="utf-8") as fh:
+        data = json.load(fh)
+    return data if isinstance(data, dict) else {}
 
 
 def fixture_payload(name: str) -> dict[str, Any]:
@@ -167,8 +209,12 @@ def usage_response(handler: dict[str, Any], request_id: Any) -> dict[str, Any] |
         payload = handler.get("payload")
         if not isinstance(payload, dict):
             payload = fixture_payload("ok_max.json")
-    elif mode == "logged_out":
+    elif mode == "logged_out" or (mode == "auth_marker" and not marker_exists()):
         payload = fixture_payload("logged_out.json")
+    elif mode == "auth_marker":
+        payload = handler.get("payload")
+        if not isinstance(payload, dict):
+            payload = fixture_payload("ok_max.json")
     elif mode == "malformed":
         payload = {"rate_limits_available": True, "rate_limits": {"five_hour": "x"}}
     else:
@@ -273,11 +319,27 @@ def main() -> int:
             spec = {**spec, "stdout": json.dumps(resolve_pids(spec["sessions"]))}
         return finish(spec, "[]")
     if mode == "auth_status":
-        if "json" in spec and "stdout" not in spec:
+        if spec.get("stateful"):
+            logged_in = marker_exists()
+            key = "logged_in_json" if logged_in else "logged_out_json"
+            default = auth_fixture("logged_in.json" if logged_in else "logged_out.json")
+            body = spec.get(key, default)
+            spec = {"stdout": json.dumps(body), "exit": 0 if logged_in else 1, **{
+                k: v for k, v in spec.items() if k in ("delay", "stderr")
+            }}
+        elif "json" in spec and "stdout" not in spec:
             spec = {**spec, "stdout": json.dumps(spec["json"])}
         return finish(spec, json.dumps({"loggedIn": False}))
     if mode == "auth_login":
-        return finish(spec, "Login successful.")
+        code = finish(spec, "Login successful.")
+        if code == 0 and spec.get("sets_auth"):
+            set_marker(True)
+        return code
+    if mode == "auth_logout":
+        code = finish(spec, "Successfully logged out from your Anthropic account.")
+        if code == 0:
+            set_marker(False)
+        return code
     if mode == "stream":
         return run_stream(spec, argv)
     if mode == "print":
