@@ -1,6 +1,6 @@
 # Configuration reference
 
-> Status: planned. This page describes target behavior and will be marked "shipped" when implemented (see [../plans/backlog.md](../plans/backlog.md)).
+> Status: shipped (2026-09-24).
 
 All settings live in one JSON file, `~/.config/ccs/config.json` (or `$XDG_CONFIG_HOME/ccs/config.json`). It never contains passwords or tokens.
 

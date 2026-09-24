@@ -1,6 +1,6 @@
 # P14: Migration from current setup
 
-- Status: todo
+- Status: todo (waiting for the user: it changes the real `~/.claude*` setup, which the user asked to leave untouched during implementation)
 - Milestone: M3
 - Depends on: P11, P13 (and transitively everything else)
 - ADRs: [0003](../../decisions/0003-authentication.md), [0004](../../decisions/0004-config-and-profiles.md), [0009](../../decisions/0009-display-conventions.md), [0014](../../decisions/0014-docs-and-workflow.md), [0016](../../decisions/0016-identifiers.md)

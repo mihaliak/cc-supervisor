@@ -1,6 +1,6 @@
 # Troubleshooting
 
-> Status: planned. This page describes target behavior and will be marked "shipped" when implemented (see [../plans/backlog.md](../plans/backlog.md)).
+> Status: shipped (2026-09-24).
 
 ## Start with `ccs doctor`
 ```sh

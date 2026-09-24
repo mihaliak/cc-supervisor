@@ -1,6 +1,6 @@
 # CC Supervisor manual
 
-> Status: planned. This page describes target behavior and will be marked "shipped" when implemented (see [../plans/backlog.md](../plans/backlog.md)).
+> Status: shipped (2026-09-24). The GUI parts (menu bar, Settings, widgets, native notifications) haven't had a human check yet.
 
 CC Supervisor helps you keep track of, and get the most out of, Claude Code subscription limits when you use **several Claude Code accounts or config dirs** (for example personal and work). It has three parts:
 - **Desktop widgets and a menu bar app** (native macOS) show each profile's session, weekly, model-scoped (for example Fable), and extra-usage limits. Each limit has a colored bar, its reset time, and a relative countdown.

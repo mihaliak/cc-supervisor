@@ -1,6 +1,6 @@
 # Installation
 
-> Status: planned. This page describes target behavior and will be marked "shipped" when implemented (see [../plans/backlog.md](../plans/backlog.md)).
+> Status: shipped (2026-09-24). The GUI parts (menu bar, Settings, widgets, native notifications) haven't had a human check yet.
 
 CC Supervisor is built from source on your Mac for personal use. There is no App Store version and no download.
 

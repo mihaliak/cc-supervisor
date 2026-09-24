@@ -1,6 +1,6 @@
 # Limits & supervisor
 
-> Status: planned. This page describes target behavior and will be marked "shipped" when implemented (see [../plans/backlog.md](../plans/backlog.md)).
+> Status: shipped (2026-09-24).
 
 The supervisor runs in the background (see [Installation](01-installation.md)) and watches every profile's limits. It:
 - **warns** you when a limit gets close

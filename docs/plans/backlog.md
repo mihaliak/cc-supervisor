@@ -28,7 +28,7 @@ The single source of truth for plan status. Workflow rules are in [ADR-0014](../
 | P11 | [Settings UI (profiles, sign-in, statusline apply)](done/P11-settings-ui.md) | done | P07, P09, P10 | swift |
 | P12 | [Widgets (small/medium/large)](done/P12-widgets.md) | done | P00, P06, P10 | swift |
 | P13 | [Install, uninstall, doctor](done/P13-install-and-doctor.md) | done | P06, P07, P08, P09, P12 | infra |
-| P14 | [Migration from current setup](todo/P14-migration.md) | todo | P11, P13 | ops |
+| P14 | [Migration from current setup](todo/P14-migration.md) | todo (waiting for the user; runs on the real setup) | P11, P13 | ops |
 
 ## Parallelism hints
 - P00 and P01 can run in parallel.

@@ -1,6 +1,6 @@
 # Profiles & sign-in
 
-> Status: planned. This page describes target behavior and will be marked "shipped" when implemented (see [../plans/backlog.md](../plans/backlog.md)).
+> Status: shipped (2026-09-24). The GUI parts (menu bar, Settings, widgets, native notifications) haven't had a human check yet.
 
 A **profile** is one Claude Code identity: a config dir (`CLAUDE_CONFIG_DIR`) plus how CC Supervisor shows and supervises it. Widgets, the menu bar, `ccs`, and statuslines all share the same profiles.
 

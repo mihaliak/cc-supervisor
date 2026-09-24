@@ -1,6 +1,6 @@
 # Warm-up
 
-> Status: planned. This page describes target behavior and will be marked "shipped" when implemented (see [../plans/backlog.md](../plans/backlog.md)).
+> Status: shipped (2026-09-24).
 
 ## Why
 The 5-hour session window starts at your **first** usage. If your first prompt of the day is at 09:30, the window runs until 14:30. A **warm-up** sends one tiny request earlier (say at 06:00, or when you unlock the Mac), so the window starts earlier and resets earlier. More windows fit into your day, and the reset lands before you need it.

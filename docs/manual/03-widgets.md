@@ -1,6 +1,6 @@
 # Widgets
 
-> Status: planned. This page describes target behavior and will be marked "shipped" when implemented (see [../plans/backlog.md](../plans/backlog.md)).
+> Status: shipped (2026-09-24). The GUI parts (menu bar, Settings, widgets, native notifications) haven't had a human check yet.
 
 Each widget shows **one profile**. Add as many as you like, for example one per profile, or the same profile in two sizes.
 

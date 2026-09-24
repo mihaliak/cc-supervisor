@@ -1,6 +1,6 @@
 # Notifications
 
-> Status: planned. This page describes target behavior and will be marked "shipped" when implemented (see [../plans/backlog.md](../plans/backlog.md)).
+> Status: shipped (2026-09-24). The GUI parts (menu bar, Settings, widgets, native notifications) haven't had a human check yet.
 
 CC Supervisor posts native macOS notifications from the menu bar app while it is connected to the background supervisor. Clicking one opens Settings on the profile it's about.
 

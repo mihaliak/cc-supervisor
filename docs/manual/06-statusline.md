@@ -1,6 +1,6 @@
 # Statusline
 
-> Status: planned. This page describes target behavior and will be marked "shipped" when implemented (see [../plans/backlog.md](../plans/backlog.md)).
+> Status: shipped (2026-09-24).
 
 Each profile gets its own Claude Code statusline. It shows which account you're on, the folder, the model and effort, and your session usage with its reset time, plus any supervisor state.
 

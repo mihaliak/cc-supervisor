@@ -1,6 +1,6 @@
 # `ccs` command reference
 
-> Status: planned. This page describes target behavior and will be marked "shipped" when implemented (see [../plans/backlog.md](../plans/backlog.md)).
+> Status: shipped (2026-09-24).
 
 `ccs` does two jobs:
 - **launcher**: `ccs --work` opens classic Claude Code under supervision
