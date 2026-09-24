@@ -48,18 +48,22 @@ A limit counts as reached when the percent is **at or above** the threshold.
 ```
 
 ## What "pause" does in a `ccs` session
-- **Busy session** (Claude is working): the supervisor sends **Esc**, the same as pressing it yourself. Claude stops the current turn. The TUI stays open.
+- **Busy session** (Claude is working, running a tool, or waiting on a permission prompt): the supervisor sends **Esc**, the same as pressing it yourself. Claude stops the current turn. The TUI stays open.
+  - It checks again 2 s later and sends one more Esc if Claude is still working.
+  - If it can't tell whether Claude is busy, it sends the Esc anyway.
 - **Idle session**: nothing is typed. It's only marked paused.
+- Only Esc and the resume prompt are ever typed for you. Never slash commands.
 - The statusline shows **⏸ … paused → resumes HH:MM**. The widget and menu bar show **⏸ Paused**.
 - **At reset**, sessions that were interrupted mid-work get the profile's **resume prompt** typed in and submitted:
   > The usage limit window has reset. Continue exactly where you left off.
 
   Change it in Settings → Profiles → Supervisor, or with `ccs profile set <id> supervisor.resume_prompt="…"`.
 - Sessions that were idle when paused get no prompt. They are just un-paused.
-- The supervisor never types while you're typing. It waits until you've paused typing for a moment.
+- The resume prompt is typed only once Claude is idle. If Claude is still working 30 s after the reset, the prompt is skipped.
+- The supervisor never types while you're typing. It waits until you've stopped typing for 1.5 s (at most 30 s).
 
 ## Typing while paused (manual override)
-You can always type in a paused session. If you **submit** a prompt (Enter), that session becomes **overridden**:
+You can always type in a paused session. If you **submit** a prompt (Enter; pasting multi-line text doesn't count), that session becomes **overridden**:
 - it runs freely until the window resets and won't be interrupted again in this window
 - it won't get the automatic resume prompt
 - the statusline shows `⚠ 91% … · override`, and a `limit.override` event is logged

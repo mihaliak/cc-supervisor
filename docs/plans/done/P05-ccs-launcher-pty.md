@@ -1,6 +1,6 @@
 # P05: ccs launcher & PTY proxy
 
-- Status: todo
+- Status: done
 - Milestone: M1
 - Depends on: P00 (S3, S6 verdicts), P04
 - ADRs: [0006](../../decisions/0006-process-model.md), [0007](../../decisions/0007-pause-resume.md), [0005](../../decisions/0005-state-and-ipc.md), [0013](../../decisions/0013-python-engineering.md), [0016](../../decisions/0016-identifiers.md), [0017](../../decisions/0017-cli-surface.md)
@@ -133,16 +133,16 @@
   - Supports `tui.stop_on` (`\x1a` → `os.kill(os.getpid(), SIGTSTP)`) to test job control.
 
 ## Tasks
-- [ ] `parse_launcher_args` plus typo suggestion; wire into `cli.main` before argparse.
-- [ ] `launcher/main.py`: mode selection, env build, statusline injection hook, `--no-supervise`.
-- [ ] `launcher/pty_proxy.py`: fork/exec, raw mode, readers/writers, winsize, signals, job control, exit code, guaranteed restore.
-- [ ] `launcher/inject.py`: byte builders, typing guard.
-- [ ] `launcher/session_map.py`.
-- [ ] `launcher/daemon_link.py`: connect/autostart (reuse `launchd.start()`)/unsupervised, status pre-check, register/reconnect/unregister, cmd dispatch and acks.
-- [ ] `launcher/prompt.py`: held prompt, `--force`.
-- [ ] Command handler (`pause`/`resume`) plus override detection.
-- [ ] Fake claude TUI mode, the agents-status state machine, and SIGWINCH/exit code/SIGTSTP support.
-- [ ] Update P00-S3 findings into code comments where the behavior depends on them (agents JSON field names, ESC semantics).
+- [x] `parse_launcher_args` plus typo suggestion; wire into `cli.main` before argparse.
+- [x] `launcher/main.py`: mode selection, env build, statusline injection hook, `--no-supervise`.
+- [x] `launcher/pty_proxy.py`: fork/exec, raw mode, readers/writers, winsize, signals, job control, exit code, guaranteed restore.
+- [x] `launcher/inject.py`: byte builders, typing guard.
+- [x] `launcher/session_map.py`.
+- [x] `launcher/daemon_link.py`: connect/autostart (reuse `launchd.start()`)/unsupervised, status pre-check, register/reconnect/unregister, cmd dispatch and acks.
+- [x] `launcher/prompt.py`: held prompt, `--force`.
+- [x] Command handler (`pause`/`resume`) plus override detection.
+- [x] Fake claude TUI mode, the agents-status state machine, and SIGWINCH/exit code/SIGTSTP support.
+- [x] Update P00-S3 findings into code comments where the behavior depends on them (agents JSON field names, ESC semantics).
 
 ## Tests
 - `test_launcher_parse.py`, table:
@@ -187,11 +187,11 @@
 - `11-troubleshooting.md`: "supervisor offline" message, terminal left in a bad state (`reset`), `--no-supervise` for debugging.
 
 ## Done when
-- [ ] `make test lint` passes.
-- [ ] Manual check in Ghostty and Terminal.app: `ccs --work` is indistinguishable from `CLAUDE_CONFIG_DIR=~/.claude-work claude` across the P00-S3 matrix (resize, scroll, paste, Ctrl-C, Ctrl-Z/fg, exit code).
-- [ ] Manual check: `ccs pause --profile work`/`ccs resume --profile work` (available after P06; before that via a test daemon command) interrupts a busy turn and later submits the resume prompt.
-- [ ] The terminal is always restored, including after `kill -TERM <launcher pid>`.
-- [ ] The manual pages above are updated.
+- [x] `make test lint` passes.
+- [ ] Manual check in Ghostty and Terminal.app: `ccs --work` is indistinguishable from `CLAUDE_CONFIG_DIR=~/.claude-work claude` across the P00-S3 matrix (resize, scroll, paste, Ctrl-C, Ctrl-Z/fg, exit code). **Deferred to the user** (not verifiable headless; see Result).
+- [x] Manual check: `ccs pause --profile work`/`ccs resume --profile work` (available after P06; before that via a test daemon command) interrupts a busy turn and later submits the resume prompt. Verified live via a test daemon command (see Result); the `ccs pause/resume` CLI path is re-checked in P06.
+- [x] The terminal is always restored, including after `kill -TERM <launcher pid>`.
+- [x] The manual pages above are updated.
 
 ## Risks & mitigations
 - **The TUI uses terminal features that break through a PTY:** P00-S3 gate. Fallback "stop & relaunch" per ADR-0007 (a superseding ADR if adopted).
@@ -199,3 +199,73 @@
 - **Injecting while the user types corrupts their input:** typing guard, and injection only on explicit daemon commands.
 - **Job control (Ctrl-Z) leaves the shell stuck:** the explicit stopped-child handling plus a test.
 - **The `claude agents --json` spawn is slow:** only called on pause/resume, not in the hot path.
+
+## Result
+Shipped 2026-09-24 (Claude Code 2.1.281).
+
+### What shipped
+- **Launcher modules** (`ccs/launcher/`):
+  - `args.py`: pre-parse, typo check, `LaunchSpec`. `ccs.cli.parse_launcher_args` re-exports it.
+  - `main.py`: mode selection, env, statusline hook, `LauncherSession`.
+  - `pty_proxy.py`, `inject.py`, `session_map.py`, `prompt.py`, `daemon_link.py`.
+  - `commands.py`: the `pause`/`resume` handler and override detection.
+- **`cli.main`:** argv that doesn't start with a subcommand, `-h`/`--help` or `--version` goes to the launcher. The config is loaded, or seeded with `ensure_config`.
+- **Fake claude TUI mode:**
+  - Puts its tty in raw mode.
+  - Logs every read chunk, the start winsize and SIGWINCH to `$FAKE_CLAUDE_LOG.tui`, a separate file so `calls()` stays parseable.
+  - Publishes its activity to `$FAKE_CLAUDE_LOG.state/<pid>.json`, which `agents` lists with `{"from_state": true}`.
+  - Activity transitions: `after_esc` and `after_submit`.
+  - `stop_on`: SIGTSTP when a chosen byte arrives. Ctrl-D exits with the configured code.
+- **Tests:**
+  - `test_launcher_parse.py`: table, typos, errors.
+  - `test_launcher_units.py`: Ctrl-Z stripping, submit scanner, paste, typing guard, held prompt, env, statusline args, default-dir rule.
+  - `test_injection.py`: handler.
+  - `test_daemon_link.py`: unsupervised, retrying, autostart, register/unregister, overridden on first registration only, re-register after a daemon restart, command acks, wrapper events.
+  - `test_pty_proxy.py`: real launcher processes on a test PTY.
+  - `pty_helpers.py`.
+- **Results:** `make test lint` passes: 379 Python tests (1 live test skipped), the Swift tests, ruff, and mypy `--strict`. No test leaves a process behind.
+
+### Live smoke (real `claude`, personal profile, `--model haiku`, in-process daemon, scratch config and state)
+- Registration: `claude_pid` and cwd recorded.
+- `claude agents --json` mapped the pid to `idle`, then `busy` after a submitted prompt.
+- `pause`: ack after 2.4 s, `{was_busy: true, interrupted: true, status: idle, session_id}`.
+- `resume` with a prompt: injected. Claude answered "resumed".
+- Pause while idle: `skipped`. The user then submitted, and exactly one `input_submitted_while_paused` event arrived.
+- Ctrl-C ×2: exit code 0, TTY attrs restored, session unregistered.
+- `~/.claude/settings.json` and `~/.claude-work/settings.json` have the same hashes as before. `~/.claude/.claude.json` was not touched.
+
+### Deviations and decisions
+1. **Default config dir: never set `CLAUDE_CONFIG_DIR=~/.claude`.**
+   - Found during P05: with an explicit `CLAUDE_CONFIG_DIR=~/.claude`, Claude Code keeps its global state in `~/.claude/.claude.json` instead of `~/.claude.json` (a different trust/MCP/onboarding state).
+   - Added `paths.is_default_claude_dir()` and `paths.apply_claude_config_dir()`. Both `launcher_env` and `claude_cli.profile_env` (so probes, `agents`, `auth`, warm-ups) now **unset** the var for the default dir.
+   - Also fixed `probe_usage`'s registry cleanup to use the profile's dir.
+   - ADR-0006 got a rule line.
+   - **Side effect from earlier plans:** `~/.claude/.claude.json` exists, created by earlier live probes that set the var explicitly (`firstStartTime` 2026-09-24T18:09:55Z). Per the "don't touch real configs" directive it was **left in place**. Claude Code never reads it unless `CLAUDE_CONFIG_DIR=~/.claude` is set, so the user may delete it.
+2. **Child env:** the caller's env passes through **unchanged**, except `CLAUDE_CONFIG_DIR` and `CCS_*`, for transparency. Nothing is stripped, unlike probes, so user-set `CLAUDE_CODE_*` vars keep working.
+3. **Module layout:** the pre-parse lives in `launcher/args.py` (re-exported by `ccs.cli`), and the command handler in `launcher/commands.py`.
+4. **ESC retry:** the first ESC follows ADR-0007 (anything not `idle`, including `unknown`, gets an ESC). The **second** ESC is sent only when `claude agents` reports a real busy status (`busy|shell|waiting`), so a failing lookup never produces stray ESCs.
+5. **Resume:** `unknown` doesn't block the resume prompt (a prompt typed into a busy TUI is queued). It waits only while the status is known-busy, up to 30 s.
+6. **Proxy details:**
+   - An external SIGTSTP is handled like Ctrl-Z (TTY restored first).
+   - A child that stopped itself is handled defensively (the launcher stops, then sends SIGCONT to the child on `fg`).
+   - SIGPIPE/SIGXFSZ are reset to default before exec (Python ignores them; don't leak that to claude).
+   - Kitty-encoded Enter (`CSI 13u`) counts as a submit. Bracketed-paste content never counts.
+7. **Exit codes:** 127 when `claude` can't be found or exec'd; 2 for launcher usage errors (two profiles, typo, unknown `--profile`).
+8. **Start-while-held** reads the daemon `status` reply (`profiles[].supervisor.holds` + `resume_at`). Holds may be ids or `{id, scope, resets_at}` objects, and a `manual` hold with a `scope` (session-scoped) doesn't hold the profile.
+9. **Statusline hook:** `main.ensure_statusline()` imports `ccs.statusline.apply.ensure_script(profile) -> str | None` dynamically (P07). Until P07 lands, it uses `<config_dir>/ccs-statusline.py` if it exists, with command `<sys.executable> -S -E <script>`.
+
+### Notes for P06
+- The launcher acks `pause` with:
+  - `injected {was_busy: true, interrupted, status, session_id}`
+  - or `skipped {was_busy: false, session_id}`
+- It acks `resume` with `injected {session_id}` or `skipped {reason: no_prompt|busy}`. On any error it acks `failed {reason}`.
+- **Command duration:** a pause can take the agents lookup (~0.5–1 s) + the typing guard (≤ 30 s) + 2 s verify (+2 s if retried); a resume ≤ 30 s busy-wait + the guard. The daemon's `ACK_TIMEOUT_S` (10 s) is too short in the worst case, so use `send_cmd(..., timeout=75)` or treat `timeout` as "unknown".
+- **Don't await `send_cmd` inside an op handler of the same connection.** The daemon reads a connection's lines sequentially, so the ack would only be read after the handler returns, which is a deadlock until the timeout. Spawn a task instead.
+- **Register reply:** `supervision.state == "paused"` sets the launcher's local paused flag, so an override is detected even without a re-sent `pause`. `overridden` clears it.
+- **`started_overridden`** is sent only on the **first** registration of a wrapper id. Re-registrations after a reconnect send `false`.
+- **`status` op contract** the launcher relies on: `profiles[].supervisor = {state, holds: [<id> | {id, scope, resets_at}], resume_at}`.
+
+### Deferred to the user (not verifiable headless)
+- Visual fidelity in Ghostty and Terminal.app, mouse scrolling, and kitty keyboard-protocol keys.
+- Real Ctrl-Z/`fg` job control: the tests run the launcher without a controlling terminal, where SIGTSTP is discarded, so they verify the strip, TTY restore, re-raw and repaint nudge, but not the actual stop. P00-S3 verified the stop with the spike proxy.
+

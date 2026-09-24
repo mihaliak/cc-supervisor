@@ -21,10 +21,15 @@ ccs                                # default profile (default_profile in config)
 ```
 - You get the **normal interactive Claude Code**: the same TUI, keys, mouse, and resizing. `ccs` stays invisible in between and never prints over Claude.
 - **The leading ccs options select the profile and modes:** `--<flag>` / `--profile <id>`, `--force`, and `--no-supervise`, in any order, at the front. Everything from the first other argument on goes to `claude` unchanged (e.g. `ccs --force -c` uses the default profile with `--force` and passes `-c`).
-- `ccs` sets `CLAUDE_CONFIG_DIR` to the profile's config dir, plus `CCS_PROFILE`, `CCS_WRAPPER_ID`, and `CCS_STATE_DIR`.
-- If the profile's statusline is enabled, `ccs` turns it on for this session, even if you never ran `ccs statusline apply`. It regenerates the script first if it is missing or outdated.
+- `ccs` sets `CLAUDE_CONFIG_DIR` to the profile's config dir, plus `CCS_PROFILE`, `CCS_WRAPPER_ID`, and `CCS_STATE_DIR`. Everything else in your environment passes through unchanged.
+  - For the default dir `~/.claude`, `CLAUDE_CONFIG_DIR` is left **unset**, exactly like plain `claude`. Setting it explicitly would make Claude Code switch its global state from `~/.claude.json` to `~/.claude/.claude.json`, with different trust, MCP servers, and onboarding.
+- If the profile's statusline is enabled, `ccs` turns it on for this session, even if you never ran `ccs statusline apply`. It regenerates the script first if it is missing or outdated. If you pass your own `--settings`, `ccs` doesn't inject it and prints one line saying so (use `ccs statusline apply` instead).
 - The session is **supervised**: it can be paused and resumed ([Limits & supervisor](07-limits-and-supervisor.md)).
-- `ccs` exits with Claude's exit code.
+- **Ctrl-Z** suspends the whole thing like any job (`fg` brings Claude back and it repaints).
+- **Print mode and pipes:** with `-p`/`--print`, or when stdin or stdout isn't a terminal, `ccs` simply runs `claude` with the profile's config dir. There is no supervision, so scripts and pipes behave exactly like `claude`.
+- **Typos:** a flag that is close to a profile flag but isn't a Claude option is an error, e.g. `ccs --wrok` → `unknown profile '--wrok'. Did you mean --work?`. Other unknown flags go to `claude`.
+- Two profile flags (`ccs --work --personal`) is an error.
+- **Exit code:** Claude's exit code; `128 + signal` if Claude was killed by a signal; `127` if `claude` can't be found; `2` for launcher usage errors.
 
 Options:
 - `--force`: skip the "profile is paused" question (below).
@@ -36,10 +41,13 @@ Profile work is paused until 20:00 (in 42m). Start anyway? [y/N]
 ```
 If you answer `y`, or pass `--force`, the session starts as **overridden**: it runs freely for the rest of that window.
 
+If the profile is paused only by a manual `ccs pause`, the question reads `Profile work is paused (manual). Start anyway? [y/N]`.
+
 **When the supervisor isn't running:**
-- Installed but stopped: `ccs` starts it automatically.
-- Not installed: `ccs` prints one hint line (`ccs daemon install`) and starts Claude **unsupervised**. The statusline then shows `⚠ supervisor offline`.
-- If the supervisor restarts mid-session, `ccs` reconnects on its own, and paused state is kept.
+- Installed but stopped: `ccs` starts it automatically (like `ccs daemon start`).
+- Installed but not answering after that: `ccs` prints `ccs: supervisor not responding — running unsupervised`, starts Claude, and keeps trying in the background. The session registers as soon as the supervisor answers.
+- Not installed: `ccs` prints `ccs: supervisor not installed — running unsupervised (ccs daemon install)` and starts Claude **unsupervised**. The statusline then shows `⚠ supervisor offline`.
+- If the supervisor restarts mid-session, `ccs` reconnects on its own (backing off from 0.5 s to 10 s), and paused state is kept.
 
 ## Observe
 ### `ccs status [--profile <id>] [--json]`

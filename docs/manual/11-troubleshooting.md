@@ -59,7 +59,11 @@ ccs daemon install       # (re)install: rewrites the LaunchAgent with your curre
 | Unlock/app-start warm-ups never happen | The app isn't running, or the supervisor was offline when the event happened (the app only forwards triggers while connected) | Start the app; enable Settings → General → Launch at login; check `ccs daemon status` |
 | Notifications come from "Script Editor" | The app isn't running, so the fallback is used | Start the app |
 | No notifications at all | Permission denied or toggles off | System Settings → Notifications → CC Supervisor; Settings → General → Notifications |
-| `ccs --myflag` runs the default profile or errors | Flag unknown, reserved, or not the first argument | `ccs profile list`; put the profile flag first |
+| `ccs --myflag` runs the default profile or errors | Flag unknown, reserved, or not in front of the Claude arguments | `ccs profile list`; put the profile flag first |
+| `ccs: supervisor not installed — running unsupervised` | The LaunchAgent isn't installed | `ccs daemon install`. The session still works, but it can't be paused. |
+| `ccs: supervisor not responding — running unsupervised` | Installed, but it didn't answer after being started | `ccs daemon status`, `ccs daemon logs`. The session registers by itself once the supervisor answers. |
+| Terminal left in a weird state after a crash (no echo, odd line breaks) | The session was killed hard (e.g. `kill -9` of `ccs`) before it could restore your terminal | Type `reset` and press Enter. A normal exit, `kill`, or closing the window always restores it. |
+| Debugging whether supervision causes a problem | — | Run `ccs --work --no-supervise …`: same session, no supervisor. For a completely plain run: `CLAUDE_CONFIG_DIR=~/.claude-work claude` (for `~/.claude`, just `claude`). |
 | "config invalid" notification | Hand edit broke `config.json` | `ccs config validate` shows which key; the last valid config keeps running |
 | `ccs usage` says `no data yet` | The supervisor hasn't polled this profile yet, or isn't running | `ccs usage --refresh` asks Claude Code directly; `ccs daemon status` |
 | `ccs usage` says `no plan limits` | The profile is signed in with an API key, or the account has no Claude subscription | Nothing to track. Sign in with a subscription account: `ccs auth login --profile <id>` |

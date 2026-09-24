@@ -175,3 +175,28 @@ def config_dir_env_value(value: str) -> str:
     (ADR-0003), so symlinks must not be resolved here.
     """
     return os.path.abspath(os.path.expanduser(value))
+
+
+DEFAULT_CLAUDE_DIR = "~/.claude"
+
+
+def is_default_claude_dir(value: str) -> bool:
+    """True when `value` is Claude Code's default config dir (`~/.claude`)."""
+    try:
+        return expand_config_dir(value) == expand_config_dir(DEFAULT_CLAUDE_DIR)
+    except OSError:
+        return False
+
+
+def apply_claude_config_dir(env: dict[str, str], value: str) -> dict[str, str]:
+    """Point `env` at the config dir `value`: set `CLAUDE_CONFIG_DIR`, or unset it for `~/.claude`.
+
+    Claude Code keeps its global state in `~/.claude.json` only while `CLAUDE_CONFIG_DIR` is
+    unset. An explicit `CLAUDE_CONFIG_DIR=~/.claude` switches to `~/.claude/.claude.json`
+    (different trust, MCP servers and onboarding state), so the default dir is never set.
+    """
+    if is_default_claude_dir(value):
+        env.pop("CLAUDE_CONFIG_DIR", None)
+    else:
+        env["CLAUDE_CONFIG_DIR"] = config_dir_env_value(value)
+    return env

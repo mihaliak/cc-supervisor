@@ -53,12 +53,14 @@ ccs profile remove client
 - Must not be a reserved name:
   - ccs's own options: `help`, `version`, `profile`, `force`, `no-supervise`, `json`
   - any `claude` long option, for example `model`, `resume`, `continue`, `print`, `effort`. `ccs doctor` refreshes this list from `claude --help`.
-- The profile flag must be the **first** argument: `ccs --work --model opus` works; `ccs --model opus --work` doesn't.
+- The profile flag goes **in front**, among ccs's own options (`--force`, `--no-supervise`, in any order): `ccs --work --model opus` and `ccs --force --work -c` work. In `ccs --model opus --work`, the `--work` is passed to `claude`, and the default profile is used.
+- `ccs` with no profile flag uses the default profile. If there is no default, it uses the only profile, or asks you to pass a flag.
 
 ## Config dir rules
 - Each profile needs its own config dir. Two profiles can't share one.
 - Write it as an absolute path or starting with `~`, for example `~/.claude-work`.
 - The dir doesn't need to exist yet. Signing in creates what Claude Code needs.
+- For the default `~/.claude`, `ccs` doesn't set `CLAUDE_CONFIG_DIR` at all, so Claude Code keeps using `~/.claude.json` for its global state, just like plain `claude`.
 
 ## Signing in (via claude.ai)
 - **App:** Settings → Profiles → *profile* → **Sign in**, or click a widget that says *Sign in required*.

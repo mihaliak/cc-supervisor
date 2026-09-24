@@ -123,14 +123,16 @@ def resolve_claude(cfg: Config | None = None) -> str:
 
 
 def profile_env(profile: Profile, base: Mapping[str, str] | None = None) -> dict[str, str]:
-    """A copy of the environment for `profile`: `CLAUDE_CONFIG_DIR` set, parent session stripped."""
+    """A copy of the environment for `profile`: config dir applied, parent session stripped.
+
+    `CLAUDE_CONFIG_DIR` is unset for the default `~/.claude` (see `paths.apply_claude_config_dir`).
+    """
     env = {
         k: v
         for k, v in (os.environ if base is None else base).items()
         if k not in _STRIP_EXACT and not k.startswith(_STRIP_PREFIXES)
     }
-    env["CLAUDE_CONFIG_DIR"] = profile.config_dir_env
-    return env
+    return paths.apply_claude_config_dir(env, profile.config_dir)
 
 
 def _default_cwd() -> str:
@@ -347,7 +349,7 @@ async def probe_usage(
         forced = await _reap(proc, graceful_s=graceful_s)
         _track_exit(proc.pid)
         if forced:
-            removed = remove_registry_files(run_env.get("CLAUDE_CONFIG_DIR", ""), proc.pid)
+            removed = remove_registry_files(profile.config_dir_env, proc.pid)
             log.warning(
                 "probe pid %s force-killed; removed %d registry files", proc.pid, len(removed)
             )

@@ -6,6 +6,7 @@ Behavior is driven by a JSON scenario file (env FAKE_CLAUDE_SCENARIO) keyed by m
     version      {"stdout": "...", "exit": 0}
     agents       {"sessions": [...], "exit": 0}              -> `claude agents --json`
                  string values "$PID<n>" become the n-th pid of $FAKE_CLAUDE_AGENTS_PIDS
+                 {"from_state": true} lists the running fake TUIs (their published activity)
     auth_status  {"json": {...}, "exit": 0}                  -> `claude auth status [--json]`
                  or {"stateful": true, "logged_in_json": {...}, "logged_out_json": {...}}:
                  logged in iff the auth marker exists (default JSON: fixtures/auth_status/*.json;
@@ -25,7 +26,16 @@ Behavior is driven by a JSON scenario file (env FAKE_CLAUDE_SCENARIO) keyed by m
                  "registry": true writes <CLAUDE_CONFIG_DIR>/sessions/<pid>.json + <pid>.fake.key,
                  removed again only on a graceful (stdin EOF) exit, like the real claude.
     print        {"stdout": "ok", "exit": 0, "delay": 0}     -> `claude -p <prompt>`
-    interactive  {"banner": "FAKE-TUI ready"}                -> no subcommand (TUI mode)
+    interactive  {"banner": "FAKE-TUI ready", "exit": 0, "status": "idle",
+                  "after_esc": "idle", "after_submit": null, "stop_on": null, "echo": true}
+                                                             -> no subcommand (TUI mode)
+                 Raw mode on its tty; every read chunk is logged as {"recv": <hex>} to
+                 $FAKE_CLAUDE_TUI_LOG (default "$FAKE_CLAUDE_LOG.tui"), SIGWINCH as {"winsize": [r, c]}.
+                 Ctrl-D (0x04) or "/exit\r" exits with "exit". A lone ESC sets the activity to
+                 "after_esc", a submit (\r) to "after_submit" (if set). "stop_on": "\u001a" makes it
+                 SIGTSTP itself when that byte arrives. The activity is published in
+                 $FAKE_CLAUDE_STATE_DIR/<pid>.json (default "$FAKE_CLAUDE_LOG.state/") for
+                 `agents` with {"from_state": true}.
 
 Every mode also accepts "stderr", "exit" and "delay" (seconds, before output).
 The auth marker is `<CLAUDE_CONFIG_DIR>/.fake-auth` (per profile, never a real config dir in tests).
@@ -265,21 +275,132 @@ def run_stream(spec: dict[str, Any], argv: list[str]) -> int:
     return int(spec.get("exit", 0))
 
 
-def run_interactive(spec: dict[str, Any]) -> int:
-    sys.stdout.write(spec.get("banner", "FAKE-TUI ready") + "\n")
-    sys.stdout.flush()
-    buf = b""
+def _derived(env_name: str, suffix: str) -> str | None:
+    explicit = os.environ.get(env_name)
+    if explicit:
+        return explicit
+    log = os.environ.get("FAKE_CLAUDE_LOG")
+    return log + suffix if log else None
+
+
+def tui_log(record: dict[str, Any]) -> None:
+    path = _derived("FAKE_CLAUDE_TUI_LOG", ".tui")
+    if not path:
+        return
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(record) + "\n")
+
+
+def state_dir() -> str | None:
+    return _derived("FAKE_CLAUDE_STATE_DIR", ".state")
+
+
+def publish_status(status: str) -> None:
+    d = state_dir()
+    if not d:
+        return
+    os.makedirs(d, exist_ok=True)
+    pid = os.getpid()
+    doc = {
+        "pid": pid,
+        "kind": "interactive",
+        "status": status,
+        "sessionId": f"fake-session-{pid}",
+        "cwd": os.getcwd(),
+    }
+    tmp = os.path.join(d, f".{pid}.tmp")
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(doc))
+    os.replace(tmp, os.path.join(d, f"{pid}.json"))
+
+
+def unpublish_status() -> None:
+    d = state_dir()
+    if d:
+        try:
+            os.remove(os.path.join(d, f"{os.getpid()}.json"))
+        except FileNotFoundError:
+            pass
+
+
+def published_sessions() -> list[dict[str, Any]]:
+    d = state_dir()
+    if not d or not os.path.isdir(d):
+        return []
+    out = []
+    for name in sorted(os.listdir(d)):
+        if not name.endswith(".json") or name.startswith("."):
+            continue
+        try:
+            with open(os.path.join(d, name), encoding="utf-8") as fh:
+                out.append(json.load(fh))
+        except (OSError, ValueError):
+            continue
+    return out
+
+
+def _winsize(fd: int) -> list[int]:
+    import fcntl
+    import struct
+    import termios
+
+    try:
+        rows, cols, _, _ = struct.unpack("HHHH", fcntl.ioctl(fd, termios.TIOCGWINSZ, b"\0" * 8))
+    except OSError:
+        return [0, 0]
+    return [rows, cols]
+
+
+def run_interactive(spec: dict[str, Any], argv: list[str]) -> int:
     fd = sys.stdin.fileno()
-    while True:
-        chunk = os.read(fd, 1024)
-        if not chunk:
-            break
-        buf += chunk
-        sys.stdout.write("RECV " + chunk.hex() + "\n")
-        sys.stdout.flush()
-        if b"/exit\r" in buf:
-            break
-    return int(spec.get("exit", 0))
+    out = sys.stdout.fileno()
+    saved = None
+    if os.isatty(fd):
+        import termios
+        import tty
+
+        saved = termios.tcgetattr(fd)
+        tty.setraw(fd)
+    status = str(spec.get("status", "idle"))
+    publish_status(status)
+    tui_log({"start": {"argv": argv, "isatty": saved is not None, "winsize": _winsize(fd)}})
+    signal.signal(signal.SIGWINCH, lambda *_: tui_log({"winsize": _winsize(fd)}))
+    os.write(out, (spec.get("banner", "FAKE-TUI ready") + "\r\nfake> ").encode())
+    code = int(spec.get("exit", 0))
+    buf = b""
+    stop_on = spec.get("stop_on")
+    try:
+        while True:
+            try:
+                chunk = os.read(fd, 4096)
+            except InterruptedError:
+                continue
+            except OSError:
+                break
+            if not chunk:
+                break
+            buf += chunk
+            tui_log({"recv": chunk.hex()})
+            if spec.get("echo", True):
+                os.write(out, ("RECV " + chunk.hex() + "\r\n").encode())
+            if chunk == b"\x1b":
+                status = str(spec.get("after_esc", "idle"))
+                publish_status(status)
+            elif b"\r" in chunk and spec.get("after_submit"):
+                status = str(spec["after_submit"])
+                publish_status(status)
+            if isinstance(stop_on, str) and stop_on.encode() in chunk:
+                os.kill(os.getpid(), signal.SIGTSTP)
+            if b"\x04" in chunk or b"/exit\r" in buf:
+                break
+    finally:
+        unpublish_status()
+        tui_log({"exit": code})
+        if saved is not None:
+            import termios
+
+            termios.tcsetattr(fd, termios.TCSANOW, saved)
+    return code
 
 
 def resolve_pids(sessions: Any) -> Any:
@@ -315,6 +436,8 @@ def main() -> int:
     if mode == "version":
         return finish(spec, "0.0.0-fake (Claude Code)")
     if mode == "agents":
+        if spec.get("from_state") and "stdout" not in spec:
+            spec = {**spec, "stdout": json.dumps(published_sessions())}
         if "sessions" in spec and "stdout" not in spec:
             spec = {**spec, "stdout": json.dumps(resolve_pids(spec["sessions"]))}
         return finish(spec, "[]")
@@ -344,7 +467,7 @@ def main() -> int:
         return run_stream(spec, argv)
     if mode == "print":
         return finish(spec, "ok")
-    return run_interactive(spec)
+    return run_interactive(spec, argv)
 
 
 if __name__ == "__main__":

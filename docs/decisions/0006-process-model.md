@@ -39,3 +39,4 @@
   - pass through all bytes unchanged, except for daemon-requested injections
 - The launcher handles Ctrl-Z itself (ADR-0007 Verification): it strips it from input, self-suspends with the tty restored, and repaints on resume.
 - Never write to the user's terminal while claude is running. Supervisor messages appear only in the statusline and in notifications.
+- **Never set `CLAUDE_CONFIG_DIR` for the default `~/.claude`; unset it instead** (P05 finding, 2026-09-24). An explicit `CLAUDE_CONFIG_DIR=~/.claude` makes Claude Code keep its global state in `~/.claude/.claude.json` instead of `~/.claude.json`, with different trust, MCP servers, and onboarding. This applies to the launcher and to every `claude` call CC Supervisor makes (probes, `agents --json`, `auth`, warm-ups). Use `paths.apply_claude_config_dir()` / `claude_cli.profile_env()`.
