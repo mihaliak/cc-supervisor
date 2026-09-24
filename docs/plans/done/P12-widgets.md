@@ -1,6 +1,6 @@
 # P12: Widgets (small/medium/large)
 
-- Status: todo
+- Status: done
 - Milestone: M2
 - Depends on: P06 (supervisor fields in the snapshot), P10 (Shared models, `TimeFormat`, `LevelColor`, `WidgetReloader`, URL routing), P00-S1 (signing and data path outcome → ADR-0012 confirmed or fallback)
 - ADRs: [0012](../../decisions/0012-widget-data-path.md), [0001](../../decisions/0001-language-split.md), [0004](../../decisions/0004-config-and-profiles.md), [0005](../../decisions/0005-state-and-ipc.md), [0009](../../decisions/0009-display-conventions.md), [0011](../../decisions/0011-macos-app.md), [0016](../../decisions/0016-identifiers.md)
@@ -87,13 +87,13 @@ Text uses the ADR-0009 compact form `20:00 · in 2h 13m`.
 macOS may throttle widget reloads. The menu bar app is the real-time view. Countdowns stay accurate between reloads because of the per-minute entries.
 
 ## Tasks
-- [ ] `macos/project.yml`: `CCSupervisorWidgets` app-extension target (WidgetKit, SwiftUI), sandbox entitlements per the S1 outcome (`Widgets/CCSupervisorWidgets.entitlements`), embedded in the app, Shared sources included, the same signing as the app.
-- [ ] `Widgets/Data/SnapshotLoader.swift` (real-home resolution, error cases).
-- [ ] `Widgets/Intent/ProfileEntity.swift`, `ProfileQuery.swift`, `ProfileWidgetIntent.swift`.
-- [ ] `Widgets/Timeline/UsageEntry.swift`, `UsageTimelineProvider.swift`, `EntryViewModel.swift` (pure: snapshot + intent + date → display model, including the state table above).
-- [ ] `Widgets/Views/HeaderView.swift`, `UsageRow.swift`, `UsageBar.swift`, `StateOverlay.swift`, `SmallWidgetView.swift`, `MediumWidgetView.swift`, `LargeWidgetView.swift`.
-- [ ] `Widgets/CCSupervisorWidgetsBundle.swift`: widget kind `ProfileUsageWidget`, `AppIntentConfiguration`, supported families small/medium/large, display name "Claude usage", description.
-- [ ] `#Preview`s for each family × state using fixtures from `schema/fixtures/snapshot/` (add missing variants: paused, needs_sign_in, stale, offline, spill with extra usage).
+- [x] `macos/project.yml`: `CCSupervisorWidgets` app-extension target (WidgetKit, SwiftUI), sandbox entitlements per the S1 outcome (`Widgets/CCSupervisorWidgets.entitlements`), embedded in the app, Shared sources included, the same signing as the app.
+- [x] `Widgets/Data/SnapshotLoader.swift` (real-home resolution, error cases).
+- [x] `Widgets/Intent/ProfileEntity.swift`, `ProfileQuery.swift`, `ProfileWidgetIntent.swift`.
+- [x] `Widgets/Timeline/UsageEntry.swift`, `UsageTimelineProvider.swift`, `EntryViewModel.swift` (pure: snapshot + intent + date → display model, including the state table above).
+- [x] `Widgets/Views/HeaderView.swift`, `UsageRow.swift`, `UsageBar.swift`, `StateOverlay.swift`, `SmallWidgetView.swift`, `MediumWidgetView.swift`, `LargeWidgetView.swift`.
+- [x] `Widgets/CCSupervisorWidgetsBundle.swift`: widget kind `ProfileUsageWidget`, `AppIntentConfiguration`, supported families small/medium/large, display name "Claude usage", description.
+- [x] `#Preview`s for each family × state using fixtures from `schema/fixtures/snapshot/` (add missing variants: paused, needs_sign_in, stale, offline, spill with extra usage).
 - [ ] On the real machine: add each size to the desktop, configure the profile via Edit Widget, and verify data, taps, and the updates after the P10 reload.
 
 ## Tests (XCTest target `WidgetTests`)
@@ -109,8 +109,8 @@ macOS may throttle widget reloads. The menu bar app is the real-time view. Count
 ## Done when
 - [ ] Small, medium, and large widgets appear in the gallery and render real data for both profiles on the desktop.
 - [ ] Edit Widget offers the profile and toggles. Taps open the right URLs.
-- [ ] Every state in the table renders correctly (previews + tests).
-- [ ] No thresholds or level math in Swift. There are no process, network, or file writes in the extension.
+- [x] Every state in the table renders correctly (previews + tests).
+- [x] No thresholds or level math in Swift. There are no process, network, or file writes in the extension.
 - [ ] `make app` builds. XCTest passes. Any Python contract changes pass `make test lint`.
 - [ ] Listed manual pages describe the shipped behavior and are marked `shipped`.
 
@@ -119,3 +119,34 @@ macOS may throttle widget reloads. The menu bar app is the real-time view. Count
 - **Desktop widgets desaturate when inactive** (vibrant mode) → percent text is always shown. Colors are an enhancement.
 - **Reload throttling** → per-minute precomputed entries plus P10's immediate reload on state changes. Documented in the manual.
 - **Snapshot schema drift between Python and Swift** → shared fixtures in `schema/fixtures/snapshot/`, used by both test suites.
+
+## Result
+Shipped 2026-09-24.
+
+**What shipped**
+- Widget kind `ProfileUsageWidget` ("Claude usage"): `AppIntentConfiguration` with `ProfileWidgetIntent` (Profile, Show weekly, Show model limits, Show extra usage), families small/medium/large, `widgetURL` → `ccsupervisor://profile/<id>`. App Intents metadata (`ProfileWidgetIntent`, `ProfileEntity`) is extracted into the appex.
+- Pure display logic in `macos/Shared/Widget/` (compiled into app + widget, tested by `CCSupervisorTests`):
+  - `SnapshotLoader` (`missing` / `unreadable` / `decode` / `sandboxDenied` via the POSIX cause; EPERM = sandbox),
+  - `WidgetDisplayBuilder` (snapshot + profile id + options + date → `WidgetDisplay`: state table, rows, weekly footer, paused/resume, supervisor line, next warm-up, updated text, footer, dim, URL; family row capacity and drop order),
+  - `WidgetTimeline` (now + 59 whole-minute entries), `WidgetProfileCatalog` (Edit Widget choices, default = first), `WidgetSamples` (gallery/placeholder/previews).
+- Widget target `macos/Widgets/`: `Intent/` (entity, query, intent), `Timeline/` (entry, provider: snapshot loaded once, 60 entries, `.after(last)`; gallery without data → sample), `Views/` (header, bar with `.widgetAccentable()`, compact/stacked rows, weekly line, state message, footer, small/medium/large, `#Preview`s for 6 states × 3 sizes), `ProfileUsageWidget.swift` (@main bundle). Placeholder widget removed.
+- Fixtures added: `schema/fixtures/snapshot/{offline,spill,no_data}.json` (validated by the Python schema test, whose required-name list now includes them).
+- Tests: `macos/Tests/WidgetDisplayTests.swift`, 23 tests (every state, paused, toggles, per-family rows + drop priority, per-minute countdown incl. `in <1m` → `now`, stale turning on across entries, all `time_format.json` vectors through the widget path, loader errors, catalog, samples). `make test lint`: Swift suite green; Python 698 passed / 1 skipped; ruff + mypy clean. `make app-build` has no warnings.
+
+**Deviations**
+- **Offline is judged when the timeline is built, not per entry.** Later entries can't know whether the daemon died, and macOS may throttle reloads, so per-entry evaluation would falsely show "Supervisor offline" 5 min after every reload. Data age (stale: `stale` flag / status, or `updated_at` > 10 min) is still judged per entry date, so a widget macOS hasn't refreshed shows "updated Xm ago" dimmed. If the daemon stops, the widget goes stale within 10 min and shows offline at its next reload.
+- **Tests live in the existing `CCSupervisorTests` target** (host = app), not a separate `WidgetTests` target: an app extension can't host XCTest, so all pure logic sits in `Shared/Widget/` and is tested there.
+- **View names** `WidgetUsageBar` / `CompactUsageRowView` / `StackedUsageRowView` / `StateMessageView` / `FooterView` instead of `UsageRow`/`UsageBar`/`StateOverlay` (`UsageRow` is the Shared data model); views grouped in `Views/Components.swift` + `Views/FamilyViews.swift`.
+- **`SnapshotLoader` in `Shared/Widget/`** (not `Widgets/Data/`) so tests can reach it.
+- **Previews use `WidgetSamples`** (code-built snapshots mirroring the fixtures) because the extension doesn't bundle `schema/fixtures/`.
+- **Extra states:** "no data" (no rows: `No usage data yet` / `Usage unavailable` / `No plan limits for this account`), and a missing snapshot with a selected profile = offline with "No usage data yet". Needs-sign-in taps open `profile/<id>` (ADR-0003/0012), same as every other state; not-configured has no URL (opens the app).
+- **Supervisor line** omits "0 paused"; `1 ccs session` singular.
+- Toggle titles follow the manual ("Show model limits").
+
+**Deferred to the user (needs the GUI; not verifiable headless)**
+- The widget appears in the gallery (search "CC Supervisor" / "Claude usage") and renders real data for both profiles on the desktop in all three sizes.
+- Right-click → Edit Widget lists the profiles (from `widget/snapshot.json`) and the three toggles; changing them updates the widget.
+- Clicking opens Settings on the profile; the paused badge / resume line appear during a real pause.
+- Refresh after the app's `WidgetReloader` reloads (and how much macOS throttles it).
+- Requires the app installed (`make app`, not run here) and the daemon writing `~/.local/state/ccs/widget/snapshot.json`.
+

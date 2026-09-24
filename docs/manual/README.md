@@ -26,7 +26,7 @@ CC Supervisor helps you keep track of, and get the most out of, Claude Code subs
 - CC Supervisor stores **no passwords or tokens**. Each profile uses Claude Code's own sign-in.
 
 ## Features
-- One widget per profile, in small, medium, or large size.
+- One widget per profile, in small, medium, or large size, configured with right-click → Edit Widget.
 - Menu bar summary of every profile, plus quick actions.
 - Per-profile settings: name, emoji, Claude config dir, sign-in, thresholds, warm-ups, statusline.
 - `ccs --<profile>` launcher: identical Claude Code experience, supervised.
@@ -35,6 +35,11 @@ CC Supervisor helps you keep track of, and get the most out of, Claude Code subs
 - Model-scoped (Fable) and extra-usage (paid credits) handling, each with its own per-profile toggle.
 - Warm-ups on a schedule, at app start, at unlock or wake, and automatically when a window resets.
 - Native macOS notifications.
+
+## Screenshots
+<!-- screenshot: widgets (small, medium, large) on the desktop -->
+<!-- screenshot: menu bar dropdown -->
+<!-- screenshot: statusline in a ccs session -->
 
 ## Quick start (5 minutes)
 1. **Install.** Check the [prerequisites](01-installation.md), then run this in the repo:

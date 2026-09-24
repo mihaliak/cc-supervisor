@@ -1,0 +1,39 @@
+{
+  "generated_at": "2026-09-24T15:20:00Z",
+  "profiles": [
+    {
+      "emoji": "💼",
+      "id": "work",
+      "level": "yellow",
+      "name": "Work",
+      "rows": [
+        {
+          "kind": "session",
+          "label": "Session",
+          "level": "green",
+          "percent": 45,
+          "resets_at": "2026-09-24T18:00:00Z"
+        },
+        {
+          "kind": "weekly",
+          "label": "Weekly",
+          "level": "yellow",
+          "percent": 72,
+          "resets_at": "2026-09-26T06:00:00Z"
+        }
+      ],
+      "stale": false,
+      "status": "ok",
+      "supervisor": {
+        "active_sessions": 1,
+        "next_warmup_at": null,
+        "other_sessions": 0,
+        "paused_sessions": 0,
+        "resume_at": null,
+        "state": "normal"
+      },
+      "updated_at": "2026-09-24T15:19:50Z"
+    }
+  ],
+  "schema": 1
+}
