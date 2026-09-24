@@ -35,6 +35,7 @@
   - paused: `⏸ 90% ▓▓▓▓▓▓▓▓▓░ paused → resumes 20:00 (in 42m)`. When the pause is caused by a weekly or model-scoped hold, it shows that hold's resume time.
   - overridden: `⚠ 91% ▓▓▓▓▓▓▓▓▓░ 20:00 (in 42m) · override`
   - manual hold (no `resume_at`): `⏸ 45% ▓▓▓▓▓░░░░░ paused (manual)`
+  - credit-cap hold only (spill mode, no `resume_at`): `⏸ 45% ▓▓▓▓▓░░░░░ paused (credits)`
   - no data: `?% ░░░░░░░░░░`
 - **Extra segments**, appended in this order and shown only when ≥ warn (or when they are the active hold):
   - weekly: ` ~ W ⚠ 86% Sat 08:00`
