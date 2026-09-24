@@ -1,0 +1,181 @@
+# Configuration reference
+
+> Status: planned. This page describes target behavior and will be marked "shipped" when implemented (see [../plans/backlog.md](../plans/backlog.md)).
+
+All settings live in one JSON file, `~/.config/ccs/config.json` (or `$XDG_CONFIG_HOME/ccs/config.json`). It never contains passwords or tokens.
+
+Ways to edit it:
+- the app: Settings (recommended)
+- `ccs profile set …` / `ccs profile add …`
+- by hand, then run `ccs config validate`
+
+The supervisor picks up changes within about 2 seconds. If the file becomes invalid, the last valid config stays in effect and you get a "config invalid" notification.
+
+```sh
+ccs config path       # where the file is
+ccs config show       # effective config, with defaults filled in
+ccs config defaults   # all default values
+ccs config validate   # check for errors
+```
+
+## Top level
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `version` | int | `1` | File format version. Don't edit. |
+| `revision` | int | `0` | Change counter, managed automatically so edits from the app and the CLI never overwrite each other. Don't edit. |
+| `default_profile` | string | `"personal"` | Profile `id` used by `ccs` with no profile flag |
+| `ccs_path` | string \| null | `null` | Path the app uses to run `ccs`. `null` means `~/.local/bin/ccs`. |
+| `claude_path` | string \| null | `null` | Path to `claude`. `null` means find it on the `PATH` captured at `ccs daemon install`. |
+
+## `display`
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `display.time_format` | string | `"24h"` | Clock format for reset times (24-hour) |
+| `display.colors.yellow_from` | int (%) | `50` | Bars turn yellow at this percent |
+| `display.colors.red_from` | int (%) | `80` | Bars turn red at this percent |
+| `display.menu_bar` | `"emoji_percent"` \| `"icon_only"` | `"emoji_percent"` | Menu bar label style ([Menu bar app](04-menu-bar-app.md)) |
+
+## `polling`
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `polling.interval_seconds` | int | `60` | Normal usage check interval, per profile |
+| `polling.fast_interval_seconds` | int | `20` | Interval when a limit is high and a `ccs` session is working |
+| `polling.fast_when_percent_at_least` | int (%) | `70` | "High" means at or above this percent |
+| `polling.idle_interval_seconds` | int | `120` | Interval when the profile has no `ccs` sessions |
+
+## `notifications`
+All are booleans, default `true` ([Notifications](09-notifications.md)).
+
+| Key | Covers |
+|-----|--------|
+| `notifications.limit_warn` | warn thresholds reached |
+| `notifications.limit_pause` | sessions paused |
+| `notifications.limit_resume` | sessions resumed |
+| `notifications.warmup` | warm-up started a window, or failed |
+| `notifications.errors` | sign-in required, usage unreadable, config invalid |
+
+## `profiles[]`
+Each entry is one profile ([Profiles & sign-in](02-profiles-and-sign-in.md)).
+
+### Identity
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `id` | string | – (required) | Internal ID matching `^[a-z0-9][a-z0-9-]{0,31}$`. Can't be changed after creation. |
+| `flag` | string | – (required) | Launcher flag: `work` means `ccs --work` |
+| `name` | string | – (required) | Display name |
+| `emoji` | string | – (required) | Icon for the widget, menu bar, and statusline |
+| `config_dir` | string | – (required) | Claude Code config dir, e.g. `~/.claude-work` |
+
+### `limits`
+Thresholds in percent ([Limits & supervisor](07-limits-and-supervisor.md)).
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `limits.session.warn` | int | `80` | Warn threshold for the 5-hour window |
+| `limits.session.pause` | int | `90` | Pause threshold for the 5-hour window |
+| `limits.weekly.warn` | int | `80` | Warn threshold for the weekly limit |
+| `limits.weekly.pause` | int | `95` | Pause threshold for the weekly limit |
+| `limits.model_scoped.warn` | int | `80` | Warn threshold for model-scoped limits (e.g. Fable) |
+| `limits.model_scoped.pause` | int | `95` | Pause threshold (only sessions on that model), or the second warning when `warn_only` is on |
+| `limits.model_scoped.warn_only` | bool | `false` | `true`: never pause for model-scoped limits, only warn |
+| `limits.extra_usage.spill` | bool | `false` | `true`: while credits are enabled, skip session and weekly pauses and pause on credit usage instead |
+| `limits.extra_usage.warn` | int | `80` | Warn at this percent of the monthly credit cap |
+| `limits.extra_usage.pause` | int | `90` | Pause at this percent of the cap (only with `spill: true`) |
+
+### `supervisor`
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `supervisor.enabled` | bool | `true` | Supervise this profile's `ccs` sessions (pause and resume) |
+| `supervisor.resume_prompt` | string | `"The usage limit window has reset. Continue exactly where you left off."` | Typed into sessions that were interrupted, when they resume |
+
+### `statusline`
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `statusline.enabled` | bool | `true` | Show the CC Supervisor statusline in `ccs` sessions ([Statusline](06-statusline.md)) |
+
+### `warmup`
+([Warm-up](08-warm-up.md))
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `warmup.enabled` | bool | `true` | Master switch for this profile's warm-ups |
+| `warmup.model` | string | `"haiku"` | Model for the warm-up request |
+| `warmup.prompt` | string | `"Reply with just: ok"` | Warm-up prompt |
+| `warmup.triggers.schedule` | array | `[]` | Entries of `{ "time": "HH:MM", "weekdays": ["mon", …] }` |
+| `warmup.triggers.app_start` | bool | `true` | Warm up when the app launches |
+| `warmup.triggers.unlock_wake` | bool | `true` | Warm up on screen unlock or wake |
+| `warmup.triggers.auto_chain` | bool | `true` | Start the next window when one resets, during active hours |
+| `warmup.active_hours.start` | `"HH:MM"` | `"07:00"` | Start of active hours |
+| `warmup.active_hours.end` | `"HH:MM"` | `"23:00"` | End of active hours |
+| `warmup.cooldown_minutes` | int | `10` | Minimum gap between warm-up attempts for this profile |
+
+### Seeded profiles
+| id | flag | name | emoji | config_dir |
+|----|------|------|-------|------------|
+| `personal` | `personal` | Personal | 🏠 | `~/.claude` |
+| `work` | `work` | Work | 💼 | `~/.claude-work` |
+
+## Validation rules
+- `version` is `1`. `revision` is a whole number ≥ 0.
+- `default_profile` must be the `id` of an existing profile.
+- Profile `id` and `flag`:
+  - each must be unique
+  - both use lowercase letters, digits, and `-`, start with a letter or digit, and are at most 32 characters
+- `flag` must not be reserved:
+  - ccs options: `help`, `version`, `profile`, `force`, `no-supervise`, `json`
+  - any `claude` long option (e.g. `model`, `resume`, `continue`, `print`, `effort`)
+- `config_dir` must be unique across profiles (after `~` expansion), and absolute or starting with `~`.
+- `emoji` is required, at most 8 characters (code points).
+- Thresholds are whole numbers from 1 to 100, and each `warn` must be lower than its `pause`.
+- Colors: `0 < yellow_from < red_from ≤ 100`.
+- Times are `HH:MM` (24h). Weekdays are `mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun`, with no duplicates.
+- `cooldown_minutes` is 0–1440. Polling intervals are 5–3600 seconds.
+- `display.menu_bar` is `emoji_percent` or `icon_only`. `display.time_format` is `24h`.
+- Unknown keys are kept as they are, so newer settings survive older tools.
+
+## Example
+```json
+{
+  "version": 1,
+  "revision": 7,
+  "default_profile": "work",
+  "display": { "time_format": "24h", "colors": { "yellow_from": 50, "red_from": 80 }, "menu_bar": "emoji_percent" },
+  "profiles": [
+    {
+      "id": "work", "flag": "work", "name": "Work", "emoji": "💼", "config_dir": "~/.claude-work",
+      "limits": { "weekly": { "warn": 80, "pause": 97 }, "model_scoped": { "warn_only": true } },
+      "warmup": { "triggers": { "schedule": [ { "time": "06:00", "weekdays": ["mon","tue","wed","thu","fri"] } ] } }
+    }
+  ]
+}
+```
+Missing keys take their defaults.
+
+## File locations
+| What | Where |
+|------|-------|
+| Config | `~/.config/ccs/config.json` |
+| Runtime data | `~/.local/state/ccs/` |
+| `ccs` command | `~/.local/bin/ccs` |
+| App | `~/Applications/CC Supervisor.app` |
+| Background supervisor | `~/Library/LaunchAgents/local.ccsupervisor.daemon.plist` (label `local.ccsupervisor.daemon`) |
+| Statusline script | `<config dir>/ccs-statusline.py` |
+| `settings.json` backup (from statusline apply) | `<config dir>/settings.json.ccs-backup-<YYYYmmddHHMMSS>` |
+| URL scheme | `ccsupervisor://` |
+
+## Runtime data (for power users)
+`~/.local/state/ccs/`. Safe to read; don't edit while the supervisor runs.
+
+| Path | Contents |
+|------|----------|
+| `usage/<profile>.json` | latest usage per profile |
+| `sessions/<id>.json` | one file per supervised `ccs` session |
+| `supervisor/<profile>.json` | active pauses (survives restarts) |
+| `warmup/<profile>.json` | last and next warm-ups |
+| `statusline/<profile>.json` | what `statusline apply` changed, used by `revert` |
+| `widget/snapshot.json` | what the widgets and menu bar display |
+| `live/` | live usage reported by statuslines |
+| `events.jsonl` | event history (what `ccs events` shows) |
+| `events.seen.json` | notification dedupe memory |
+| `logs/daemon.log` | supervisor log (what `ccs daemon logs` shows) |
+| `daemon.sock`, `daemon.lock` | supervisor socket and lock |
