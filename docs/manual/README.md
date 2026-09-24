@@ -46,6 +46,7 @@ CC Supervisor helps you keep track of, and get the most out of, Claude Code subs
    ```sh
    make install
    ```
+   It checks the prerequisites, installs `ccs`, the app and the background supervisor, and ends with `ccs doctor`. It doesn't change anything in your Claude config dirs.
 2. **Profiles.** Two are created for you: `personal` (`~/.claude`, 🏠) and `work` (`~/.claude-work`, 💼). Adjust them in menu bar → **Settings… → Profiles**, or see [Profiles](02-profiles-and-sign-in.md).
 3. **Sign in.** For each profile, click **Sign in**. That's a claude.ai sign-in in your browser; it is Claude Code's own login for that config dir.
 4. **Add widgets.** Right-click the desktop → **Edit Widgets** → search "CC Supervisor". Then right-click a widget → **Edit Widget** and pick a profile.
@@ -54,6 +55,7 @@ CC Supervisor helps you keep track of, and get the most out of, Claude Code subs
    ccs --work          # classic Claude Code, work account, supervised
    ccs --personal -c   # continue the last personal conversation
    ```
+6. **Something off?** `ccs doctor` checks everything and tells you how to fix it.
 
 ## Pages
 | Page | What's inside |

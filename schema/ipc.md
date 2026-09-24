@@ -36,7 +36,8 @@ Contract between `ccs daemon run` and its clients: the launcher (P05), the app (
 ```json
 → {"proto":1,"id":2,"op":"status","profile_id":"work"}          // profile_id optional
 ← {"proto":1,"id":2,"ok":true,
-   "daemon":{"version":"0.1.0","pid":4242,"started_at":"…","uptime_s":120,"responsive":true},
+   "daemon":{"version":"0.1.0","pid":4242,"started_at":"…","uptime_s":120,"responsive":true,
+             "app_connected":true},                               // P13: a menu bar app is subscribed
    "profiles":[{"id":"work",
                 "usage":{…UsageSnapshot…}|null,
                 "supervisor":{"state":"normal|warned|paused",

@@ -13,6 +13,7 @@ from typing import cast
 
 from ccs import __version__
 from ccs import auth as auth_cli
+from ccs import doctor as doctor_cli
 from ccs.config import cli as config_cli
 from ccs.config import store
 from ccs.config.models import Config
@@ -50,6 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
     statusline_cli.register(sub)
     warmup_cli.register(sub)
     supervisor_cli.register(sub)
+    doctor_cli.register(sub)
     return parser
 
 

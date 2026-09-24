@@ -1,6 +1,6 @@
 # P13: Install, uninstall, doctor
 
-- Status: todo
+- Status: done
 - Milestone: M3
 - Depends on: P06, P07, P08, P09, P12 (and transitively P01–P05, P10)
 - ADRs: [0006](../../decisions/0006-process-model.md), [0003](../../decisions/0003-authentication.md), [0004](../../decisions/0004-config-and-profiles.md), [0005](../../decisions/0005-state-and-ipc.md), [0011](../../decisions/0011-macos-app.md), [0012](../../decisions/0012-widget-data-path.md), [0013](../../decisions/0013-python-engineering.md), [0016](../../decisions/0016-identifiers.md), [0017](../../decisions/0017-cli-surface.md)
@@ -81,14 +81,14 @@ One command installs everything on this Mac. One command removes it cleanly. `cc
 - Every check has a timeout (subprocess 10 s) and never raises. Unexpected exceptions become a `fail` whose message is the exception type.
 
 ## Tasks
-- [ ] `scripts/check-prereqs.sh` (POSIX sh, `set -eu`, one line per check, non-zero on a hard fail).
-- [ ] Makefile `install`, `uninstall`, `upgrade` targets as designed. Confirmation prompts use `read` in sh. `uninstall` supports `YES=1` for scripted runs, but the purge still requires `PURGE=1`.
-- [ ] `ccs/doctor.py`: a `Check` dataclass, a registry of check functions, the runner with timeouts, and formatters (human, JSON).
-- [ ] Global checks listed above.
-- [ ] Per-profile checks listed above (reusing P07 `ensure_script` internals read-only, P09 `auth_status` / `keychain_service_name`, the P04 socket client).
-- [ ] `config.reserved_flags` parser for `claude --help` (regex `--([a-z][a-z0-9-]+)`), with a fixture of the current help text.
-- [ ] CLI `ccs doctor [--json]`.
-- [ ] A dry run of `make install` / `make uninstall` on this machine with an **isolated HOME** (`HOME=$(mktemp -d)` plus a stubbed launchctl via `LAUNCHCTL=echo`), to validate the scripts without touching the real setup.
+- [x] `scripts/check-prereqs.sh` (POSIX sh, `set -eu`, one line per check, non-zero on a hard fail).
+- [x] Makefile `install`, `uninstall`, `upgrade` targets as designed. Confirmation prompts use `read` in sh. `uninstall` supports `YES=1` for scripted runs, but the purge still requires `PURGE=1`.
+- [x] `ccs/doctor.py`: a `Check` dataclass, a registry of check functions, the runner with timeouts, and formatters (human, JSON).
+- [x] Global checks listed above.
+- [x] Per-profile checks listed above (reusing P07 `ensure_script` internals read-only, P09 `auth_status` / `keychain_service_name`, the P04 socket client).
+- [x] `config.reserved_flags` parser for `claude --help` (regex `--([a-z][a-z0-9-]+)`), with a fixture of the current help text.
+- [x] CLI `ccs doctor [--json]`.
+- [x] A dry run of `make install` / `make uninstall` on this machine with an **isolated HOME** (`HOME=$(mktemp -d)` plus a stubbed launchctl via `LAUNCHCTL=echo`), to validate the scripts without touching the real setup.
 
 ## Tests
 - `doctor` checks with temp dirs + fake_claude:
@@ -114,12 +114,64 @@ One command installs everything on this Mac. One command removes it cleanly. `cc
 ## Done when
 - [ ] `make install` on a clean isolated HOME ends with `ccs doctor` all ok, except auth warnings.
 - [ ] On the real machine it installs the app, daemon, and CLI, and the menu bar shows data.
-- [ ] `make uninstall` restores the `settings.json` statuslines, removes the daemon, app, and login item, and leaves the Claude config dirs untouched. Purge only on explicit confirmation.
-- [ ] `ccs doctor` covers every listed check, with fix hints.
-- [ ] `make test lint` passes. `make app` builds.
+- [x] `make uninstall` restores the `settings.json` statuslines, removes the daemon, app, and login item, and leaves the Claude config dirs untouched. Purge only on explicit confirmation.
+- [x] `ccs doctor` covers every listed check, with fix hints.
+- [x] `make test lint` passes. `make app` builds.
 - [ ] Listed manual pages describe the shipped behavior and are marked `shipped`.
 
 ## Risks & mitigations
 - **launchctl domain and bootstrap differences** → use `launchctl bootstrap gui/$(id -u)` / `bootout`, idempotent. The P04 daemon install already handles this; reuse it.
 - **pipx editable installs break when the repo moves** → doctor `ccs.version` shows the source path, and `make upgrade` reinstalls.
 - **Uninstall leaves stale login items** → `--unregister-login-item` runs before the bundle is deleted. The manual shows how to remove leftovers in System Settings › General › Login Items.
+
+## Result
+Shipped 2026-09-24.
+
+### What shipped
+- `ccs/doctor.py` + `ccs doctor [--json]`:
+  - 12 global checks, including the extra `claude.daemon_path`.
+  - 8 per-profile check ids, including the extra `usage.status` (split out of `usage.last_poll`).
+  - Read-only: never seeds the config and never creates state. `claude auth status` runs from the temp dir, because the probes' default cwd would create `warmup/cwd`.
+  - Every check runs in its own daemon thread under a shared 20 s deadline, with a 10 s subprocess timeout. A crash becomes a `fail` with message "check crashed: <Type>".
+  - Human output is grouped with ✓ / ! / ✗ and has `fix:` lines. JSON output matches the app's `DoctorResult`. Exit 1 on any `fail`.
+  - The live run takes about 0.7 s.
+- `ENV_FACTORY` / `Env`: injectable launchctl, socket probe, daemon status, auth, clock and app path for tests.
+- Daemon `status` op gains `daemon.app_connected`, used by `notifications.route`. Documented in `schema/ipc.md`.
+- Scripts and Makefile:
+  - `scripts/check-prereqs.sh` (POSIX sh).
+  - `scripts/install.sh`, `scripts/upgrade.sh`, `scripts/uninstall.sh` (bash 3.2 compatible; tests run them with `/bin/bash`).
+  - Makefile targets `prereqs`, `install`, `upgrade`, `uninstall` (`YES=1`, `PURGE=1`).
+- Fake claude `help` mode, plus the captured `fixtures/claude_help/claude-2.1.281.txt`.
+- `schema/fixtures/ccs/doctor.json` now uses real check ids (`auth.status`).
+- `tests/statusline/test_statusline_perf.py`: a p95 miss is re-measured once, after a 1 s pause, before failing. The 60 ms budget is unchanged.
+- Tests: `test_doctor.py` (40) and `test_install_scripts.py` (13). Full suite: 841 passed, 1 skipped. ruff + mypy `--strict` clean. Swift tests pass. `make app-build` passes.
+
+### Deviations
+- **User directive: install never touches `~/.claude*`.**
+  - Design step 4 (`ccs statusline generate` for every profile) is dropped. The launcher creates the script on the first `ccs --<flag>`.
+  - `make upgrade` regenerates only scripts that already exist.
+  - Doctor therefore reports a missing script as ✓ "not generated yet".
+  - Not-applied, and a foreign `statusLine`, are ✓ (informational). Only an outdated applied command is `!`.
+  - So a fresh install doesn't end with warnings for things that are fine by design.
+- **Login item:** P10 doesn't register it on first launch. `install.sh` runs `CC Supervisor --register-login-item` (register and exit), then `open`s the app.
+- **Waiting for data:** `install.sh` seeds the config via `ccs profile list` (`config validate` doesn't seed). It then waits up to 20 s for `widget/snapshot.json` before running `ccs doctor`.
+- **Install order:** `make install` = `prereqs` → `install-dev` → `app` → `scripts/install.sh` (config, daemon, login item, open, wait, doctor, next steps). `upgrade` also quits and reopens the menu bar app.
+- **Reserved-flags parser:** it reads only option-definition lines (`^\s+(-x, )?--name(, --name)*`), not the plan's plain `--([a-z]…)`. The plain regex would also catch camelCase aliases and mentions in descriptions. Against the fixture it matches `CLAUDE_LONG_OPTIONS` exactly, except `all` (a `claude agents` option).
+- **App Group fallback:** the mirrored-copy check is skipped. Reading another app's Group Container from a CLI triggers a macOS privacy prompt, and the primary ad-hoc path is in use (ADR-0012).
+- **Uninstall:** statuslines are reverted only where `statusline/<id>.json` bookkeeping exists. The generated `ccs-statusline.py` files are listed and removed only on purge. A missing `ccs` falls back to `launchctl bootout` plus plist removal.
+- **Dry-run tests:** they stub launchctl, pipx, open, osascript and the app binary on `PATH` / env (not `LAUNCHCTL=echo`), and run `scripts/*.sh` directly with `ccs` pointed at this checkout. `make install-dev` and `make app` themselves were only verified with `make -n` (directive: no real install).
+
+### Not verified (needs the user; the directive forbids a real install)
+- The real `make install`, `make upgrade` and `make uninstall` on this machine: LaunchAgent bootstrap, login item, menu bar data, notification route.
+- "Clean isolated HOME ends with doctor all ok except auth": in the isolated-HOME test the daemon isn't really started (launchctl is stubbed), so daemon checks fail there.
+  - The live smoke covered the rest: scratch config and state, a foreground `ccs daemon run` with read-only probes of the real profiles, then `ccs doctor`.
+  - Result: 27 ok, and only 3 not ok, all expected because nothing is installed: `daemon.installed` ✗, `notifications.route` !, `app.installed` !.
+- Manual Status lines: left for the orchestrator to flip.
+
+### User commands
+```sh
+make install                  # prereqs → ccs (pipx) → app → config/daemon/login item → doctor
+ccs doctor                    # verify (0 = no failures)
+make upgrade                  # after pulling changes
+make uninstall                # asks; YES=1 skips the question, PURGE=1 also deletes config/state
+```

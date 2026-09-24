@@ -20,11 +20,19 @@ From the repo root:
 make install
 ```
 This does the following:
-1. Installs the `ccs` CLI with pipx (an editable install, so pulling the repo updates `ccs`).
-2. Generates the Xcode project with XcodeGen and builds the app and widgets with `xcodebuild`.
-3. Copies `CC Supervisor.app` to `~/Applications/`.
-4. Installs and starts the background supervisor (`ccs daemon install`).
-5. Opens the app.
+1. Checks the prerequisites (`make prereqs`). Anything missing is printed with the command that installs it, and the install stops.
+2. Installs the `ccs` CLI with pipx (an editable install, so pulling the repo updates `ccs`).
+3. Generates the Xcode project with XcodeGen, builds the app and widgets with `xcodebuild`, and copies `CC Supervisor.app` to `~/Applications/`.
+4. Creates `~/.config/ccs/config.json` if it doesn't exist yet, with `personal` (`~/.claude`) and `work` (`~/.claude-work`) for the dirs that exist. An existing config is kept as is.
+5. Installs and starts the background supervisor (`ccs daemon install`).
+6. Turns on **Launch at login** for the app and opens it.
+7. Waits up to 20 s for the first usage poll, then runs `ccs doctor` and prints the next steps.
+
+`make install` **never touches your Claude config dirs** (`~/.claude*`): no statusline script is written and no `settings.json` is changed. `ccs --<flag>` creates the statusline script on first use; `ccs statusline apply` is a separate, explicit step (see [Statusline](06-statusline.md)).
+
+Running `make install` again is safe: it reinstalls the CLI and the app, keeps your config, and reinstalls the LaunchAgent.
+
+After installing, review the new profiles in **Settings… → Profiles**: warm-ups are on by default (app start, unlock/wake, auto-chain), with Haiku and the prompt `Reply with just: ok`.
 
 ### What goes where
 | Thing | Location |
@@ -40,8 +48,9 @@ Make sure `~/.local/bin` is on your `PATH` (`pipx ensurepath`).
 
 The daemon's LaunchAgent remembers the `PATH` you had when you ran `ccs daemon install`, so it can find `claude`. If you later move Claude Code, run `ccs daemon install` again, or set `claude_path` in the [config](10-configuration-reference.md).
 
-Check that the supervisor is up:
+Check that everything is up:
 ```sh
+ccs doctor          # every check with a fix hint; see Troubleshooting
 ccs daemon status   # daemon: running (pid …, up …)
 ccs status          # usage per profile, as the supervisor sees it
 ```
@@ -70,8 +79,8 @@ make upgrade
 It:
 - reinstalls `ccs` (pipx)
 - rebuilds and reinstalls the app
-- restarts the supervisor
-- regenerates every profile's statusline script
+- restarts the supervisor and the menu bar app on the new code
+- regenerates the statusline scripts that already exist (it doesn't create new ones)
 - runs `ccs doctor`
 
 `ccs --<profile>` also regenerates an outdated statusline script by itself. If `ccs doctor` still reports one, for example for a profile you only use with plain `claude`, run `ccs statusline generate --profile <id>`.
@@ -91,13 +100,21 @@ It:
 | `make app-build` | Builds the app and widgets (Release, ad-hoc signed) into `build/xcode`. |
 | `make app` | `app-build`, then copies the app to `~/Applications/`. |
 | `make clean` | Removes build outputs, caches, and the generated project. |
+| `make prereqs` | Checks the install prerequisites (also the first step of `make install`). |
+| `make install` / `make upgrade` / `make uninstall` | See the sections on this page. |
 
 ## Uninstall
 ```sh
 make uninstall
 ```
-- Reverts the statusline in every profile's `settings.json` from the backup made at apply time.
+- Asks for confirmation first.
+- Restores the previous `statusLine` in every profile where `ccs statusline apply` set one. If you changed that `statusLine` since, it reports a conflict and leaves the file alone.
 - Stops and removes the LaunchAgent.
-- Removes `~/Applications/CC Supervisor.app` and uninstalls `ccs` from pipx.
-- **Asks** before deleting `~/.config/ccs/` (your settings) and `~/.local/state/ccs/` (runtime data). Answer "no" to keep them for a later reinstall.
+- Turns off Launch at login, quits the app, and removes `~/Applications/CC Supervisor.app`.
+- Uninstalls `ccs` from pipx.
+- **Asks** before deleting `~/.config/ccs/` (your settings), `~/.local/state/ccs/` (runtime data), and the generated `ccs-statusline.py` files in your config dirs. Answer "no" to keep them for a later reinstall.
 - **Never** touches your Claude Code logins, conversations, or other settings in your config dirs.
+
+For scripted runs: `make uninstall YES=1` answers the first question with yes and keeps config and state; add `PURGE=1` to delete them too.
+
+If an old login item stays behind (for example after deleting the app by hand), remove it in **System Settings › General › Login Items**.

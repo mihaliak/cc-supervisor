@@ -4,7 +4,11 @@
 Behavior is driven by a JSON scenario file (env FAKE_CLAUDE_SCENARIO) keyed by mode:
 
     version      {"stdout": "...", "exit": 0}
-    agents       {"sessions": [...], "exit": 0}              -> `claude agents --json`
+    help         {"stdout": "...", "exit": 0, "extra_options": ["--new-flag"]}
+                                                             -> `claude --help` (default: the
+                 captured fixtures/claude_help/claude-2.1.281.txt; "extra_options" appends
+                 option-definition lines, e.g. to simulate a new claude flag)
+    agents      {"sessions": [...], "exit": 0}              -> `claude agents --json`
                  string values "$PID<n>" become the n-th pid of $FAKE_CLAUDE_AGENTS_PIDS
                  {"from_state": true} lists the running fake TUIs (their published activity)
     auth_status  {"json": {...}, "exit": 0}                  -> `claude auth status [--json]`
@@ -79,6 +83,8 @@ def log_call(argv: list[str], mode: str) -> None:
 
 
 def detect_mode(argv: list[str]) -> str:
+    if argv[:1] in (["--help"], ["-h"]):
+        return "help"
     if "--version" in argv or "-v" in argv:
         return "version"
     if argv[:1] == ["agents"]:
@@ -119,6 +125,19 @@ def finish(spec: dict[str, Any], default_stdout: str = "") -> int:
 
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fixtures", "get_usage")
 AUTH_FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fixtures", "auth_status")
+HELP_FIXTURE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "fixtures", "claude_help", "claude-2.1.281.txt"
+)
+
+
+def help_text(spec: dict[str, Any]) -> str:
+    if "stdout" in spec:
+        return str(spec["stdout"])
+    with open(HELP_FIXTURE, encoding="utf-8") as fh:
+        text = fh.read()
+    extra = spec.get("extra_options") or []
+    lines = [f"  {opt}                           fake option added by the test" for opt in extra]
+    return text + ("\n".join(lines) + "\n" if lines else "")
 
 
 def auth_marker() -> str | None:
@@ -496,6 +515,8 @@ def main() -> int:
         return 2
     if mode == "version":
         return finish(spec, "0.0.0-fake (Claude Code)")
+    if mode == "help":
+        return finish({**spec, "stdout": help_text(spec)})
     if mode == "agents":
         if spec.get("from_state") and "stdout" not in spec:
             spec = {**spec, "stdout": json.dumps(published_sessions())}

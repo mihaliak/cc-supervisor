@@ -233,7 +233,24 @@ daemon: running (pid 4242, up 2h 13m, 1.8 ms)
 ```
 
 ### `ccs doctor [--json]`
-Checks everything and suggests fixes. See [Troubleshooting](11-troubleshooting.md).
+Checks the whole installation and prints a fix for every problem. It's read-only and takes about a second. Every check is listed in [Troubleshooting](11-troubleshooting.md#start-with-ccs-doctor).
+- Exits 1 when any check failed (`✗`), 0 when there are only warnings (`!`).
+- `--json`: `{"checks":[{"id","scope","status","message","fix"}],"summary":{"ok","warn","fail"}}`. `scope` is `global` or `profile:<id>`; `status` is `ok`, `warn` or `fail`.
+
+```
+$ ccs doctor
+Global
+  ✓ claude.found: /Users/you/.local/bin/claude
+  ✓ daemon.running: running under launchd (pid 4242)
+  ! notifications.route: no menu bar app connected: notifications use the osascript fallback
+      fix: open -a "CC Supervisor"
+  …
+Profile 💼 Work (work)
+  ✓ auth.status: signed in (claude.ai, team)
+  ✓ usage.last_poll: polled 12s ago; data from 12s ago
+  …
+27 ok · 1 warnings · 0 failed
+```
 
 ### `ccs --version`
 

@@ -6,16 +6,40 @@
 ```sh
 ccs doctor
 ```
-It checks the following and prints a fix for anything wrong:
-- Python version, and that `ccs` is on your `PATH`
-- `claude` found, plus its version
-- config file valid, and the reserved flag list up to date
-- each profile's config dir exists and is signed in. It also shows the Keychain entry name Claude Code uses (it never reads it).
-- background supervisor installed, running, and responding
-- statusline scripts present and current, and whether `apply` is active per profile
-- app installed, and widget data fresh
+It runs every check below in parallel (about a second), prints `✓` / `!` / `✗` per check grouped by global and per profile, and a `fix:` line under every warning or failure. It exits 1 when any check failed.
+- **Read-only:** it never creates the config, never writes state, and never changes a `settings.json`. It runs `claude --version`, `claude --help`, and `claude auth status` per profile.
+- Each check has a deadline: a hung `claude` or socket shows up as a failed check ("timed out"), never as a hang.
+- `ccs doctor --json` prints `{"checks":[{"id","scope","status","message","fix"}],"summary":{"ok","warn","fail"}}` for scripts. Settings › General › **Run diagnostics** shows the same list.
 
-`ccs doctor --json` gives the same checks for scripts.
+### Global checks
+| Check | ✗ / ! means | Fix |
+|-------|-------------|-----|
+| `python.version` | ✗ Python older than 3.12 runs `ccs` | `make install-dev` |
+| `ccs.version` | always ✓: version and the source folder of this `ccs` (an editable install points into the repo) | – |
+| `claude.found` | ✗ `claude` isn't on `PATH`, or `claude_path` points nowhere | install Claude Code, or `ccs config set claude_path=/path/to/claude` |
+| `claude.daemon_path` | ✗ the `PATH` saved in the LaunchAgent can't find `claude` (only shown when the daemon is installed and `claude_path` is unset) | `ccs daemon install` (re-saves your current `PATH`) |
+| `claude.version` | ! `claude --version` failed | check that `claude` runs |
+| `config.valid` | ✗ no config file, or it has errors (the first three are shown) | `ccs profile list` creates it; `ccs config validate` lists every error |
+| `config.reserved_flags` | ✗ a profile flag is now also a `claude` option (e.g. a new Claude Code release added `--work`); ! `claude` has options `ccs` doesn't know yet | `ccs profile set <id> flag=<new-flag>`; update CC Supervisor |
+| `daemon.installed` | ✗ no LaunchAgent | `ccs daemon install` |
+| `daemon.running` | ✗ the LaunchAgent isn't running, or launchd shows it loaded with no live process | `ccs daemon start`; `ccs daemon logs`, then `ccs daemon restart`. ✓ "running outside launchd" when you started `ccs daemon run` by hand |
+| `daemon.socket` | ✗ the daemon doesn't answer on its socket; ! slower than 1 s, or it runs another `ccs` version than this CLI | `ccs daemon restart` |
+| `notifications.route` | ! no menu bar app is connected, so notifications fall back to osascript (shown as "Script Editor") | `open -a "CC Supervisor"` |
+| `app.installed` | ! `~/Applications/CC Supervisor.app` is missing | `make app` |
+| `widget.snapshot` | ! no widget data yet, or older than 5 minutes (widgets then show "Supervisor offline") | `ccs daemon start` / `ccs daemon restart` |
+
+### Per-profile checks
+| Check | ✗ / ! means | Fix |
+|-------|-------------|-----|
+| `config_dir.exists` | ✗ the profile's config dir doesn't exist | create it, or `ccs profile set <id> config_dir=<dir>` |
+| `auth.status` | ! not signed in, or `claude auth status` couldn't be read | `ccs auth login --profile <id>` |
+| `auth.keychain_service` | always ✓: the Keychain item name Claude Code uses for this dir (never read) | – |
+| `usage.last_poll` | ! no usage data yet; the last poll attempt is over 5 min old (the daemon isn't polling); or the last *successful* poll is over 10 min old (polls fail; the error is shown) | `ccs daemon start` / `ccs daemon restart`; `ccs usage --refresh --profile <id>` |
+| `usage.status` | ! sign-in required, no subscription, or stale data; ✗ usage source error (Claude Code changed its experimental usage interface) | `ccs auth login --profile <id>`; `ccs usage --refresh --profile <id>`; update CC Supervisor |
+| `statusline.script` | ! the script is outdated (older generator or code, or the profile's name, emoji, thresholds or Python changed). ✓ when not generated yet: `ccs --<flag>` creates it | `ccs statusline generate --profile <id>` |
+| `statusline.interpreter` | ✗ the Python the script runs with is gone (e.g. after a Homebrew or pyenv upgrade) | `ccs statusline generate --profile <id>`, then `ccs statusline apply --profile <id>` if applied |
+| `statusline.applied` | ! applied with an outdated command. ✓ when not applied or when `settings.json` has another `statusLine` (informational: `ccs` sessions still show theirs) | `ccs statusline apply --profile <id>` |
+| `supervisor.state` | ! a pause should have been lifted more than 10 minutes ago (the supervisor isn't running or can't confirm the reset), or the state file is unreadable | `ccs daemon restart`, or `ccs resume --profile <id>` |
 
 ## Logs and history
 ```sh

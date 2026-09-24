@@ -16,7 +16,7 @@
     },
     {
       "fix": "ccs auth login --profile work",
-      "id": "profile.auth",
+      "id": "auth.status",
       "message": "not signed in",
       "scope": "profile:work",
       "status": "warn"

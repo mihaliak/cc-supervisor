@@ -12,7 +12,8 @@ APP_BUILT   := $(DERIVED)/Build/Products/Release/$(APP_NAME)
 APP_DEST    := $(HOME)/Applications/$(APP_NAME)
 
 .PHONY: help venv install-dev test test-python test-swift test-live lint fmt \
-        xcodegen-check xcodebuild-check project app-build app clean
+        xcodegen-check xcodebuild-check project app-build app clean \
+        prereqs install uninstall upgrade
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-16s %s\n", $$1, $$2}'
@@ -72,6 +73,22 @@ app: app-build ## build and install to ~/Applications/CC Supervisor.app
 	rm -rf "$(APP_DEST)"
 	ditto "$(APP_BUILT)" "$(APP_DEST)"
 	@echo "installed: $(APP_DEST)"
+
+prereqs: ## check install prerequisites (macOS/Xcode 26, xcodegen, python >= 3.12, pipx)
+	@PY="$(PY)" sh scripts/check-prereqs.sh
+
+install: prereqs ## install ccs + app + daemon (never touches ~/.claude* dirs)
+	$(MAKE) --no-print-directory install-dev
+	$(MAKE) --no-print-directory app
+	@PY="$(PY)" bash scripts/install.sh
+
+upgrade: ## reinstall ccs + app, restart daemon and app, refresh statusline scripts
+	$(MAKE) --no-print-directory install-dev
+	$(MAKE) --no-print-directory app
+	@PY="$(PY)" bash scripts/upgrade.sh
+
+uninstall: ## remove daemon, app, login item, ccs (YES=1 no prompts; PURGE=1 also config/state)
+	@PY="$(PY)" YES="$(YES)" PURGE="$(PURGE)" bash scripts/uninstall.sh
 
 clean: ## remove build outputs and caches
 	rm -rf build $(XCODEPROJ) python/.pytest_cache python/.mypy_cache python/.ruff_cache

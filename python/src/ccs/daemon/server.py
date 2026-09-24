@@ -401,6 +401,7 @@ class Daemon:
                 "started_at": format_iso(self.started_at),
                 "uptime_s": int((now - self.started_at).total_seconds()),
                 "responsive": True,
+                "app_connected": any(c.client == "app" and not c.closed for c in self.conns),
             },
             "profiles": profiles,
         }
