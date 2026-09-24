@@ -7,8 +7,15 @@ Behavior is driven by a JSON scenario file (env FAKE_CLAUDE_SCENARIO) keyed by m
     agents       {"sessions": [...], "exit": 0}              -> `claude agents --json`
     auth_status  {"json": {...}, "exit": 0}                  -> `claude auth status [--json]`
     auth_login   {"stdout": "...", "exit": 0, "delay": 0}    -> `claude auth login`
-    stream       {"get_usage": {"response": {...}} | {"error": "..."}, "delay": 0}
+    stream       {"get_usage": {...}, "delay": 0, "registry": false, "ignore_sigterm": false}
                                                              -> `claude -p --input-format stream-json …`
+                 get_usage handler, either legacy {"response": {...}} | {"error": "..."} or
+                 {"mode": ok|logged_out|malformed|slow|no_response|exit_early,
+                  "payload": {...} (ok/slow; default: fixtures/get_usage/ok_max.json),
+                  "delay_s": 0 (slow), "exit_on_eof": false (no_response)}
+                 Emits `system/hook_started` lines unless `--settings` disables all hooks.
+                 "registry": true writes <CLAUDE_CONFIG_DIR>/sessions/<pid>.json + <pid>.fake.key,
+                 removed again only on a graceful (stdin EOF) exit, like the real claude.
     print        {"stdout": "ok", "exit": 0, "delay": 0}     -> `claude -p <prompt>`
     interactive  {"banner": "FAKE-TUI ready"}                -> no subcommand (TUI mode)
 
@@ -21,11 +28,12 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import sys
 import time
 from typing import Any
 
-LOGGED_ENV_PREFIXES = ("CLAUDE_CONFIG_DIR", "CCS_")
+LOGGED_ENV_PREFIXES = ("CLAUDE", "CCS_", "AI_AGENT")
 
 
 def load_scenario() -> dict[str, Any]:
@@ -84,7 +92,102 @@ def finish(spec: dict[str, Any], default_stdout: str = "") -> int:
     return int(spec.get("exit", 0))
 
 
-def run_stream(spec: dict[str, Any]) -> int:
+FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fixtures", "get_usage")
+
+
+def fixture_payload(name: str) -> dict[str, Any]:
+    with open(os.path.join(FIXTURES, name), encoding="utf-8") as fh:
+        data = json.load(fh)
+    payload = data.get("response", {}).get("response", {})
+    return payload if isinstance(payload, dict) else {}
+
+
+def hooks_disabled(argv: list[str]) -> bool:
+    for i, arg in enumerate(argv):
+        if arg == "--settings" and i + 1 < len(argv):
+            try:
+                settings = json.loads(argv[i + 1])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(settings, dict) and settings.get("disableAllHooks") is True:
+                return True
+    return False
+
+
+def emit(obj: dict[str, Any]) -> None:
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+
+
+def registry_paths() -> list[str]:
+    base = os.environ.get("CLAUDE_CONFIG_DIR")
+    if not base:
+        return []
+    sessions = os.path.join(base, "sessions")
+    pid = os.getpid()
+    return [os.path.join(sessions, f"{pid}.json"), os.path.join(sessions, f"{pid}.fake.key")]
+
+
+def write_registry() -> None:
+    paths = registry_paths()
+    if not paths:
+        return
+    os.makedirs(os.path.dirname(paths[0]), exist_ok=True)
+    for path in paths:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({"pid": os.getpid(), "kind": "interactive"}))
+
+
+def remove_registry() -> None:
+    for path in registry_paths():
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+
+
+def hang_forever() -> None:
+    while True:
+        time.sleep(3600)
+
+
+def usage_response(handler: dict[str, Any], request_id: Any) -> dict[str, Any] | None:
+    """The control_response body for a get_usage handler (None = never answer)."""
+    mode = handler.get("mode")
+    if mode is None:  # legacy handler shape
+        if "error" in handler:
+            return {"subtype": "error", "request_id": request_id, "error": handler["error"]}
+        return {"subtype": "success", "request_id": request_id, "response": handler.get("response", {})}
+    if mode == "no_response":
+        return None
+    if mode == "slow":
+        time.sleep(float(handler.get("delay_s", 0)))
+    if mode in ("ok", "slow"):
+        payload = handler.get("payload")
+        if not isinstance(payload, dict):
+            payload = fixture_payload("ok_max.json")
+    elif mode == "logged_out":
+        payload = fixture_payload("logged_out.json")
+    elif mode == "malformed":
+        payload = {"rate_limits_available": True, "rate_limits": {"five_hour": "x"}}
+    else:
+        return {"subtype": "error", "request_id": request_id, "error": f"fake: bad mode {mode}"}
+    return {"subtype": "success", "request_id": request_id, "response": payload}
+
+
+def run_stream(spec: dict[str, Any], argv: list[str]) -> int:
+    if spec.get("ignore_sigterm"):
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    if spec.get("registry"):
+        write_registry()
+    if not hooks_disabled(argv):
+        for _ in range(3):
+            emit({"type": "system", "subtype": "hook_started"})
+    usage = spec.get("get_usage", {})
+    if isinstance(usage, dict) and usage.get("mode") == "exit_early":
+        sys.stderr.write(usage.get("stderr", "fake: startup failure") + "\n")
+        sys.stderr.flush()
+        return int(usage.get("exit", 1))
     delay = float(spec.get("delay", 0))
     for raw in sys.stdin:
         raw = raw.strip()
@@ -100,22 +203,18 @@ def run_stream(spec: dict[str, Any]) -> int:
         request_id = msg.get("request_id")
         subtype = request.get("subtype")
         handler = spec.get(subtype, {}) if isinstance(subtype, str) else {}
+        if not isinstance(handler, dict):
+            handler = {}
         if delay:
             time.sleep(delay)
-        if "error" in handler:
-            response: dict[str, Any] = {
-                "subtype": "error",
-                "request_id": request_id,
-                "error": handler["error"],
-            }
-        else:
-            response = {
-                "subtype": "success",
-                "request_id": request_id,
-                "response": handler.get("response", {}),
-            }
-        sys.stdout.write(json.dumps({"type": "control_response", "response": response}) + "\n")
-        sys.stdout.flush()
+        response = usage_response(handler, request_id)
+        if response is None:
+            if handler.get("exit_on_eof"):
+                continue
+            hang_forever()
+        emit({"type": "control_response", "response": response})
+    # stdin EOF: graceful exit, like the real claude (P00-S2)
+    remove_registry()
     return int(spec.get("exit", 0))
 
 
@@ -160,7 +259,7 @@ def main() -> int:
     if mode == "auth_login":
         return finish(spec, "Login successful.")
     if mode == "stream":
-        return run_stream(spec)
+        return run_stream(spec, argv)
     if mode == "print":
         return finish(spec, "ok")
     return run_interactive(spec)

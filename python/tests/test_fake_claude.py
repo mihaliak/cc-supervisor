@@ -68,8 +68,10 @@ def test_stream_get_usage(fake_claude: Callable[[dict[str, Any]], FakeClaude]) -
         stdin=json.dumps(request) + "\n",
     )
     assert result.returncode == 0
-    line = json.loads(result.stdout.splitlines()[0])
-    assert line["type"] == "control_response"
+    lines = [json.loads(raw) for raw in result.stdout.splitlines()]
+    # no --settings disableAllHooks → the fake emits hook lines first, like the real claude
+    assert [m["subtype"] for m in lines if m["type"] == "system"] == ["hook_started"] * 3
+    line = next(m for m in lines if m["type"] == "control_response")
     assert line["response"]["request_id"] == "r1"
     assert line["response"]["response"] == payload
 

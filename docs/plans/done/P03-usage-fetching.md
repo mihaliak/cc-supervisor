@@ -1,6 +1,6 @@
 # P03: Usage fetching & normalization
 
-- Status: todo
+- Status: done
 - Milestone: M1
 - Depends on: P00 (S2 fixtures and shapes), P02
 - ADRs: [0002](../../decisions/0002-usage-data-source.md), [0003](../../decisions/0003-authentication.md), [0005](../../decisions/0005-state-and-ipc.md), [0008](../../decisions/0008-limit-policy.md), [0013](../../decisions/0013-python-engineering.md), [0017](../../decisions/0017-cli-surface.md)
@@ -123,15 +123,15 @@
 - It emits the `system` hook lines only when `--settings` lacks `disableAllHooks` (to assert the flag is passed).
 
 ## Tasks
-- [ ] `usage/model.py` dataclasses plus `to_dict`/`from_dict` (ISO with `Z`).
-- [ ] `usage/normalize.py` plus `session_window_active` and `snapshot_from_error`.
-- [ ] `usage/merge.py` (`LiveReport` parsing tolerant of missing keys, `merge`, `apply_staleness`).
-- [ ] `claude_cli.py`: `resolve_claude`, `profile_env`, `run`, `probe_usage`, and the `agents_json`/`auth_status` wrappers.
-- [ ] `usage/source_claude.py`: `classify`, `fetch_snapshot`, `write_snapshot`, `read_snapshot`.
-- [ ] `schema/usage-snapshot.schema.json` and `schema/live-report.schema.json`.
-- [ ] Extend the fake claude with the `get_usage` modes and the hook-line emission.
-- [ ] CLI `ccs usage` (read, `--refresh` via daemon, or a direct probe that prints but doesn't write, `--json`, human format).
-- [ ] Copy or confirm the P00-S2 fixtures in `python/tests/fixtures/get_usage/`. Add `limits_only_scoped.json`, a hand-derived variant with `model_scoped` removed, to test the fallback.
+- [x] `usage/model.py` dataclasses plus `to_dict`/`from_dict` (ISO with `Z`).
+- [x] `usage/normalize.py` plus `session_window_active` and `snapshot_from_error`.
+- [x] `usage/merge.py` (`LiveReport` parsing tolerant of missing keys, `merge`, `apply_staleness`).
+- [x] `claude_cli.py`: `resolve_claude`, `profile_env`, `run`, `probe_usage`, and the `agents_json`/`auth_status` wrappers.
+- [x] `usage/source_claude.py`: `classify`, `fetch_snapshot`, `write_snapshot`, `read_snapshot`.
+- [x] `schema/usage-snapshot.schema.json` and `schema/live-report.schema.json`.
+- [x] Extend the fake claude with the `get_usage` modes and the hook-line emission.
+- [x] CLI `ccs usage` (read, `--refresh` via daemon, or a direct probe that prints but doesn't write, `--json`, human format).
+- [x] Copy or confirm the P00-S2 fixtures in `python/tests/fixtures/get_usage/`. Add `limits_only_scoped.json`, a hand-derived variant with `model_scoped` removed, to test the fallback.
 
 ## Tests
 - `test_normalize.py`, per fixture:
@@ -161,13 +161,43 @@
 - `11-troubleshooting.md`: `needs_sign_in`, `source_error` (Claude Code updated the experimental API), `stale`.
 
 ## Done when
-- [ ] `make test lint` passes.
-- [ ] `ccs usage --refresh --json` against the real `~/.claude` returns a correct snapshot (manual check, matching `/usage` in Claude Code).
-- [ ] Probes never leave child processes behind (verified by the test).
-- [ ] The manual pages above are updated.
+- [x] `make test lint` passes.
+- [x] `ccs usage --refresh --json` against the real `~/.claude` returns a correct snapshot (manual check, matching `/usage` in Claude Code).
+- [x] Probes never leave child processes behind (verified by the test).
+- [x] The manual pages above are updated.
 
 ## Risks & mitigations
 - **`get_usage` shape changes (experimental):** all mapping lives in `normalize.py` with fixture tests. `source_error` plus the previous data are kept, never zeros.
 - **The probe hangs if claude waits for more stdin:** a hard deadline plus kill of the process group.
 - **The logged-out error text is unstable:** combine the text matcher with an `auth status` confirmation (P09 wrapper) before marking `needs_sign_in`.
 - **Env leakage from a parent Claude session** (e.g. running inside Claude Code): strip `CLAUDECODE`/`CLAUDE_CODE_*` in `profile_env`.
+
+## Result
+- **Shipped:**
+  - `ccs/claude_cli.py`: `resolve_claude(cfg)`, `profile_env(profile, base=None)`, `run(argv, *, env, cwd, timeout, stdin_data)`, `probe_usage(claude, profile, *, timeout=15, env, cwd, graceful_s=5)`, `agents_json(claude, profile)`, `auth_status(claude, profile)`, `remove_registry_files(config_dir, pid)`; errors `ClaudeCliError` ⊃ `ClaudeNotFound`, `ClaudeTimeout`.
+  - `ccs/usage/`: `model.py` (`UsageSnapshot`, `Window`, `ScopedWindow`, `ExtraUsage`, `parse_time`, `format_iso`, `round_percent`, status/source constants), `normalize.py` (`normalize`, `MalformedPayload`, `window_key_time`, `session_window_active`, `snapshot_from_error`), `merge.py` (`LiveReport`, `parse_live_report`, `merge`, `apply_staleness`), `source_claude.py` (`needs_auth_check`, `classify`, `fetch_snapshot`, `write_snapshot`, `read_snapshot`, `read_live_reports`), `cli.py` (`ccs usage`).
+  - `ccs/daemon/client.py`: `DaemonClient` (JSON Lines, `proto: 1`, `hello()`, `request(op, **fields)`; skips pushed lines) and `daemon_available()`.
+  - `schema/usage-snapshot.schema.json`, `schema/live-report.schema.json`.
+  - Fake claude: `stream.get_usage.mode` `ok|logged_out|malformed|slow|no_response|exit_early`, hook-line emission unless `--settings` disables hooks, `registry` / `ignore_sigterm` options; the env log now covers `CLAUDE*`, `CCS_*`, `AI_AGENT`.
+  - Fixtures: hand-derived `get_usage/ok_no_window.json` (five_hour null) and `get_usage/limits_only_scoped.json` (model_scoped removed), each with a `_note`.
+- **Verification:**
+  - `make test lint`: 205 Python tests pass (1 live test skipped), the Swift tests pass, ruff and mypy `--strict` are clean. `make test-live`: 1 passed.
+  - Live smoke (scratch XDG, real `~/.claude` and `~/.claude-work`, read-only): `ccs usage --refresh --json` returned `ok` for both (max: session 26 %, weekly 53 %, Fable 4 %, extra off €0.00/€10.00; team: session 46 %, weekly 72 %, Fable 0 %, extra fields null) in 3.3 s for both profiles in parallel. Both real `sessions/` dirs were unchanged afterwards, and no usage file was written.
+  - Setting `CLAUDE_CONFIG_DIR` explicitly to `~/.claude` still finds the default login (`claude auth status` → `loggedIn: true`), so `profile_env` always sets it.
+- **Deviations:**
+  - `merge(snapshot, reports, *, now, profile_id=None) -> UsageSnapshot | None`: returns `None` when there is neither a snapshot nor a fresh report (the plan said it always returns a snapshot). Live windows whose `resets_at` has already passed are ignored too.
+  - `classify(result, auth)` is pure; `fetch_snapshot` calls `auth_status` only when `needs_auth_check(result)` is true. `rate_limits` unavailable with no auth answer → `source_error` ("auth status unknown"). An auth-looking error text is confirmed against `loggedIn` when available.
+  - `profile_env` also strips `CLAUDE_EFFORT`, `CLAUDE_PID`, `AI_AGENT` and `CCS_PROFILE` (on top of `CLAUDECODE`, `CLAUDE_CODE_*`, `CCS_WRAPPER_ID`), matching the P00-S2 probe env.
+  - Forced termination is SIGTERM → SIGKILL on the process group (the plan said kill). Registry files are removed after any forced termination, only for that pid.
+  - Probes and `run` use `warmup/cwd/` as their working directory (created on demand).
+  - Human output follows manual 05's multi-line layout (not the plan's one-liner), with a status line for non-ok profiles. `--json` adds `"ok": true` (P02 convention) and a per-entry `"source"`: `file`, `daemon` or `direct_probe`.
+  - Added a minimal `ccs/daemon/client.py` for `--refresh` via the daemon; P04 should extend it rather than write a second client.
+  - The `ok_max` fixture differs from the plan's example numbers (session 15/weekly 52/Fable 4); tests use the fixture.
+- **Test isolation fix:** the first probe tests resolved the default probe cwd to the real `~/.local/state/ccs/warmup/cwd` (empty dirs only). They were removed, and `tests/conftest.py` now has an autouse `_isolate_xdg` fixture pointing `XDG_CONFIG_HOME`/`XDG_STATE_HOME` at temp dirs for **every** test. After the full suite and `make test-live`, neither `~/.config/ccs` nor `~/.local/state/ccs` exists.
+- **For later plans:**
+  - **P04 (daemon poller):** `await fetch_snapshot(cfg, profile, previous=<last snapshot>, clock=clock, claude=<resolved path>)` then `write_snapshot(snap)` after **every** attempt. For display, `merge(snap, read_live_reports(pid), now=now, profile_id=pid)` then `apply_staleness`. Exclude your own probe pids from `agents_json` results (P00-S2: a running probe is listed as interactive/idle). The `refresh` op must reply `{"id", "ok": true}` and then rewrite `usage/<id>.json` (`ccs usage --refresh` waits up to 20 s for `polled_at` to move).
+  - **P06:** window-instance keys via `normalize.window_key_time(resets_at)`.
+  - **P07 (statusline):** write live reports in the `live-report.schema.json` shape with ISO `observed_at` via `paths.live_file(...)`; the reader also accepts `used_percentage` and epoch `resets_at`.
+  - **P08:** `session_window_active(snapshot, now)`.
+  - **P09:** reuse `claude_cli.auth_status(claude, profile)` (tolerates stray output, rc 1 when logged out) and `profile_env`.
+  - Unix socket paths must stay under ~104 bytes. Tests use a short `CCS_STATE_DIR` under `/tmp` (see `test_cli_usage.py`).

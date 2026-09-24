@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ccsupervisor/schema/live-report.schema.json",
+  "title": "Live report (live/<wrapper_id>.json or live/session-<session_id>.json)",
+  "description": "Written by the generated statusline (P07) from Claude Code's statusline stdin; read and merged by the daemon (P03 owns this format, ADR-0005). Rewritten when content changes or when older than 60 s.",
+  "type": "object",
+  "required": [
+    "schema",
+    "profile_id",
+    "observed_at",
+    "rate_limits"
+  ],
+  "properties": {
+    "schema": {
+      "const": 1
+    },
+    "profile_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "wrapper_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "session_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "model_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "effort": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "cwd": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "observed_at": {
+      "type": [
+        "string",
+        "integer",
+        "number"
+      ],
+      "description": "ISO 8601 UTC (preferred) or epoch seconds"
+    },
+    "rate_limits": {
+      "type": "object",
+      "properties": {
+        "five_hour": {
+          "$ref": "#/$defs/live_window"
+        },
+        "seven_day": {
+          "$ref": "#/$defs/live_window"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "live_window": {
+      "type": "object",
+      "properties": {
+        "percent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "used_percentage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "tolerated alias (raw statusline field)"
+        },
+        "resets_at": {
+          "type": [
+            "string",
+            "integer",
+            "number",
+            "null"
+          ],
+          "description": "ISO 8601 (preferred) or epoch seconds"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

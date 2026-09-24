@@ -21,6 +21,15 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             item.add_marker(skip_live)
 
 
+@pytest.fixture(autouse=True)
+def _isolate_xdg(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Safety net: no test may resolve the real ~/.config/ccs or ~/.local/state/ccs."""
+    base = tmp_path_factory.mktemp("xdg-guard")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(base / "config"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(base / "state"))
+    monkeypatch.delenv("CCS_STATE_DIR", raising=False)
+
+
 @dataclass(frozen=True)
 class XdgDirs:
     config_home: Path

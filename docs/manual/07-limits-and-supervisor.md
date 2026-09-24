@@ -88,6 +88,11 @@ They're counted and shown as "other sessions" in the menu bar, the large widget,
 - A limit warns once and pauses once per window. After a resume or an override, the same window won't pause you again.
 - A fresh window (new reset time) starts clean.
 
+## Where the numbers come from
+- **Claude Code itself.** The supervisor asks each profile's Claude Code for its usage, the same numbers `/usage` shows, using that profile's own sign-in. It takes about a second, uses no tokens, and never runs your hooks. CC Supervisor stores no passwords or tokens.
+- **Your running sessions.** Every statusline refresh reports the session and weekly percent Claude Code just received, so the supervisor reacts within seconds while you work. Model-scoped (Fable) and extra-usage numbers come only from the regular checks.
+- The newest number wins. Reset times are compared to the minute, so tiny timing differences never look like a new window.
+
 ## When data is missing or stale
 If fresh usage hasn't arrived for more than 10 minutes, or a profile needs sign-in:
 - **no new pauses** start, because the supervisor never pauses on guesses

@@ -55,13 +55,28 @@ Supervisor: running · polling every 60s
 ```
 
 ### `ccs usage [--profile <id>] [--refresh] [--json]`
-Only the usage numbers. `--refresh` fetches fresh data instead of using the last snapshot. When the supervisor is running, it refreshes through it; otherwise it asks Claude Code directly and just prints the result.
+Only the usage numbers, for every profile or just `--profile <id>`.
+- **Without `--refresh`:** shows the supervisor's last snapshot, plus any newer numbers your running sessions' statuslines reported.
+- **With `--refresh`:** fetches fresh data. When the supervisor is running, it asks it to poll now and waits up to 20 s. Otherwise it asks Claude Code directly (about 1–2 s per profile, all profiles in parallel) and **just prints** the result; it doesn't update the supervisor's files.
 ```
-💼 Work   Session 45%  20:00 (in 2h 13m)
-          Weekly  50%  Sat 08:00 (in 1d 13h)
-          Fable    4%  Sat 08:00 (in 1d 13h)
-          Extra usage off · €0.00 / €10.00
+💼 Work       Session  45%  20:00 (in 2h 13m)
+              Weekly   50%  Sat 08:00 (in 1d 13h)
+              Fable     4%  Sat 08:00 (in 1d 13h)
+              Extra usage off · €0.00 / €10.00
+🏠 Personal   Session  26%  22:00 (in 1h 40m)
+              …
 ```
+A last line explains any problem:
+
+| Line | Meaning |
+|------|---------|
+| `no data yet · run: ccs usage --refresh` | The supervisor hasn't polled this profile yet |
+| `⚠ stale · updated 14m ago` | No fresh data for more than 10 minutes |
+| `⚠ sign in required · run: ccs auth login --profile work` | The profile's Claude Code login is missing or expired |
+| `no plan limits (API key or no Claude subscription)` | The account has no plan limits to track |
+| `⚠ usage unavailable: …` | Claude Code couldn't report usage (see [Troubleshooting](11-troubleshooting.md)) |
+
+`--json` prints `{"ok": true, "profiles": [ … ]}`. Each entry is the profile's usage snapshot (the `usage/<profile>.json` format, `schema/usage-snapshot.schema.json`) plus `"source"`: `file`, `daemon`, or `direct_probe`. A profile without data is `{"profile_id": "work", "status": "no_data", "hint": "…"}`.
 
 ### `ccs sessions [--profile <id>] [--json]`
 Supervised `ccs` sessions, plus other Claude Code sessions of each profile (background agents and plain `claude`), which are listed but not supervised.

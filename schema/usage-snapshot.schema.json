@@ -1,0 +1,231 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ccsupervisor/schema/usage-snapshot.schema.json",
+  "title": "UsageSnapshot (usage/<profile_id>.json)",
+  "description": "Normalized per-profile usage written by the daemon after every poll attempt (ADR-0005). Times are UTC `YYYY-MM-DDTHH:MM:SSZ`.",
+  "type": "object",
+  "required": [
+    "schema",
+    "profile_id",
+    "status",
+    "error",
+    "fetched_at",
+    "polled_at",
+    "subscription_type",
+    "windows",
+    "extra_usage"
+  ],
+  "properties": {
+    "schema": {
+      "const": 1
+    },
+    "profile_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "ok",
+        "needs_sign_in",
+        "no_subscription",
+        "source_error",
+        "stale"
+      ]
+    },
+    "error": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "fetched_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time",
+      "description": "last successful get_usage"
+    },
+    "polled_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time",
+      "description": "last poll attempt, success or failure"
+    },
+    "subscription_type": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "windows": {
+      "type": "object",
+      "required": [
+        "session",
+        "weekly",
+        "model_scoped"
+      ],
+      "properties": {
+        "session": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/window"
+            }
+          ]
+        },
+        "weekly": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/window"
+            }
+          ]
+        },
+        "model_scoped": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/scoped_window"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "extra_usage": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/extra_usage"
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "window": {
+      "type": "object",
+      "required": [
+        "percent",
+        "resets_at",
+        "observed_at",
+        "source"
+      ],
+      "properties": {
+        "percent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "resets_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "source": {
+          "enum": [
+            "get_usage",
+            "statusline"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "scoped_window": {
+      "type": "object",
+      "required": [
+        "name",
+        "percent",
+        "resets_at",
+        "observed_at"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "percent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "resets_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false
+    },
+    "extra_usage": {
+      "type": "object",
+      "required": [
+        "enabled",
+        "percent",
+        "used",
+        "limit",
+        "currency",
+        "disabled_reason"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "percent": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "may exceed 100"
+        },
+        "used": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "major units (minor / 10^decimal_places)"
+        },
+        "limit": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "monthly cap, major units"
+        },
+        "currency": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "disabled_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
