@@ -15,22 +15,27 @@ On first run (the first `ccs` command that needs the config), the config file is
 Edit or delete them freely.
 
 ## Editing profiles in the app
-Menu bar → **Settings… → Profiles**. Select a profile, or click **+** to add one.
+Menu bar → **Settings… → Profiles** (or the ⚙ on a profile card, or click a widget). The list shows each profile's emoji, name, launcher flag, a sign-in dot (green = signed in, orange = signed out) and a red ⚠ when it has invalid settings.
 
-| Field | Meaning |
-|-------|---------|
-| ID | Internal identifier (`a–z`, `0–9`, `-`, up to 32 characters). Set once and can't be changed later. |
-| Flag | Launcher flag: `work` means `ccs --work`. |
-| Name | Shown in widgets, the menu bar, and the statusline. |
-| Emoji | Profile icon, used everywhere, including the terminal statusline. |
-| Config dir | Claude Code config folder. Pick one with the folder picker; hidden folders are shown. |
-| Sign-in | Status, plus **Sign in** / **Sign out** buttons (see below). |
-| Limits | Warn and pause thresholds for session, weekly, model-scoped, and extra usage, plus the **Fable warn-only** and **Spill into credits** toggles (see [Limits & supervisor](07-limits-and-supervisor.md)). |
-| Supervisor | On/off, and the **resume prompt** typed into paused sessions after a reset. |
-| Statusline | On/off, preview, **Apply** / **Revert** (see [Statusline](06-statusline.md)). |
-| Warm-up | Model, prompt, triggers, schedule, active hours, cooldown (see [Warm-up](08-warm-up.md)). |
+| Section | Fields |
+|---------|--------|
+| Identity | **ID** (read-only: set once when the profile is added), **Launcher flag** (`work` → `ccs --work`, shown live), **Name**, **Emoji** (type one, or click 😀 for the emoji palette), **Claude config dir** (type a path and press Return, or **Choose…**; hidden folders are shown, paths in your home are stored as `~/…`), **Default profile** (**Make default** sets `default_profile`). |
+| Account | Sign-in status, account, subscription and the Keychain item name, plus **Sign in…** / **Sign out…** (see below). |
+| Limits | Warn and pause thresholds (1–100 %) for session, weekly, model-scoped and extra usage, plus the **Fable warn-only** and **Spill into credits** toggles (see [Limits & supervisor](07-limits-and-supervisor.md)). |
+| Supervisor | On/off, and the **resume prompt** typed into interrupted sessions after a reset. |
+| Statusline | On/off, a colored preview of every state, **Apply to settings.json** / **Revert** (see [Statusline](06-statusline.md)). |
+| Warm-up | On/off, model, prompt, triggers, scheduled times, active hours, cooldown, plus the next and last warm-up (see [Warm-up](08-warm-up.md)). |
 
-Changes are saved to `~/.config/ccs/config.json`, validated right away (errors show inline), and picked up by the supervisor within about 2 seconds.
+How saving works:
+- Changes are written to `~/.config/ccs/config.json` about half a second after you stop typing (and when you close the window), in exactly the format `ccs` writes. Keys the app doesn't know are kept.
+- After each save the app runs `ccs config validate`. Problems show in red under the field, and a banner says the config is invalid. Invalid values stay in the file until you fix them; the supervisor keeps using the last valid config meanwhile.
+- The supervisor picks up valid changes within about 2 seconds.
+- If `ccs` (or another window) changes the same setting while you're editing, the app asks: **Keep mine** or **Take theirs**. Changes to other settings are merged automatically.
+- If there's no config file yet, a banner offers **Create config** (the same as running `ccs profile list`, which creates the default profiles).
+
+**Add** (the **+** under the list): enter ID, launcher flag (defaults to the ID), name, emoji, config dir, and optionally make it the default. The app runs `ccs profile add`, so every other setting starts from the defaults.
+
+**Remove** (the **−**): after you confirm, the app runs `ccs profile remove`. Only the CC Supervisor profile is removed; the Claude config dir and its sign-in stay. If it was the default profile, the next profile becomes the default.
 
 ## Same thing from the terminal
 ```sh
@@ -63,7 +68,7 @@ ccs profile remove client
 - For the default `~/.claude`, `ccs` doesn't set `CLAUDE_CONFIG_DIR` at all, so Claude Code keeps using `~/.claude.json` for its global state, just like plain `claude`.
 
 ## Signing in (via claude.ai)
-- **App:** Settings → Profiles → *profile* → **Sign in**, or click a widget that says *Sign in required*.
+- **App:** Settings → Profiles → *profile* → Account → **Sign in…** (**Sign in again…** when already signed in), or click a widget that says *Sign in required*. While it waits for the browser, **Cancel** stops it.
 - **Terminal:** `ccs auth login --profile work`
 
 What happens:
@@ -99,7 +104,7 @@ The app shows the same status per profile. When a profile's login expires or is 
 - warm-ups for that profile are skipped
 
 ## Signing out
-- **App:** Settings → Profiles → *profile* → **Sign out** (the app asks you to confirm).
+- **App:** Settings → Profiles → *profile* → Account → **Sign out…** (the app asks you to confirm).
 - **Terminal:** `ccs auth logout --profile work`, which asks `Log out 💼 Work (~/.claude-work)? [y/N]`.
 
 This signs that config dir out of Claude Code itself, so plain `claude` with that dir is signed out too.

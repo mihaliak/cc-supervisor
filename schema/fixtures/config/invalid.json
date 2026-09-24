@@ -1,0 +1,132 @@
+{
+  "ccs_path": null,
+  "claude_path": null,
+  "default_profile": "work",
+  "display": {
+    "menu_bar": "big"
+  },
+  "notifications": {
+    "errors": true,
+    "limit_pause": true,
+    "limit_resume": true,
+    "limit_warn": true,
+    "warmup": true
+  },
+  "polling": {
+    "fast_interval_seconds": 20,
+    "fast_when_percent_at_least": 70,
+    "idle_interval_seconds": 120,
+    "interval_seconds": 60
+  },
+  "profiles": [
+    {
+      "config_dir": "/tmp/cfg-work",
+      "emoji": "💼",
+      "flag": "work",
+      "id": "work",
+      "limits": {
+        "extra_usage": {
+          "pause": 90,
+          "spill": false,
+          "warn": 80
+        },
+        "model_scoped": {
+          "pause": 95,
+          "warn": 80,
+          "warn_only": false
+        },
+        "session": {
+          "pause": 90,
+          "warn": 80
+        },
+        "weekly": {
+          "pause": 95,
+          "warn": 80
+        }
+      },
+      "name": "Work",
+      "statusline": {
+        "enabled": true
+      },
+      "supervisor": {
+        "enabled": true,
+        "resume_prompt": "The usage limit window has reset. Continue exactly where you left off."
+      },
+      "warmup": {
+        "active_hours": {
+          "end": "23:00",
+          "start": "07:00"
+        },
+        "cooldown_minutes": 10,
+        "enabled": true,
+        "model": "haiku",
+        "prompt": "Reply with just: ok",
+        "triggers": {
+          "app_start": true,
+          "auto_chain": true,
+          "schedule": [],
+          "unlock_wake": true
+        }
+      }
+    },
+    {
+      "config_dir": "/tmp/cfg-lab",
+      "emoji": "🧪",
+      "flag": "model",
+      "id": "lab",
+      "limits": {
+        "extra_usage": {
+          "pause": 90,
+          "spill": false,
+          "warn": 80
+        },
+        "model_scoped": {
+          "pause": 95,
+          "warn": 80,
+          "warn_only": false
+        },
+        "session": {
+          "pause": 90,
+          "warn": 95
+        },
+        "weekly": {
+          "pause": 95,
+          "warn": 80
+        }
+      },
+      "name": "Lab",
+      "statusline": {
+        "enabled": true
+      },
+      "supervisor": {
+        "enabled": true,
+        "resume_prompt": "The usage limit window has reset. Continue exactly where you left off."
+      },
+      "warmup": {
+        "active_hours": {
+          "end": "23:00",
+          "start": "07:00"
+        },
+        "cooldown_minutes": 10,
+        "enabled": true,
+        "model": "haiku",
+        "prompt": "Reply with just: ok",
+        "triggers": {
+          "app_start": true,
+          "auto_chain": true,
+          "schedule": [
+            {
+              "time": "6:00",
+              "weekdays": [
+                "mon"
+              ]
+            }
+          ],
+          "unlock_wake": true
+        }
+      }
+    }
+  ],
+  "revision": 1,
+  "version": 1
+}

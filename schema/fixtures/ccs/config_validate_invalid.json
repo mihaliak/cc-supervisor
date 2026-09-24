@@ -1,0 +1,23 @@
+{
+  "issues": [
+    {
+      "message": "must be \"emoji_percent\" or \"icon_only\"",
+      "path": "display.menu_bar"
+    },
+    {
+      "message": "'model' is reserved (ccs or claude option)",
+      "path": "profiles[1].flag"
+    },
+    {
+      "message": "warn (95) must be lower than pause (90)",
+      "path": "profiles[1].limits.session.warn"
+    },
+    {
+      "message": "must be a 24h time HH:MM",
+      "path": "profiles[1].warmup.triggers.schedule[0].time"
+    }
+  ],
+  "ok": false,
+  "path": "/tmp/ccs-config/config.json",
+  "revision": 1
+}

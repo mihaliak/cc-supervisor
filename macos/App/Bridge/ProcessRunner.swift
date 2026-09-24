@@ -48,7 +48,8 @@ private final class ProcessBox: @unchecked Sendable {
 
 enum ProcessRunner {
     /// Run `executable` off the main actor, capturing stdout/stderr; terminate
-    /// (SIGTERM, then SIGKILL after 2 s) when `timeout` elapses.
+    /// (SIGTERM, then SIGKILL after 2 s) when `timeout` elapses or the calling task is
+    /// cancelled (e.g. the user cancels a long sign-in).
     static func run(
         executable: URL,
         arguments: [String],
@@ -68,48 +69,61 @@ enum ProcessRunner {
         let stdoutBuf = LockedData()
         let stderrBuf = LockedData()
         let timedOut = LockedFlag()
+        let cancelled = LockedFlag()
         let box = ProcessBox(process)
         let readers = DispatchGroup()
 
-        return try await withCheckedThrowingContinuation { continuation in
-            process.terminationHandler = { finished in
-                let status = finished.terminationStatus
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                process.terminationHandler = { finished in
+                    let status = finished.terminationStatus
+                    DispatchQueue.global().async {
+                        // A grandchild could keep the pipe open; don't wait forever for EOF.
+                        _ = readers.wait(timeout: .now() + 2)
+                        continuation.resume(returning: ProcessResult(
+                            status: status,
+                            stdout: stdoutBuf.value,
+                            stderr: stderrBuf.value,
+                            timedOut: timedOut.value
+                        ))
+                    }
+                }
+                do {
+                    try process.run()
+                } catch {
+                    process.terminationHandler = nil
+                    continuation.resume(throwing: CcsError.launch(error.localizedDescription))
+                    return
+                }
+                if cancelled.value { terminate(box) }
+                readers.enter()
                 DispatchQueue.global().async {
-                    // A grandchild could keep the pipe open; don't wait forever for EOF.
-                    _ = readers.wait(timeout: .now() + 2)
-                    continuation.resume(returning: ProcessResult(
-                        status: status,
-                        stdout: stdoutBuf.value,
-                        stderr: stderrBuf.value,
-                        timedOut: timedOut.value
-                    ))
+                    stdoutBuf.set(outPipe.fileHandleForReading.readDataToEndOfFile())
+                    readers.leave()
+                }
+                readers.enter()
+                DispatchQueue.global().async {
+                    stderrBuf.set(errPipe.fileHandleForReading.readDataToEndOfFile())
+                    readers.leave()
+                }
+                DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                    guard box.process.isRunning else { return }
+                    timedOut.set()
+                    terminate(box)
                 }
             }
-            do {
-                try process.run()
-            } catch {
-                process.terminationHandler = nil
-                continuation.resume(throwing: CcsError.launch(error.localizedDescription))
-                return
-            }
-            readers.enter()
-            DispatchQueue.global().async {
-                stdoutBuf.set(outPipe.fileHandleForReading.readDataToEndOfFile())
-                readers.leave()
-            }
-            readers.enter()
-            DispatchQueue.global().async {
-                stderrBuf.set(errPipe.fileHandleForReading.readDataToEndOfFile())
-                readers.leave()
-            }
-            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
-                guard box.process.isRunning else { return }
-                timedOut.set()
-                box.process.terminate()
-                DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
-                    if box.process.isRunning { kill(box.process.processIdentifier, SIGKILL) }
-                }
-            }
+        } onCancel: {
+            cancelled.set()
+            terminate(box)
+        }
+    }
+
+    /// SIGTERM now, SIGKILL after 2 s if it is still running.
+    private static func terminate(_ box: ProcessBox) {
+        guard box.process.isRunning else { return }
+        box.process.terminate()
+        DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
+            if box.process.isRunning { kill(box.process.processIdentifier, SIGKILL) }
         }
     }
 }

@@ -1,0 +1,398 @@
+{
+  "ok": true,
+  "profile_id": "lab",
+  "samples": [
+    {
+      "ansi": "🧪 Lab\u001b[90m ~ \u001b[0mproject\u001b[90m ~ \u001b[0mOpus 5.5 / xhigh\u001b[90m ~ \u001b[0m\u001b[32m45% ▓▓▓▓▓░░░░░\u001b[0m 23:41 (in 2h 13m)",
+      "plain": "🧪 Lab ~ project ~ Opus 5.5 / xhigh ~ 45% ▓▓▓▓▓░░░░░ 23:41 (in 2h 13m)",
+      "segments": [
+        {
+          "color": "plain",
+          "text": "🧪 Lab"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "plain",
+          "text": "project"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "plain",
+          "text": "Opus 5.5 / xhigh"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "green",
+          "text": "45% ▓▓▓▓▓░░░░░"
+        },
+        {
+          "color": "plain",
+          "text": " 23:41 (in 2h 13m)"
+        }
+      ],
+      "state": "normal"
+    },
+    {
+      "ansi": "🧪 Lab\u001b[90m ~ \u001b[0mproject\u001b[90m ~ \u001b[0mOpus 5.5 / xhigh\u001b[90m ~ \u001b[0m\u001b[31m⚠ 84% ▓▓▓▓▓▓▓▓░░\u001b[0m 23:41 (in 2h 13m) · limit approaching",
+      "plain": "🧪 Lab ~ project ~ Opus 5.5 / xhigh ~ ⚠ 84% ▓▓▓▓▓▓▓▓░░ 23:41 (in 2h 13m) · limit approaching",
+      "segments": [
+        {
+          "color": "plain",
+          "text": "🧪 Lab"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "plain",
+          "text": "project"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "plain",
+          "text": "Opus 5.5 / xhigh"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "red",
+          "text": "⚠ 84% ▓▓▓▓▓▓▓▓░░"
+        },
+        {
+          "color": "plain",
+          "text": " 23:41 (in 2h 13m) · limit approaching"
+        }
+      ],
+      "state": "warn"
+    },
+    {
+      "ansi": "🧪 Lab\u001b[90m ~ \u001b[0mproject\u001b[90m ~ \u001b[0mOpus 5.5 / xhigh\u001b[90m ~ \u001b[0m\u001b[31m⏸ 90% ▓▓▓▓▓▓▓▓▓░\u001b[0m paused → resumes 22:10 (in 42m)",
+      "plain": "🧪 Lab ~ project ~ Opus 5.5 / xhigh ~ ⏸ 90% ▓▓▓▓▓▓▓▓▓░ paused → resumes 22:10 (in 42m)",
+      "segments": [
+        {
+          "color": "plain",
+          "text": "🧪 Lab"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "plain",
+          "text": "project"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "plain",
+          "text": "Opus 5.5 / xhigh"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "red",
+          "text": "⏸ 90% ▓▓▓▓▓▓▓▓▓░"
+        },
+        {
+          "color": "plain",
+          "text": " paused → resumes 22:10 (in 42m)"
+        }
+      ],
+      "state": "paused"
+    },
+    {
+      "ansi": "🧪 Lab\u001b[90m ~ \u001b[0mproject\u001b[90m ~ \u001b[0mOpus 5.5 / xhigh\u001b[90m ~ \u001b[0m\u001b[31m⚠ 91% ▓▓▓▓▓▓▓▓▓░\u001b[0m 23:41 (in 2h 13m) · override",
+      "plain": "🧪 Lab ~ project ~ Opus 5.5 / xhigh ~ ⚠ 91% ▓▓▓▓▓▓▓▓▓░ 23:41 (in 2h 13m) · override",
+      "segments": [
+        {
+          "color": "plain",
+          "text": "🧪 Lab"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "plain",
+          "text": "project"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "plain",
+          "text": "Opus 5.5 / xhigh"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "red",
+          "text": "⚠ 91% ▓▓▓▓▓▓▓▓▓░"
+        },
+        {
+          "color": "plain",
+          "text": " 23:41 (in 2h 13m) · override"
+        }
+      ],
+      "state": "overridden"
+    },
+    {
+      "ansi": "🧪 Lab\u001b[90m ~ \u001b[0mproject\u001b[90m ~ \u001b[0mOpus 5.5 / xhigh\u001b[90m ~ \u001b[0m\u001b[90m?% ░░░░░░░░░░\u001b[0m",
+      "plain": "🧪 Lab ~ project ~ Opus 5.5 / xhigh ~ ?% ░░░░░░░░░░",
+      "segments": [
+        {
+          "color": "plain",
+          "text": "🧪 Lab"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "plain",
+          "text": "project"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "plain",
+          "text": "Opus 5.5 / xhigh"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "gray",
+          "text": "?% ░░░░░░░░░░"
+        }
+      ],
+      "state": "no_data"
+    },
+    {
+      "ansi": "🧪 Lab\u001b[90m ~ \u001b[0mproject\u001b[90m ~ \u001b[0mOpus 5.5 / xhigh\u001b[90m ~ \u001b[0m\u001b[32m45% ▓▓▓▓▓░░░░░\u001b[0m 23:41 (in 2h 13m)\u001b[90m ~ \u001b[0m\u001b[31mW ⚠ 86%\u001b[0m Sun 00:28",
+      "plain": "🧪 Lab ~ project ~ Opus 5.5 / xhigh ~ 45% ▓▓▓▓▓░░░░░ 23:41 (in 2h 13m) ~ W ⚠ 86% Sun 00:28",
+      "segments": [
+        {
+          "color": "plain",
+          "text": "🧪 Lab"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "plain",
+          "text": "project"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "plain",
+          "text": "Opus 5.5 / xhigh"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "green",
+          "text": "45% ▓▓▓▓▓░░░░░"
+        },
+        {
+          "color": "plain",
+          "text": " 23:41 (in 2h 13m)"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "red",
+          "text": "W ⚠ 86%"
+        },
+        {
+          "color": "plain",
+          "text": " Sun 00:28"
+        }
+      ],
+      "state": "weekly_warn"
+    },
+    {
+      "ansi": "🧪 Lab\u001b[90m ~ \u001b[0mproject\u001b[90m ~ \u001b[0mOpus 5.5 / xhigh\u001b[90m ~ \u001b[0m\u001b[32m45% ▓▓▓▓▓░░░░░\u001b[0m 23:41 (in 2h 13m)\u001b[90m ~ \u001b[0m\u001b[31mFable ⚠ 82%\u001b[0m Sun 00:28",
+      "plain": "🧪 Lab ~ project ~ Opus 5.5 / xhigh ~ 45% ▓▓▓▓▓░░░░░ 23:41 (in 2h 13m) ~ Fable ⚠ 82% Sun 00:28",
+      "segments": [
+        {
+          "color": "plain",
+          "text": "🧪 Lab"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "plain",
+          "text": "project"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "plain",
+          "text": "Opus 5.5 / xhigh"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "green",
+          "text": "45% ▓▓▓▓▓░░░░░"
+        },
+        {
+          "color": "plain",
+          "text": " 23:41 (in 2h 13m)"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "red",
+          "text": "Fable ⚠ 82%"
+        },
+        {
+          "color": "plain",
+          "text": " Sun 00:28"
+        }
+      ],
+      "state": "model_scoped_warn"
+    },
+    {
+      "ansi": "🧪 Lab\u001b[90m ~ \u001b[0mproject\u001b[90m ~ \u001b[0mOpus 5.5 / xhigh\u001b[90m ~ \u001b[0m\u001b[31m⚠ 100% ▓▓▓▓▓▓▓▓▓▓\u001b[0m 23:41 (in 2h 13m) · limit approaching\u001b[90m ~ \u001b[0m\u001b[32m€ 3.20/10.00\u001b[0m",
+      "plain": "🧪 Lab ~ project ~ Opus 5.5 / xhigh ~ ⚠ 100% ▓▓▓▓▓▓▓▓▓▓ 23:41 (in 2h 13m) · limit approaching ~ € 3.20/10.00",
+      "segments": [
+        {
+          "color": "plain",
+          "text": "🧪 Lab"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "plain",
+          "text": "project"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "plain",
+          "text": "Opus 5.5 / xhigh"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "red",
+          "text": "⚠ 100% ▓▓▓▓▓▓▓▓▓▓"
+        },
+        {
+          "color": "plain",
+          "text": " 23:41 (in 2h 13m) · limit approaching"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "green",
+          "text": "€ 3.20/10.00"
+        }
+      ],
+      "state": "spill"
+    },
+    {
+      "ansi": "🧪 Lab\u001b[90m ~ \u001b[0mproject\u001b[90m ~ \u001b[0mOpus 5.5 / xhigh\u001b[90m ~ \u001b[0m\u001b[32m45% ▓▓▓▓▓░░░░░\u001b[0m 23:41 (in 2h 13m)\u001b[90m ~ \u001b[0m\u001b[33m⚠ supervisor offline\u001b[0m",
+      "plain": "🧪 Lab ~ project ~ Opus 5.5 / xhigh ~ 45% ▓▓▓▓▓░░░░░ 23:41 (in 2h 13m) ~ ⚠ supervisor offline",
+      "segments": [
+        {
+          "color": "plain",
+          "text": "🧪 Lab"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "plain",
+          "text": "project"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "plain",
+          "text": "Opus 5.5 / xhigh"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "green",
+          "text": "45% ▓▓▓▓▓░░░░░"
+        },
+        {
+          "color": "plain",
+          "text": " 23:41 (in 2h 13m)"
+        },
+        {
+          "color": "gray",
+          "text": " ~ "
+        },
+        {
+          "color": "yellow",
+          "text": "⚠ supervisor offline"
+        }
+      ],
+      "state": "supervisor_offline"
+    }
+  ],
+  "status": {
+    "applied": false,
+    "script_current": false,
+    "script_path": "/tmp/cfg-lab/ccs-statusline.py"
+  }
+}

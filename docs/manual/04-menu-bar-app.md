@@ -69,10 +69,10 @@ Both need the supervisor to be running; when it isn't, the trigger is skipped.
 ## Settings window
 | Tab | Contents |
 |-----|----------|
-| General | Launch at login, menu bar label mode, notification toggles ([Notifications](09-notifications.md)), path to `ccs`, daemon status with Start / Stop / Restart |
-| Profiles | Profile list plus the editor: identity, sign-in, limits, supervisor, statusline, warm-up ([Profiles & sign-in](02-profiles-and-sign-in.md)) |
+| General | **ccs**: path (`ccs_path`, **Browse…**, empty = `~/.local/bin/ccs`) and version. **Menu bar**: label mode. **Notifications**: one toggle per kind ([Notifications](09-notifications.md)) and a shortcut to System Settings › Notifications. **Login item**: Launch at login, with its status. **Daemon**: status (running, pid, uptime) with **Install / Start / Stop / Restart / Show logs**. **Diagnostics**: **Run diagnostics** (`ccs doctor`) lists each check with a fix hint. **Display**: the color thresholds and time format (read-only). |
+| Profiles | Profile list (sign-in dot, ⚠ for invalid settings, **+** / **−**) plus the editor: identity, account, limits, supervisor, statusline, warm-up ([Profiles & sign-in](02-profiles-and-sign-in.md)) |
 
-Every change is validated immediately. Invalid values are shown inline and aren't applied.
+Changes are saved about half a second after you stop typing and are then checked with `ccs config validate`. Invalid values are marked in red and a banner appears; they stay in the file until you fix them, and the supervisor keeps using the last valid config meanwhile. Settings that change elsewhere while the window is open show up within about 2 seconds; if you and another program changed the same setting, the app asks which to keep.
 
 ## Launch at login
 Settings → General → **Launch at login**. It stays off until you turn it on (or run `make install`, which turns it on). Keep it on: without the app running, notifications fall back to plain script notifications, and app-start and unlock/wake warm-ups don't happen.

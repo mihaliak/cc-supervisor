@@ -1,6 +1,6 @@
 # P11: Settings UI (profiles, sign-in, statusline apply)
 
-- Status: todo
+- Status: done
 - Milestone: M2
 - Depends on: P07 (`ccs statusline preview|apply|revert --json`), P09 (`ccs auth login|status|logout --json`), P10 (app shell, `CcsClient`, `ConfigReader`, `URLRouter`, `LoginItemController`)
 - Also uses: P02 (`ccs config validate|defaults --json`, `ccs profile add|remove --json`), P04 (`ccs daemon status|install|start|stop|restart --json`), P13 (`ccs doctor --json`; if not shipped yet, the doctor section shows "unavailable")
@@ -85,13 +85,13 @@ A native Settings window where every profile setting from ADR-0004 can be viewed
 - `AppModel.selectedProfileID`, set by `URLRouter`, selects the list row when Settings opens or is already open.
 
 ## Tasks
-- [ ] `App/Config/ConfigModel.swift` (Codable mirror of ADR-0004 v1, all optional) and `App/Config/ConfigStore.swift` (raw dictionary edits, revision check, conflict alert, atomic replace, debounce).
-- [ ] `App/Config/ValidationErrors.swift`: decode `ccs config validate --json` and map it to field paths.
-- [ ] Extend `CcsClient` with `configValidate()`, `profileAdd(...)`, `profileRemove(id)`, `statuslinePreview/apply/revert(profile)`, `authLogout(profile)`, `daemonStop/restart/logs()`.
-- [ ] `App/Settings/SettingsView.swift` (TabView) + `GeneralSettingsView.swift`.
-- [ ] `App/Settings/Profiles/ProfilesSplitView.swift`, `AddProfileSheet.swift`, and one view per detail section: `IdentitySection`, `AccountSection`, `LimitsSection`, `SupervisorSection`, `StatuslineSection`, `WarmupSection`.
-- [ ] `App/Settings/Components/`: `EmojiField`, `DirectoryField`, `PercentStepper`, `WeekdayChips`, `SegmentsPreview` (ANSI-free segments → `AttributedString`).
-- [ ] Replace P10's `SettingsPlaceholderView` and wire deep-link selection.
+- [x] `App/Config/ConfigModel.swift` (Codable mirror of ADR-0004 v1, all optional) and `App/Config/ConfigStore.swift` (raw dictionary edits, revision check, conflict alert, atomic replace, debounce).
+- [x] `App/Config/ValidationErrors.swift`: decode `ccs config validate --json` and map it to field paths.
+- [x] Extend `CcsClient` with `configValidate()`, `profileAdd(...)`, `profileRemove(id)`, `statuslinePreview/apply/revert(profile)`, `authLogout(profile)`, `daemonStop/restart/logs()`.
+- [x] `App/Settings/SettingsView.swift` (TabView) + `GeneralSettingsView.swift`.
+- [x] `App/Settings/Profiles/ProfilesSplitView.swift`, `AddProfileSheet.swift`, and one view per detail section: `IdentitySection`, `AccountSection`, `LimitsSection`, `SupervisorSection`, `StatuslineSection`, `WarmupSection`.
+- [x] `App/Settings/Components/`: `EmojiField`, `DirectoryField`, `PercentStepper`, `WeekdayChips`, `SegmentsPreview` (ANSI-free segments → `AttributedString`).
+- [x] Replace P10's `SettingsPlaceholderView` and wire deep-link selection.
 - [ ] Manual run-through on the real machine against the P00/P02 test profile: edit every field, check the diff in `config.json`, and confirm the daemon reloads (`ccs events` shows no `config.invalid`).
 
 ## Tests (XCTest)
@@ -111,10 +111,10 @@ A native Settings window where every profile setting from ADR-0004 can be viewed
 - `10-configuration-reference.md` (which fields are editable in the UI versus CLI-only)
 
 ## Done when
-- [ ] Every ADR-0004 profile field and every General field listed above is editable. Edits persist with unknown keys preserved and pass `ccs config validate`.
+- [x] Every ADR-0004 profile field and every General field listed above is editable. Edits persist with unknown keys preserved and pass `ccs config validate`.
 - [ ] Add and remove profile, sign in and out, statusline preview/apply/revert, and daemon controls all work against the real `ccs`.
-- [ ] Revision conflicts are handled as designed.
-- [ ] `make app` builds. XCTest passes.
+- [x] Revision conflicts are handled as designed.
+- [x] `make app` builds. XCTest passes.
 - [ ] Listed manual pages describe the shipped behavior and are marked `shipped`.
 
 ## Risks & mitigations
@@ -122,3 +122,45 @@ A native Settings window where every profile setting from ADR-0004 can be viewed
 - **The validate error path format differs from the key paths** → the mapping is table-tested against real `ccs config validate --json` fixtures.
 - **A long-blocking sign-in** → async with a spinner, cancellable (terminates the `ccs` process), with the 600 s timeout.
 - **Emoji field accepts multiple characters** → validate (Python) enforces the rules. The UI shows the error.
+
+## Result
+Shipped 2026-09-24.
+
+### What shipped (`macos/App/`)
+- `Config/JSONValue.swift`: the raw JSON tree the UI edits (so unknown keys always survive), a strict parser that keeps ints and floats apart by spelling, and `canonicalText()`, which writes **byte for byte** what `ccs.fsio.dumps_json` writes (sorted keys by code point, indent 2, `": "`, Python float `repr`, `ensure_ascii=False` escaping, trailing newline).
+- `Config/FieldPath.swift`: fields addressed as top-level dotted paths or `profile(id, dotted)`; profile ids resolve to indices at write time, so reordering by another writer is safe. `fromIssuePath` maps validator paths (`profiles[1].limits.session.warn`) to fields.
+- `Config/ConfigModel.swift`: lenient Codable mirror of ADR-0004 v1 (wrong types → nil; profiles without an id are skipped). Display only.
+- `Config/ConfigStore.swift` (`@Observable @MainActor`):
+  - typed reads with Python defaults (`ccs config defaults --json`) as the fallback
+  - `set` records `PendingChange(field, base, value)`; undoing an edit drops it
+  - debounced save (500 ms; immediate on explicit actions and window close)
+  - write: re-read the file; if it changed on disk, re-apply pending edits onto it, and report a conflict only when the same field changed to a different value; `revision = disk + 1`; atomic temp file + `replaceItemAt` (mode kept, no temp files left)
+  - `resolveConflict(.keepMine | .takeTheirs)`
+  - after each write: `ccs config validate --json` → `ValidationErrors` inline, `isInvalid` banner
+  - never creates a missing file and never overwrites an unparsable one
+- `Config/ValidationErrors.swift`, `Config/ConfigBindings.swift` (SwiftUI bindings incl. `"HH:MM"` ↔ `Date`).
+- `Settings/SettingsController.swift`: all async `ccs` work for the window (version, daemon status/install/start/stop/restart/logs, doctor, auth status/login with Cancel/logout, statusline preview/apply/revert, warm-up info, profile add/remove, "Create config"), plus deep-link tab switching.
+- `Settings/SettingsView.swift` (TabView, banners, conflict alert, logs sheet), `GeneralSettingsView.swift`, `Profiles/{ProfilesSplitView (list + AddProfileSheet), ProfileDetailView, IdentitySection, AccountSection, LimitsSection, SupervisorSection, StatuslineSection, WarmupSection}.swift`, `Components/SettingsComponents.swift` (`TimeOfDay`, `Weekdays`/`WeekdayChips`, `SegmentsPreview`, `IssueText`, `PercentStepper`, `EmojiField`, `CommitTextField`, `DirectoryField`, `SettingsBanner`, `MessageLine`).
+- `Bridge/CcsClient.swift`: `runProcess`/`runJSON`, `version`, `status(profile:)`, `configValidate`, `configDefaults`, `profileList/Add/Remove`, `statuslinePreview/Apply/Revert`, `authLogout`, `daemonStop/Restart/Logs`; `authLogin` timeout 610 s. `Bridge/ProcessRunner.swift`: cancelling the calling task terminates the child (sign-in **Cancel**). New result models in `CcsModels.swift`.
+- `AppModel.settingsRequestProfileID` so `ccsupervisor://profile/<id>` and a card's ⚙ open the Profiles tab on that profile. `SettingsPlaceholderView` removed.
+- Fixtures: `schema/fixtures/config/{python_written,invalid}.json`, `schema/fixtures/ccs/{config_validate_invalid,statusline_preview}.json`, all produced by the real Python writer/CLI in scratch dirs (paths scrubbed). `python/tests/test_settings_fixtures.py` keeps them in sync with `dumps_json`, the validator and the preview contract.
+
+### Tests
+- Swift: 72 pass (39 new): canonical byte parity with the Python fixture, float repr/escaping vectors, parser errors, field paths and issue mapping against the real validator output, lenient model decoding, ConfigStore round trip with unknown keys at every level, merge of concurrent different-field edits, profile reordering, same-field conflict (keep mine / take theirs), same value is no conflict, mode kept + no temp files, undo, debounce (two edits → one write), validation mapping, defaults fallback, missing file never created, broken file never overwritten, no reload while editing, `HH:MM` round trip for every minute in five zones incl. DST and 30-min DST (Lord Howe), weekday ordering, path abbreviation, preview → colored runs, and the new `CcsClient` calls against fake scripts (argv, failure JSON, exit-1 decoding, plain `--version`, cancellation kills the process).
+- Python: 3 new fixture tests; `make test lint` green (695 passed, 1 skipped; ruff, mypy strict).
+- `make app-build` clean (no warnings). Startup smoke: the built binary ran 6 s against scratch `XDG_*`/`CCS_STATE_DIR`; the real `~/.config/ccs` and `~/.local/state/ccs` were never created.
+
+### Deviations
+- **Serializer:** a custom writer instead of `JSONSerialization` `[.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]`. On Darwin that emits `"key" : value` and different float spellings, which would churn every Python write. Parity is proven against a Python-written fixture. A custom parser was added for the same reason (NSNumber loses the int/float distinction).
+- **Change detection** compares file bytes, not only `revision`, and profiles are addressed by id.
+- Components live in one file, plus a new `CommitTextField`: the config-dir and `ccs_path` fields save on Return or focus loss, so half-typed paths never reach the daemon (which probes a changed config dir immediately).
+- `SettingsController` added to hold async `ccs` state; views stay declarative.
+- Toggle labels use the manual's terms: **Fable warn-only** and **Spill into credits**.
+- Removing the default profile passes `--default <next profile>` automatically.
+- No config yet → a **Create config** banner runs `ccs profile list` (which seeds it).
+- **Last attempt** of warm-ups is read from `warmup/<id>.json` (read-only); `ccs status` only carries `next_warmup_at`.
+- Diagnostics show "unavailable" until P13 ships `ccs doctor`.
+- Manual pages 02, 04, 06, 07, 08, 10 describe the shipped UI; their `Status:` lines are left for the orchestrator.
+
+### Deferred to the user (GUI, not verifiable headless)
+- Clicking through the Settings window on the real machine: editing each field, the emoji palette, the folder picker, the conflict alert, a real browser sign-in/out, statusline apply/revert on a real profile, and confirming the daemon reloads (`ccs events` shows no `config.invalid`).

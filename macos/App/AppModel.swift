@@ -53,6 +53,8 @@ final class AppModel {
     var selectedProfileID: String?
     /// Bumped to ask the always-rendered menu bar label to open Settings.
     private(set) var settingsRequest = 0
+    /// The profile the last Settings request asked for (nil: plain "Settings…").
+    private(set) var settingsRequestProfileID: String?
     private(set) var loginItemEnabled = false
 
     @ObservationIgnored private var ccs: CcsClient
@@ -267,6 +269,7 @@ final class AppModel {
 
     func requestSettings(profileID: String? = nil) {
         if let profileID { selectedProfileID = profileID }
+        settingsRequestProfileID = profileID
         settingsRequest += 1
     }
 

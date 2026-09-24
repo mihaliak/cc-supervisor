@@ -84,7 +84,7 @@ If the profile's statusline is enabled (the default), every `ccs --<profile>` se
 
 ### For plain `claude` too: apply
 To also see it when you run `claude` directly with that config dir (for example `CLAUDE_CONFIG_DIR=~/.claude-work claude`), apply it:
-- **App:** Settings → Profiles → *profile* → Statusline → **Apply**
+- **App:** Settings → Profiles → *profile* → Statusline → **Apply to settings.json**. The section also shows a colored preview of every state, whether it's applied, the script path, and whether the script is up to date.
 - **Terminal:** `ccs statusline apply --profile work`
 
 What `apply` does:
@@ -99,7 +99,7 @@ What `apply` does:
 In plain `claude` sessions, the statusline shows usage but never shows ⏸: only `ccs` sessions are supervised.
 
 ### Undo: revert
-- **App:** Settings → Profiles → *profile* → Statusline → **Revert**
+- **App:** Settings → Profiles → *profile* → Statusline → **Revert** (enabled only while it's applied)
 - **Terminal:** `ccs statusline revert --profile work`
 
 This restores the `statusLine` you had before `apply`, or removes it if there was none. The script file stays, because `ccs` sessions still use it.

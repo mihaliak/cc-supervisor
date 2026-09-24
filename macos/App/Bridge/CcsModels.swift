@@ -9,6 +9,18 @@ struct CcsReply: Decodable, Sendable {
     var ok: Bool?
     var error: String?
     var issues: [CcsIssue]?
+    var revision: Int?
+
+    /// `error`, else the issue messages joined, else a fallback.
+    var failureText: String {
+        if let error, !error.isEmpty { return error }
+        let parts = (issues ?? []).compactMap { issue -> String? in
+            guard let message = issue.message else { return nil }
+            guard let path = issue.path, !path.isEmpty else { return message }
+            return "\(path): \(message)"
+        }
+        return parts.isEmpty ? "ccs reported an error" : parts.joined(separator: "; ")
+    }
 }
 
 struct CcsIssue: Decodable, Sendable, Equatable {
@@ -68,14 +80,83 @@ struct WarmupResult: Decodable, Sendable {
 }
 
 /// `ccs auth status --profile <id> --json` (P09).
-struct AuthStatusResult: Decodable, Sendable {
+struct AuthStatusResult: Decodable, Sendable, Equatable {
     var profileId: String?
     var configDir: String?
     var loggedIn: Bool?
     var account: String?
     var subscriptionType: String?
+    var authMethod: String?
     var keychainService: String?
     var error: String?
+}
+
+/// `ccs auth logout --profile <id> --json` (P09).
+struct AuthLogoutResult: Decodable, Sendable {
+    var ok: Bool?
+    var profileId: String?
+    var loggedIn: Bool?
+    var daemonRefreshed: Bool?
+    var error: String?
+}
+
+/// `ccs daemon logs --json` (P04): the last lines of the daemon log.
+struct DaemonLogsResult: Decodable, Sendable {
+    var ok: Bool?
+    var path: String?
+    var lines: [String]?
+}
+
+/// `ccs statusline preview --profile <id> --json` (P07).
+struct StatuslinePreviewResult: Decodable, Sendable, Equatable {
+    struct Segment: Decodable, Sendable, Equatable {
+        var text: String
+        /// `green | yellow | red | gray | plain`
+        var color: String?
+    }
+
+    struct Sample: Decodable, Sendable, Equatable, Identifiable {
+        var state: String
+        var plain: String?
+        var segments: [Segment]?
+
+        var id: String { state }
+    }
+
+    struct Status: Decodable, Sendable, Equatable {
+        var applied: Bool?
+        var scriptPath: String?
+        var scriptCurrent: Bool?
+    }
+
+    var ok: Bool?
+    var profileId: String?
+    var status: Status?
+    var samples: [Sample]?
+}
+
+/// `ccs statusline apply --profile <id> --json` (P07). `result`: `applied | already_applied`;
+/// errors carry `issues[0].path` = `invalid_settings | statusline_disabled`.
+struct StatuslineApplyResult: Decodable, Sendable {
+    var ok: Bool?
+    var profileId: String?
+    var settingsPath: String?
+    var result: String?
+    var backupPath: String?
+    var command: String?
+    var error: String?
+    var issues: [CcsIssue]?
+}
+
+/// `ccs statusline revert --profile <id> --json` (P07). `result`: `reverted | not_applied |
+/// conflict` (conflict exits 1 and carries a `hint`).
+struct StatuslineRevertResult: Decodable, Sendable {
+    var ok: Bool?
+    var profileId: String?
+    var result: String?
+    var hint: String?
+    var error: String?
+    var issues: [CcsIssue]?
 }
 
 /// `ccs auth login --profile <id> --json` (P09).

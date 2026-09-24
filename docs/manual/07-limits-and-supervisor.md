@@ -22,7 +22,7 @@ Manage it with `ccs daemon …` ([ccs CLI](05-ccs-cli.md)). Its log is `~/.local
 Claude Code already stops at 100% and continues by itself after the reset. The supervisor stops **earlier**, so some capacity stays free for quick manual work, and so running agents don't drain the window to zero.
 
 ## Limits and defaults
-All thresholds are per profile and editable (Settings → Profiles → Limits, or `ccs profile set`).
+All thresholds are per profile and editable (Settings → Profiles → Limits, with steppers from 1 to 100 %, or `ccs profile set`). The **Fable warn-only** and **Spill into credits** toggles are in the same section. A warn value that isn't below its pause value is saved but marked invalid, and the supervisor keeps the previous valid limits until you fix it.
 
 | Limit | Warn | Pause | What gets paused | Resumes when |
 |-------|------|-------|------------------|--------------|

@@ -18,7 +18,13 @@ Afterward, usage is fetched again to confirm the window started, and you get a n
 - Only one warm-up runs per profile at a time.
 
 ## Triggers
-Each trigger can be switched on or off per profile (Settings → Profiles → Warm-up):
+Each trigger can be switched on or off per profile. In the app (Settings → Profiles → Warm-up):
+- toggles for the whole warm-up and for app start, unlock/wake and auto-chain
+- model (free text, with suggestions `haiku`, `sonnet`, `opus`, `fable`) and prompt
+- scheduled times: a time picker plus weekday chips (Mon–Sun) per row, a trash button, and **Add time** (adds 06:00 Mon–Fri)
+- active hours (two time pickers) and a cooldown stepper (1–120 minutes; other values with `ccs profile set`)
+- read-only **Next warm-up** and **Last attempt** (with its result and reason)
+
 
 | Trigger | Fires when | Default |
 |---------|-----------|---------|

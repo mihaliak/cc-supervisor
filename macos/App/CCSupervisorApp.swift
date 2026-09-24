@@ -4,11 +4,13 @@ import SwiftUI
 struct CCSupervisorApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model: AppModel
+    @State private var settings: SettingsController
 
     init() {
         // `--register-login-item` / `--unregister-login-item` (make install/uninstall) exit here.
         LoginItemController.handleLaunchArguments()
         _model = State(initialValue: AppModel.shared)
+        _settings = State(initialValue: SettingsController(app: AppModel.shared))
     }
 
     var body: some Scene {
@@ -22,8 +24,9 @@ struct CCSupervisorApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsPlaceholderView()
+            SettingsView()
                 .environment(model)
+                .environment(settings)
         }
     }
 }
