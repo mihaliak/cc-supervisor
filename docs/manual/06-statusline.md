@@ -41,7 +41,7 @@ If the pause comes from the weekly or model-scoped limit, the resume time shown 
 ```
 💼 Work ~ cc-supervisor ~ Opus 5.5 / xhigh ~ ⚠ 91% ▓▓▓▓▓▓▓▓▓░ 20:00 (in 42m) · override
 ```
-**No data** (not fetched yet, or older than 10 minutes)
+**No data**: nothing fetched yet, data older than 10 minutes, the supervisor reports a problem (for example sign-in required), or the window's reset time has already passed
 ```
 💼 Work ~ cc-supervisor ~ Opus 5.5 / xhigh ~ ?% ░░░░░░░░░░
 ```
@@ -51,10 +51,13 @@ These appear only when they matter: at or above the warn threshold, or when they
 
 | Segment | Shown when | Example |
 |---------|-----------|---------|
-| Weekly | weekly ≥ warn | ` ~ W ⚠ 86% Sat 08:00` |
-| Model-scoped | e.g. Fable ≥ warn | ` ~ Fable ⚠ 82% Sat 08:00` |
+| Weekly | weekly ≥ warn, or a weekly pause is active | ` ~ W ⚠ 86% Sat 08:00` |
+| Model-scoped | e.g. Fable ≥ warn, or that model's pause is active (one segment per model) | ` ~ Fable ⚠ 82% Sat 08:00` |
 | Extra usage | "Spill into credits" is active **and** one of: extra usage ≥ warn, an extra-usage pause is active, or session ≥ 100% | ` ~ € 3.20/10.00` |
 | Supervisor offline | the background supervisor hasn't updated usage for more than 5 minutes | ` ~ ⚠ supervisor offline` |
+
+- Extra usage shows the amount spent and the monthly cap. The currency is `€`, `$` or `£`, and any other currency is shown as its code (`CHF 3.20/10.00`).
+- Weekly and model-scoped segments show only the absolute reset time.
 
 Full example:
 ```
@@ -72,7 +75,8 @@ Full example:
 ## Where the numbers come from
 - Claude Code gives the statusline live session and weekly usage after every response. That is the freshest source, so it wins.
 - Otherwise, the last value the supervisor fetched is used.
-- The script also reports those live numbers back to the supervisor, which is how pauses react within seconds while you work.
+- The script also reports those live numbers back to the supervisor (`~/.local/state/ccs/live/`), which is how pauses react within seconds while you work. Unchanged numbers are re-reported at most once a minute.
+- Fable and extra usage always come from the supervisor's last fetch.
 
 ## Turning it on
 ### Automatically with `ccs`
@@ -88,20 +92,30 @@ What `apply` does:
 2. Backs up `settings.json` to `<config dir>/settings.json.ccs-backup-<YYYYmmddHHMMSS>`.
 3. Sets `statusLine` in `<config dir>/settings.json` to run that script with CC Supervisor's Python. All your other settings stay untouched.
 
+- Running `apply` again when it's already applied changes nothing and makes no new backup.
+- If `settings.json` isn't valid JSON, `apply` refuses and leaves it untouched.
+- If the profile's statusline is disabled (`statusline.enabled: false`), `apply` refuses and `ccs` doesn't add it to sessions.
+
 In plain `claude` sessions, the statusline shows usage but never shows ⏸: only `ccs` sessions are supervised.
 
 ### Undo: revert
 - **App:** Settings → Profiles → *profile* → Statusline → **Revert**
 - **Terminal:** `ccs statusline revert --profile work`
 
-This restores the `statusLine` you had before `apply`.
+This restores the `statusLine` you had before `apply`, or removes it if there was none. The script file stays, because `ccs` sessions still use it.
+
+If you changed `statusLine` yourself after applying, revert refuses (a conflict) and changes nothing. Edit `settings.json` by hand in that case; the previous value is kept in `~/.local/state/ccs/statusline/<profile>.json`.
 
 ### Other commands
 ```sh
 ccs statusline preview --profile work    # print example lines for every state
 ccs statusline generate --profile work   # rewrite the script only (settings.json untouched)
 ```
-Regenerate after changing the profile's name, emoji, or colors. The app and `ccs` do this for you in normal use.
+- `preview` shows samples of every state: normal, warn, paused, overridden, no data, weekly warn, model-scoped warn, spill, and supervisor offline.
+- You rarely need `generate` yourself:
+  - `ccs --<profile>` rewrites the script whenever it's out of date.
+  - The background supervisor refreshes scripts that already exist when you change a profile's name, emoji, limits or colors, and after an upgrade.
+  - The supervisor never creates new scripts and never edits `settings.json`.
 
 ## Performance
-The script uses only the Python standard library and starts without site packages. It is designed to finish in under 60 ms, so it never slows Claude Code down.
+The script uses only the Python standard library and starts without site packages (`-S -E`). It is designed to finish in under 60 ms, so it never slows Claude Code down; about 42 ms at p95 was measured on Apple silicon. If anything goes wrong it still prints a minimal line (`💼 Work ~ ?%`) and never an error.

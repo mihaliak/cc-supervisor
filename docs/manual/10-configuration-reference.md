@@ -91,7 +91,7 @@ Thresholds in percent ([Limits & supervisor](07-limits-and-supervisor.md)).
 ### `statusline`
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `statusline.enabled` | bool | `true` | Show the CC Supervisor statusline in `ccs` sessions ([Statusline](06-statusline.md)) |
+| `statusline.enabled` | bool | `true` | Show the CC Supervisor statusline in `ccs` sessions ([Statusline](06-statusline.md)). When `false`, `ccs statusline apply` refuses. The script's name, emoji, limits and `display.colors` are baked in at generation; the supervisor refreshes existing scripts when they change. |
 
 ### `warmup`
 ([Warm-up](08-warm-up.md))

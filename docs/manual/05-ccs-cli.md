@@ -151,10 +151,12 @@ Details in [Statusline](06-statusline.md).
 
 | Subcommand | Does |
 |------------|------|
-| `generate` | Writes or refreshes `<config dir>/ccs-statusline.py` |
-| `apply` | Generates the script, backs up `settings.json`, and sets its `statusLine` to the script, so plain `claude` shows it too |
-| `revert` | Restores the previous `statusLine` from the backup |
-| `preview` | Prints sample lines for each state |
+| `generate` | Writes or refreshes `<config dir>/ccs-statusline.py`. `--json`: `{profile_id, script_path, generator_version, changed}` |
+| `apply` | Generates the script, backs up `settings.json`, and sets its `statusLine` to the script, so plain `claude` shows it too. It's idempotent (`already_applied`), and refuses an invalid `settings.json` or a profile with `statusline.enabled: false` (exit 1). `--json`: `{profile_id, settings_path, result, backup_path, command}` |
+| `revert` | Restores the `statusLine` recorded by `apply`, or removes it if there was none. The script is kept. Result `reverted`, `not_applied`, or `conflict` (you changed `statusLine` since; exit 1, nothing written) |
+| `preview` | Prints sample lines for each state. `--json` adds `status: {applied, script_path, script_current}` and each sample's `plain`, `ansi`, and colored `segments` |
+
+`--profile` is required, and an unknown profile exits 2.
 
 ### `ccs profile …`
 ```sh

@@ -1,6 +1,6 @@
 # P07: Statusline generate/render/apply
 
-- Status: todo
+- Status: done
 - Milestone: M1
 - Depends on: P00 (S6: statusline runtime env/stdin/`--settings` findings), P02 (paths, fsio, clock, timefmt, config), P03 (UsageSnapshot, live-report format and merge), P04 (config-change hook for script regeneration)
 - ADRs: [0001](../../decisions/0001-language-split.md), [0005](../../decisions/0005-state-and-ipc.md), [0006](../../decisions/0006-process-model.md), [0009](../../decisions/0009-display-conventions.md), [0013](../../decisions/0013-python-engineering.md), [0016](../../decisions/0016-identifiers.md), [0017](../../decisions/0017-cli-surface.md)
@@ -169,19 +169,19 @@ Appended in this order.
 - Errors → `logs/daemon.log` only.
 
 ## Tasks
-- [ ] Validate written live reports against P03's `schema/live-report.schema.json` in tests. Add `python/tests/fixtures/statusline/stdin/*.json` samples taken from P00-S6 (scrubbed).
-- [ ] `ccs/statusline/render.py`: `Segment`, `RenderContext`, `render`, `to_ansi`, `to_plain`, `level_for(percent, colors)`, `bar(percent)`, `currency_symbol(code)`.
-- [ ] Session segment: all states (normal, warn, paused, paused-manual, overridden, no data), exact strings per ADR-0009 + the manual-hold row above.
-- [ ] Extra segments: weekly, model-scoped (multiple), extra usage (spill rules above), supervisor offline.
-- [ ] Data precedence and stdin conversion (float percent rounding, epoch → aware datetime).
-- [ ] `ccs/statusline/runtime.py`: `main(constants)` with tolerant IO, live-report write-if-changed-or-older-than-60s, and the fallback line on exception.
-- [ ] `ccs/statusline/template.py`: `generate`, `ensure_script`, `GENERATOR_VERSION`, `statusline_command(script_path)`, sources hash, loader stub.
-- [ ] Import-guard test: `timefmt`, `render`, and `runtime` import only the stdlib plus each other.
-- [ ] `ccs/statusline/apply.py`: `apply`, `revert`, bookkeeping read/write, backup naming, invalid-JSON guard.
-- [ ] CLI subcommands `generate|apply|revert|preview` with `--profile` (required) and `--json`; exit codes 0/1/2.
-- [ ] Daemon config-change hook → regenerate scripts (P04 callback API).
-- [ ] Export `ensure_script` + `statusline_command` for P05, and document the call site in P05's plan file (Result section) if P05 is already done.
-- [ ] Perf harness `python/tests/statusline/test_perf.py` (marked `perf`, run by `make test`): 50 executions of the generated script with sample stdin; assert p95 < 60 ms.
+- [x] Validate written live reports against P03's `schema/live-report.schema.json` in tests. Add `python/tests/fixtures/statusline/stdin/*.json` samples taken from P00-S6 (scrubbed).
+- [x] `ccs/statusline/render.py`: `Segment`, `RenderContext`, `render`, `to_ansi`, `to_plain`, `level_for(percent, colors)`, `bar(percent)`, `currency_symbol(code)`.
+- [x] Session segment: all states (normal, warn, paused, paused-manual, overridden, no data), exact strings per ADR-0009 + the manual-hold row above.
+- [x] Extra segments: weekly, model-scoped (multiple), extra usage (spill rules above), supervisor offline.
+- [x] Data precedence and stdin conversion (float percent rounding, epoch → aware datetime).
+- [x] `ccs/statusline/runtime.py`: `main(constants)` with tolerant IO, live-report write-if-changed-or-older-than-60s, and the fallback line on exception.
+- [x] `ccs/statusline/template.py`: `generate`, `ensure_script`, `GENERATOR_VERSION`, `statusline_command(script_path)`, sources hash, loader stub.
+- [x] Import-guard test: `timefmt`, `render`, and `runtime` import only the stdlib plus each other.
+- [x] `ccs/statusline/apply.py`: `apply`, `revert`, bookkeeping read/write, backup naming, invalid-JSON guard.
+- [x] CLI subcommands `generate|apply|revert|preview` with `--profile` (required) and `--json`; exit codes 0/1/2.
+- [x] Daemon config-change hook → regenerate scripts (P04 callback API).
+- [x] Export `ensure_script` + `statusline_command` for P05, and document the call site in P05's plan file (Result section) if P05 is already done.
+- [x] Perf harness `python/tests/statusline/test_perf.py` (marked `perf`, run by `make test`): 50 executions of the generated script with sample stdin; assert p95 < 60 ms.
 
 ## Tests
 - **Golden render table** (`test_render.py`), parametrized: every state × {effort present/absent, model absent, emoji empty} × percents {0, 5, 45, 50, 79, 80, 84, 90, 100, 117} × {stdin only, file only, both (stdin wins), neither}.
@@ -211,12 +211,12 @@ Appended in this order.
 - `11-troubleshooting.md` (script stale, offline indicator, revert conflict)
 
 ## Done when
-- [ ] Every render state matches ADR-0009 strings exactly (golden tests green).
-- [ ] The generated script runs standalone via `<abs python> -S -E <script>`, uses the stdlib only, and has p95 < 60 ms.
-- [ ] Apply/revert are idempotent, keep backups, and never clobber invalid or foreign `settings.json` content.
-- [ ] The daemon regenerates scripts on relevant config changes.
-- [ ] `make test lint` passes.
-- [ ] Listed manual pages describe the shipped behavior and are marked `shipped`.
+- [x] Every render state matches ADR-0009 strings exactly (golden tests green).
+- [x] The generated script runs standalone via `<abs python> -S -E <script>`, uses the stdlib only, and has p95 < 60 ms.
+- [x] Apply/revert are idempotent, keep backups, and never clobber invalid or foreign `settings.json` content.
+- [x] The daemon regenerates scripts on relevant config changes.
+- [x] `make test lint` passes.
+- [x] Listed manual pages describe the shipped behavior. (`Status:` lines are left for the orchestrator to flip, per its instruction.)
 
 ## Risks & mitigations
 - **Claude Code changes the stdin schema** → tolerant parsing, the no-data fallback, and fixtures refreshed from P00-S6 / `ccs doctor`.
@@ -224,3 +224,61 @@ Appended in this order.
 - **Claude Code rewrites `settings.json` concurrently** → re-read just before the write, atomic replace, backup kept.
 - **Embedded-source loader fragility** → the import-guard test plus the subprocess execution test in CI.
 - **Live-report write cost on every refresh** → write-if-changed, no fsync.
+
+## Result
+Shipped 2026-09-24.
+
+### What shipped
+- `ccs/statusline/render.py`: pure ADR-0009 renderer.
+  - `Segment`, `Limits`, `RenderContext` (+ `from_constants`), `render`, `to_ansi`, `to_plain`, `level_for`, `bar`, `currency_symbol`, `display_percent`, `fallback_line`.
+  - Covers every session state (normal, warn, paused, paused-manual, overridden, no data) and the extra segments (weekly, model-scoped, extra usage, supervisor offline).
+- `ccs/statusline/runtime.py`: embeddable IO `main(constants, *, stdin, stdout, env, now)`.
+  - Tolerant reads of `usage/<id>.json` and `sessions/<wrapper>.json`.
+  - Offline detection from the usage file's mtime (older than 5 min).
+  - Live reports go to `live/<wrapper>.json` or `live/session-<id>.json`. They're rewritten only when changed or ≥ 60 s old (atomic, no fsync), conform to P03's schema and are parsed by `usage.merge.parse_live_report`.
+  - Always returns 0; on any error it prints the fallback line.
+- `ccs/statusline/template.py`:
+  - `generate(profile, config) -> GeneratedScript` and `ensure_script(profile, config) -> Path`.
+  - `statusline_command(script, python=None)`, exactly `"<sys.executable> -S -E <script>"`, shell-quoted only when needed.
+  - `statusline_setting`, `constants_for`, `render_script`, `parse_header`, `script_is_current`, `script_path`, `GENERATOR_VERSION = 1`.
+  - The generated script embeds `ccs.timefmt`, `ccs.clock`, `ccs.statusline.render` and `ccs.statusline.runtime`, and is written with mode 0755.
+- `ccs/statusline/apply.py`:
+  - `apply` / `revert` with backup, bookkeeping `statusline/<id>.json`, key order + file mode kept, invalid-JSON guard, `statusline_disabled` guard.
+  - Also `is_ours`, `is_applied`, `read_bookkeeping`.
+  - **Launcher hook:** `ensure_statusline(profile, config=None) -> str | None`.
+- CLI (`ccs/statusline/commands.py`): `ccs statusline generate|apply|revert|preview --profile <id> [--json]`. Exit 0/1/2; the JSON shapes are as designed, plus `ok`.
+- Daemon extension `ccs.statusline.daemon_ext`, registered in `ccs.daemon.extensions.EXTENSIONS`: `on_config_changed` → `refresh_scripts`.
+- Tests (`python/tests/statusline/`):
+  - golden render table, extra-segment matrix, shared time vectors
+  - runtime IO and live-report rules
+  - generated-script subprocess runs: stdlib-only import guard, `-S -E` ignoring a poisoned `PYTHONPATH`
+  - apply/revert on temp dirs, the launcher hook, CLI JSON, daemon hook
+  - perf (`@pytest.mark.perf`, p95 < 60 ms; `CCS_STATUSLINE_BUDGET_MS` overrides the budget)
+- Suite: `make test lint` passes with 460 Python tests (1 live test skipped), the Swift tests, ruff and mypy `--strict`.
+- Measured: the generated script runs at p50 41.6 ms / p95 43.6 ms on Apple silicon (python 3.14, 50 runs).
+
+### Integration notes
+- **P05 launcher:** call `ccs.statusline.apply.ensure_statusline(profile, config)`. The plan's name `apply.ensure_script` is an alias.
+  - It returns the command string for `--settings '{"statusLine":{"type":"command","command":<cmd>}}'`.
+  - It returns `None` when `statusline.enabled` is false or the script can't be written; the launcher then starts without injecting.
+  - It never touches `settings.json`.
+- **P06:** the statusline reads `supervision.state` (`paused` | `overridden`), `supervision.holds` (`weekly`, `model_scoped:<Name>`, `extra_usage`, …) and `supervision.resume_at` (null means manual) from `sessions/<wrapper_id>.json`. Keep those names.
+- **P11:** `ccs statusline preview --json` gives `status.applied/script_current` and per-sample `segments` with colors. `apply`/`revert` errors come back as `issues[0].path`: `invalid_settings` or `statusline_disabled`, or result `conflict`.
+- **P13 doctor:** use `template.parse_header(text)` (`generator`, `sources`), `template.script_is_current`, `apply.is_applied` and `apply.read_bookkeeping`.
+
+### Deviations
+- **`ccs.clock` is embedded too** (four modules instead of three), for the DST-aware `local_tz()`.
+- **`RenderContext` takes plain dicts:** the raw usage file dict, not a `UsageSnapshot`, plus a flattened `render.Limits` and a precomputed `supervisor_offline` flag. `render` and `runtime` avoid `dataclasses` and `ccs.usage`/`ccs.config`, so the embedded code stays stdlib-only and fast (`dataclasses` alone cost about 7 ms at startup).
+- **Usage-file freshness:** usage-file windows count only when `status == ok` and the data is ≤ 10 min old (ADR-0008's `?%` rule). Windows whose `resets_at` has passed, from stdin or file, render as no data.
+- **Stronger regeneration check:** `ensure_script` regenerates on any content difference, not just generator version or sources hash, so name/emoji/limit changes are always picked up.
+- **Daemon hook:** it refreshes only scripts that already exist, for enabled profiles, on every valid config load including startup, instead of diffing fields. It never creates scripts, so the daemon never writes into a Claude config dir uninvited. It also covers `ccs` upgrades.
+- **Colors and marks:**
+  - The session part is two segments: marker + percent + bar in the level color, then the time/text in plain.
+  - Extra segments have a colored label + percent and a plain time.
+  - Overridden always shows `⚠`.
+- **Re-apply with another interpreter:** re-applying when `statusLine` is ours but with an older interpreter path keeps the originally recorded previous value, so revert still restores the user's original.
+- **Fixtures:** reused P00-S6's `python/tests/fixtures/statusline/*.json` instead of adding a `stdin/` subfolder.
+- **Test layout:** tests live in `python/tests/statusline/test_statusline_*.py` with helpers in `sl_helpers.py` (imported by name). A sub-conftest would shadow the root `conftest` that other tests import. The `perf` marker is registered in `pyproject.toml`.
+
+### Follow-ups
+- Manual pages 05, 06, 10 and 11 are updated. Their `Status:` lines are left for the orchestrator.

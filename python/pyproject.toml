@@ -35,4 +35,5 @@ testpaths = ["tests"]
 addopts = "-q"
 markers = [
     "live: uses the real claude binary; skipped unless CCS_TEST_LIVE=1",
+    "perf: timing budget checks (statusline p95)",
 ]
