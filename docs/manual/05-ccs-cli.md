@@ -93,13 +93,16 @@ A last line explains any problem:
 `--json` prints `{"ok": true, "profiles": [ … ]}`. Each entry is the profile's usage snapshot (the `usage/<profile>.json` format, `schema/usage-snapshot.schema.json`) plus `"source"`: `file`, `daemon`, or `direct_probe`. A profile without data is `{"profile_id": "work", "status": "no_data", "hint": "…"}`.
 
 ### `ccs sessions [--profile <id>] [--json]`
-Supervised `ccs` sessions, plus other Claude Code sessions of each profile (background agents and plain `claude`), which are listed but not supervised.
+Supervised `ccs` sessions (one line each), then how many other Claude Code sessions each profile has (background agents and plain `claude`), which are counted but never supervised.
 ```
-PROFILE  ID        FOLDER          ACTIVITY  SUPERVISION
-work     3f9c1a2e  cc-supervisor   idle      paused → 20:00
-work     b71e04d9  api             busy      overridden
-work     –         cosmos          –         other (background agent)
+3f9c1a2e  💼 work  ~/Code/cc-supervisor  claude-opus-5-5  idle  ⏸ paused → resumes 20:00 (in 42m)
+b71e04d9  💼 work  ~/Code/api  claude-fable-5-1  busy  override
+c0ffee12  🏠 personal  ~/Code/x  -  busy  ⏸ paused (manual)
+work: other sessions 1 interactive, 2 background
 ```
+- Columns: short session id (use it with `ccs pause|resume --session`), profile, folder, model, activity (`busy`, `idle`, `shell`, `waiting`, `unknown`), supervision (`running`, `⏸ paused …`, `override`).
+- Without a running supervisor it shows the last saved state (`daemon: not running`).
+- `--json` prints `{"ok": true, "daemon_responsive": bool, "sessions": [{"wrapper_id", "profile_id", "cwd", "model_id", "activity", "session_id", "started_at", "state", "holds", "resume_at"}], "other_sessions": {"<profile>": {"interactive", "background"} | null}}`.
 
 ### `ccs events [--follow] [--json]`
 The event history: warnings, pauses, resumes, warm-ups, sign-in problems, sessions starting and ending, and the supervisor starting and stopping. Without `--follow` it prints the last 50 events.
@@ -113,10 +116,17 @@ The event history: warnings, pauses, resumes, warm-ups, sign-in problems, sessio
 
 ## Control
 ### `ccs pause (--profile <id> | --session <wrapper_id>) [--json]`
-Pause now, exactly like an automatic pause. A busy session is interrupted.
+Pause now, exactly like an automatic pause: a busy session is interrupted (Esc), an idle one is only marked paused.
+- `--profile` pauses every `ccs` session of the profile, and new `ccs` sessions ask before starting. `--session` pauses one session; the id can be the short id from `ccs sessions` (any unique prefix).
+- A manual pause has no end time: it lasts until `ccs resume`. Running it twice is harmless (`already paused manually`).
+- Needs the supervisor (`supervisor not running` otherwise, exit 1). Refused when the profile's supervision is off.
+- `--json` prints `{"ok", "profile_id", "wrapper_id", "created", "hold": {"id": "manual", "scope", …}, "sessions_paused"}`.
 
 ### `ccs resume (--profile <id> | --session <wrapper_id>) [--json]`
-Resume now. Sessions interrupted mid-work get the profile's resume prompt. Automatic pausing won't hit them again for the rest of the current window.
+Resume now. Sessions interrupted mid-work get the profile's resume prompt.
+- `--profile` clears every pause of the profile (manual and automatic). The limits that were paused won't pause the profile again in their current window.
+- `--session` resumes one session and lifts a manual pause on just that session. If the profile is still paused, that session continues as **overridden** (like typing into it) and isn't interrupted again for the current pause.
+- `--json` prints `{"ok", "profile_id", "wrapper_id", "cleared": [holds], "sessions_resumed"}`.
 
 ### `ccs warmup (--profile <id> | --all) [--trigger <t>] [--force] [--json]`
 Start a session window now ([Warm-up](08-warm-up.md)).

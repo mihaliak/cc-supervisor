@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ccsupervisor/schema/session-record.schema.json",
+  "title": "Supervised session record (sessions/<wrapper_id>.json)",
+  "description": "One ccs launcher (ADR-0005). Written only by the daemon; the statusline reads its own record by $CCS_WRAPPER_ID.",
+  "type": "object",
+  "required": ["schema", "wrapper_id", "profile_id", "wrapper_pid", "claude_pid", "session_id", "cwd", "started_at", "model_id", "activity", "supervision"],
+  "properties": {
+    "schema": { "const": 1 },
+    "wrapper_id": { "type": "string", "minLength": 1 },
+    "profile_id": { "type": "string", "minLength": 1 },
+    "wrapper_pid": { "type": ["integer", "null"] },
+    "claude_pid": { "type": ["integer", "null"] },
+    "session_id": { "type": ["string", "null"] },
+    "cwd": { "type": ["string", "null"] },
+    "started_at": { "type": "string", "format": "date-time" },
+    "model_id": { "type": ["string", "null"] },
+    "activity": { "enum": ["busy", "idle", "shell", "waiting", "unknown"] },
+    "supervision": {
+      "type": "object",
+      "required": ["state", "holds", "paused_at", "resume_at", "was_busy_at_pause", "overridden_instances"],
+      "properties": {
+        "state": { "enum": ["running", "paused", "overridden"] },
+        "holds": {
+          "description": "Hold ids pausing this session (ADR-0005): `session`, `weekly`, `model_scoped:<Name>`, `extra_usage`, `manual`.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "paused_at": { "type": ["string", "null"], "format": "date-time" },
+        "resume_at": {
+          "description": "Latest reset among the holds; null when a hold has no reset time (manual, extra usage).",
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "was_busy_at_pause": {
+          "description": "From the launcher's pause ack; null while unknown (no resume prompt then).",
+          "type": ["boolean", "null"]
+        },
+        "overridden_instances": {
+          "description": "Window instances the user overrode by submitting input while paused (additive to ADR-0005).",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -20,7 +20,7 @@ The single source of truth for plan status. Workflow rules are in [ADR-0014](../
 | P03 | [Usage fetching & normalization](done/P03-usage-fetching.md) | done | P00, P02 | python |
 | P04 | [Daemon, IPC, events, snapshot](done/P04-daemon-and-ipc.md) | done | P03 | python |
 | P05 | [ccs launcher & PTY proxy](done/P05-ccs-launcher-pty.md) | done | P00, P04 | python |
-| P06 | [Supervisor policy & pause/resume](todo/P06-supervisor-policy.md) | todo | P04, P05 | python |
+| P06 | [Supervisor policy & pause/resume](done/P06-supervisor-policy.md) | done | P04, P05 | python |
 | P07 | [Statusline generate/render/apply](done/P07-statusline.md) | done | P00, P02, P03, P04 | python |
 | P08 | [Warm-up scheduler](done/P08-warmup.md) | done | P00, P04 | python |
 | P09 | [Auth wrapper](done/P09-auth.md) | done | P00, P02, P03, P04 | python |

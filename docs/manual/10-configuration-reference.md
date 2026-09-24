@@ -94,8 +94,8 @@ Thresholds in percent ([Limits & supervisor](07-limits-and-supervisor.md)).
 ### `supervisor`
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `supervisor.enabled` | bool | `true` | Supervise this profile's `ccs` sessions (pause and resume) |
-| `supervisor.resume_prompt` | string | `"The usage limit window has reset. Continue exactly where you left off."` | Typed into sessions that were interrupted, when they resume |
+| `supervisor.enabled` | bool | `true` | Supervise this profile's `ccs` sessions (pause and resume). `false`: warnings and warm-ups still work; active pauses are lifted and `ccs pause` is refused |
+| `supervisor.resume_prompt` | string | `"The usage limit window has reset. Continue exactly where you left off."` | Typed into sessions that were interrupted mid-work (busy when paused), when they resume. Idle or overridden sessions get nothing |
 
 ### `statusline`
 | Key | Type | Default | Description |
@@ -182,8 +182,8 @@ Missing keys take their defaults.
 | Path | Contents |
 |------|----------|
 | `usage/<profile>.json` | latest usage per profile |
-| `sessions/<id>.json` | one file per supervised `ccs` session |
-| `supervisor/<profile>.json` | active pauses (survives restarts) |
+| `sessions/<id>.json` | one file per supervised `ccs` session, incl. its pause state (`schema/session-record.schema.json`) |
+| `supervisor/<profile>.json` | active pauses ("holds"), which limit windows already warned or paused, and the last 200 supervisor actions; survives restarts (`schema/supervisor-state.schema.json`) |
 | `warmup/<profile>.json` | last attempt, last skip, next planned run, the last 20 attempts, and which scheduled times already ran |
 | `statusline/<profile>.json` | what `statusline apply` changed, used by `revert` |
 | `widget/snapshot.json` | what the widgets and menu bar display |

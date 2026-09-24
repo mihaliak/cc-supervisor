@@ -160,6 +160,9 @@ def test_notification_text_fallback_and_auth() -> None:
 
 
 def test_register_text_overrides_template(tmp_path: Path) -> None:
+    from ccs import events
+
+    previous = events._TEXT_BUILDERS.get("warmup.failed")
     register_text("warmup.failed", lambda p, d, now: ("T", f"B {d.get('reason')}"))
     try:
         record = make_bus(tmp_path, cfg()).emit(
@@ -168,9 +171,10 @@ def test_register_text_overrides_template(tmp_path: Path) -> None:
         assert record is not None
         assert (record["data"]["title"], record["data"]["body"]) == ("T", "B x")
     finally:
-        from ccs import events
-
-        events._TEXT_BUILDERS.pop("warmup.failed", None)
+        if previous is None:
+            events._TEXT_BUILDERS.pop("warmup.failed", None)
+        else:
+            register_text("warmup.failed", previous)  # restore the P06 template
 
 
 def test_hour_bucket_uses_given_zone() -> None:

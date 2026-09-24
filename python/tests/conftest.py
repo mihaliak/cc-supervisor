@@ -28,6 +28,8 @@ def _isolate_xdg(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.M
     monkeypatch.setenv("XDG_CONFIG_HOME", str(base / "config"))
     monkeypatch.setenv("XDG_STATE_HOME", str(base / "state"))
     monkeypatch.delenv("CCS_STATE_DIR", raising=False)
+    # the osascript notification fallback (P06) must never post real notifications in tests
+    monkeypatch.setenv("CCS_OSASCRIPT", "true")
 
 
 @dataclass(frozen=True)

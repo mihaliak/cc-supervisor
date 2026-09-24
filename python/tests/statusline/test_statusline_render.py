@@ -144,6 +144,13 @@ def test_paused_manual_exact() -> None:
     assert line == HEAD + "⏸ 45% ▓▓▓▓▓░░░░░ paused (manual)"
 
 
+def test_paused_by_credit_cap_says_credits() -> None:
+    line = plain(ctx(stdin(45), record=supervision("paused", None, ["extra_usage"])))
+    assert "⏸ 45% ▓▓▓▓▓░░░░░ paused (credits)" in line
+    both = supervision("paused", None, ["extra_usage", "manual"])
+    assert "paused (manual)" in plain(ctx(stdin(45), record=both))
+
+
 def test_overridden_exact() -> None:
     rec = supervision("overridden", SESSION_RESET, ["session"])
     line = plain(ctx(stdin(91), now=LATE, record=rec))

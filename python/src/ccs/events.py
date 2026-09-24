@@ -150,9 +150,120 @@ def _config_invalid(
     return "CC Supervisor: config invalid", first or "Run: ccs config validate"
 
 
+def _when(value: Any, now: datetime) -> str | None:
+    """`20:00 (in 1h 12m)` for an ISO timestamp (ADR-0009), or `None`."""
+    from ccs.timefmt import format_reset_combined
+
+    when = parse_time(value)
+    return format_reset_combined(when, now, local_tz()) if when is not None else None
+
+
+def _money(value: Any, currency: Any) -> str:
+    from ccs.snapshot import format_money
+
+    amount = float(value) if isinstance(value, (int, float)) else None
+    return format_money(amount, currency if isinstance(currency, str) else None)
+
+
+def _sessions(n: int, verb: str) -> str:
+    return f"{n} session{'s' if n != 1 else ''} {verb}"
+
+
+def _window_label(data: dict[str, Any]) -> str:
+    window = data.get("window")
+    name = data.get("name")
+    if window == "weekly":
+        return "weekly limit"
+    if window == "model_scoped":
+        return f"{name} weekly limit" if name else "model weekly limit"
+    if window == "extra_usage":
+        return "extra usage"
+    return "session"
+
+
+def _limit_warn(profile: Profile | None, data: dict[str, Any], now: datetime) -> tuple[str, str]:
+    percent = data.get("percent")
+    window = data.get("window")
+    name = data.get("name")
+    if window == "extra_usage":
+        spend = f" ({_money(data.get('used'), data.get('currency'))} / "
+        spend += f"{_money(data.get('limit'), data.get('currency'))})"
+        return f"{_prefix(profile)}: extra usage at {percent}%{spend}", "Monthly credit cap"
+    if data.get("level") == "pause_level":
+        label = name or "model"
+        title = f"{_prefix(profile)}: {label} at {percent}% (not pausing)"
+    else:
+        title = f"{_prefix(profile)}: {_window_label(data)} at {percent}%"
+    when = _when(data.get("resets_at"), now)
+    return title, f"Resets {when}" if when else ""
+
+
+def _limit_pause(profile: Profile | None, data: dict[str, Any], now: datetime) -> tuple[str, str]:
+    window = data.get("window")
+    raw_n = data.get("sessions_paused")
+    n = raw_n if isinstance(raw_n, int) else 0
+    if window == "manual":
+        title = f"{_prefix(profile)} paused manually"
+    else:
+        title = f"{_prefix(profile)} paused at {data.get('percent')}%"
+        if window != "session":
+            title += f" ({_window_label(data)})"
+    lead = _sessions(n, "paused") + "." if n else "New ccs sessions will ask before starting."
+    if window == "manual":
+        pid = profile.id if profile is not None else "<id>"
+        return title, f"{lead} Resume with: ccs resume --profile {pid}"
+    when = _when(data.get("resume_at"), now)
+    tail = f"Resumes {when}" if when else "Resumes when credits allow"
+    return title, f"{lead} {tail}"
+
+
+def _limit_resume(profile: Profile | None, data: dict[str, Any], now: datetime) -> tuple[str, str]:
+    raw_n = data.get("sessions_resumed")
+    n = raw_n if isinstance(raw_n, int) else 0
+    if n:
+        body = _sessions(n, "continued")
+    elif data.get("manual"):
+        body = "Resumed manually"
+    else:
+        body = "Limit reset; new sessions can start"
+    return f"{_prefix(profile)} resumed", body
+
+
+_WARMUP_REASONS = {
+    "timeout": "claude did not answer within the timeout",
+    "window_not_started": "the session window did not start",
+    "claude_not_found": "claude was not found",
+    "spawn_failed": "claude could not be started",
+}
+
+
+def _warmup_succeeded(
+    profile: Profile | None, data: dict[str, Any], now: datetime
+) -> tuple[str, str]:
+    when = _when(data.get("resets_at"), now)
+    return f"{_prefix(profile)}: session window started", f"Resets {when}" if when else ""
+
+
+def _warmup_failed(profile: Profile | None, data: dict[str, Any], now: datetime) -> tuple[str, str]:
+    reason = data.get("reason")
+    text = _WARMUP_REASONS.get(str(reason), "")
+    if not text and isinstance(reason, str) and reason.startswith("exit_"):
+        text = f"claude exited with code {reason[5:]}"
+    detail = data.get("detail")
+    body = text or str(reason or "")
+    if isinstance(detail, str) and detail:
+        body = f"{body}: {detail}" if body else detail
+    return f"{_prefix(profile)}: warm-up failed", body
+
+
 register_text("auth.required", _auth_required)
 register_text("usage.source_error", _source_error)
 register_text("config.invalid", _config_invalid)
+register_text("limit.warn", _limit_warn)
+register_text("limit.pause", _limit_pause)
+register_text("limit.resume", _limit_resume)
+register_text("warmup.succeeded", _warmup_succeeded)
+register_text("warmup.failed", _warmup_failed)
 
 
 def notification_text(

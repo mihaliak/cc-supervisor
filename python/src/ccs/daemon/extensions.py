@@ -17,7 +17,12 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-EXTENSIONS: tuple[str, ...] = ("ccs.statusline.daemon_ext", "ccs.daemon.scheduler")
+EXTENSIONS: tuple[str, ...] = (
+    "ccs.statusline.daemon_ext",
+    "ccs.daemon.scheduler",
+    "ccs.supervisor.engine",
+    "ccs.notify",
+)
 
 Installer = Callable[["Daemon"], Any]
 

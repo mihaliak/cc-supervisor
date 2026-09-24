@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ccsupervisor/schema/supervisor-state.schema.json",
+  "title": "Supervisor state (supervisor/<profile_id>.json)",
+  "description": "Active holds plus dedupe/hysteresis memory and a bounded ledger (ADR-0005/0008, P06). Written only by the daemon's supervisor engine, before any pause/resume command is sent.",
+  "type": "object",
+  "required": ["schema", "profile_id", "holds", "warned", "paused_instances", "released_instances", "ledger"],
+  "properties": {
+    "schema": { "const": 1 },
+    "profile_id": { "type": "string", "minLength": 1 },
+    "holds": {
+      "description": "Active holds. A session is paused while at least one applicable hold is active.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/hold" }
+    },
+    "warned": {
+      "description": "Warn dedupe keys (`warn:<instance>`, `warnp:<instance>`), newest 500.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "paused_instances": {
+      "description": "Window instances that already paused once (hysteresis), newest 500.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "released_instances": {
+      "description": "Instances released by a manual resume or a time-based clear; they never pause again.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "ledger": {
+      "description": "The newest 200 supervisor actions.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/ledger_entry" }
+    }
+  },
+  "$defs": {
+    "hold": {
+      "type": "object",
+      "required": ["id", "kind", "instance", "scope", "resets_at"],
+      "properties": {
+        "id": {
+          "description": "`session` | `weekly` | `model_scoped:<Name>` | `extra_usage` | `manual`",
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": { "enum": ["session", "weekly", "model_scoped", "extra_usage", "manual"] },
+        "instance": {
+          "description": "Window-instance key: `session:<YYYY-MM-DDTHH:MMZ>`, `weekly:<K>`, `model_scoped:<Name>:<K>`, `extra_usage:<YYYY-MM>:<cap>`, `manual:<ts>` or `manual:<wrapper_id>:<ts>`.",
+          "type": "string",
+          "minLength": 1
+        },
+        "scope": {
+          "description": "Model name (model_scoped) or wrapper id (session-scoped manual hold); null = whole profile.",
+          "type": ["string", "null"]
+        },
+        "resets_at": { "type": ["string", "null"], "format": "date-time" },
+        "created_at": { "type": ["string", "null"], "format": "date-time" },
+        "confirm_started_at": { "type": ["string", "null"], "format": "date-time" },
+        "next_confirm_poll_at": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "ledger_entry": {
+      "type": "object",
+      "required": ["ts", "action"],
+      "properties": {
+        "ts": { "type": "string", "format": "date-time" },
+        "action": {
+          "enum": ["pause", "resume", "override", "time_based_clear", "manual_pause", "manual_resume", "release"]
+        },
+        "instance": { "type": ["string", "null"] },
+        "wrapper_ids": { "type": "array", "items": { "type": "string" } },
+        "detail": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

@@ -419,7 +419,10 @@ def session_segments(ctx: RenderContext) -> list[Segment]:
     if state == STATE_PAUSED:
         resume_at = parse_time(sup.get("resume_at"))
         if resume_at is None:
-            return [Segment(f"{PAUSE_MARK} {core}", color), Segment(" paused (manual)")]
+            holds = active_holds(ctx)
+            # no reset time: a manual hold, or (spill mode) the extra-usage credit cap (P06)
+            why = "credits" if "extra_usage" in holds and "manual" not in holds else "manual"
+            return [Segment(f"{PAUSE_MARK} {core}", color), Segment(f" paused ({why})")]
         when = format_reset_combined(resume_at, ctx.now, ctx.tz)
         return [Segment(f"{PAUSE_MARK} {core}", color), Segment(f" paused → resumes {when}")]
     if state == STATE_OVERRIDDEN:

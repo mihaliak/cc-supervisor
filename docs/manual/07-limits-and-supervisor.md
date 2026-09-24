@@ -38,14 +38,16 @@ A limit counts as reached when the percent is **at or above** the threshold.
 ## A typical session limit, step by step
 ```
 14:10  Session at 80%  → statusline: ⚠ 80% … · limit approaching
-                         notification: "💼 Work: session at 80%. Resets 20:00 (in 5h 50m)"
+                         notification: "💼 Work: session at 80%" — "Resets 20:00 (in 5h 50m)"
 17:35  Session at 90%  → busy ccs sessions are interrupted (Esc)
                          statusline: ⏸ 90% … paused → resumes 20:00 (in 2h 25m)
-                         notification: "💼 Work paused at 90%: 2 sessions. Resumes 20:00 (in 2h 25m)"
-20:00  Window resets   → supervisor checks fresh usage (about 15 s after the reset)
+                         notification: "💼 Work paused at 90%" — "2 sessions paused. Resumes 20:00 (in 2h 25m)"
+20:00  Window resets   → supervisor checks fresh usage 15 s after the reset, then every 30 s
 20:00  Confirmed       → interrupted sessions get the resume prompt and keep working
-                         notification: "💼 Work resumed: 2 sessions continued"
+                         notification: "💼 Work resumed" — "2 sessions continued"
 ```
+- The reset counts as confirmed when fresh usage shows a new window (a later reset time) or the percent has dropped below the warn threshold.
+- The pause is decided and saved first (`~/.local/state/ccs/supervisor/<profile>.json`), then the sessions are told. Pauses survive a restart of the supervisor; reconnecting `ccs` sessions stay paused and are resumed once, as usual.
 
 ## What "pause" does in a `ccs` session
 - **Busy session** (Claude is working, running a tool, or waiting on a permission prompt): the supervisor sends **Esc**, the same as pressing it yourself. Claude stops the current turn. The TUI stays open.
@@ -66,7 +68,9 @@ A limit counts as reached when the percent is **at or above** the threshold.
 You can always type in a paused session. If you **submit** a prompt (Enter; pasting multi-line text doesn't count), that session becomes **overridden**:
 - it runs freely until the window resets and won't be interrupted again in this window
 - it won't get the automatic resume prompt
-- the statusline shows `⚠ 91% … · override`, and a `limit.override` event is logged
+- the statusline shows `⚠ 91% … · override`, and a `limit.override` event is logged (no notification)
+- the override covers only the limits that were paused when you typed. If a *different* limit hits later (for example the weekly one), the session is paused again for that one.
+- after the window resets, the session is simply back to normal (no prompt is typed)
 
 ## Starting a new session while paused
 ```
@@ -83,6 +87,8 @@ Same idea as the session limit, with a later pause point (95% by default), becau
 ## Model-scoped limits (e.g. Fable)
 Some accounts have a separate weekly limit for a specific model. Per profile, choose:
 - **Default (Fable warn-only off):** at 95%, only `ccs` sessions **currently using that model** are paused. Sessions on other models keep going. They resume when that model's limit resets.
+  - "Using that model" means the session's model id contains the limit's name (e.g. `claude-fable-5-1` for Fable). The model comes from the session's statusline, so a session that hasn't answered yet (model unknown) isn't paused by it.
+  - A session that switches to that model while its limit is paused is paused within a second or two.
 - **Fable warn-only on:** never pauses. You get warnings at 80% and at 95%, and other models remain usable.
 
 The statusline shows `~ Fable ⚠ 82% Sat 08:00` at the warn threshold and above.
@@ -90,8 +96,10 @@ The statusline shows `~ Fable ⚠ 82% Sat 08:00` at the warn threshold and above
 ## Extra usage (paid credits)
 If extra usage is enabled on your account, Claude continues on credits after the plan limits run out. Per profile:
 - **Spill into credits off (default):** pauses happen as normal. Credits are only shown, with a warning at 80% of your monthly cap.
-- **Spill into credits on:** session and weekly **pauses are skipped** (their warnings still come), because work continues on credits. Instead, the supervisor pauses at **90% of the monthly credit cap**. The statusline shows spend as `~ € 3.20/10.00`.
+- **Spill into credits on:** session and weekly **pauses are skipped** (their warnings still come), because work continues on credits. Instead, the supervisor pauses at **90% of the monthly credit cap**. The statusline shows spend as `~ € 3.20/10.00`, and a credit-cap pause as `⏸ … paused (credits)`.
   - If credits are actually disabled on the account (for example, out of credits), spill has no effect and the normal pauses apply.
+  - Turning spill on while a session or weekly pause is active resumes those sessions right away. Turning it off again pauses as normal, even in the same window.
+  - The credit-cap pause lifts when the credit percent drops below 90% (a new month or a higher cap), when credits are switched off, or when you turn spill off.
 
 ## What is NOT paused
 - **Background agents** (`claude --bg`, the agent view).
@@ -102,6 +110,7 @@ They're counted and shown as "other sessions" in the menu bar, the large widget,
 ## Each window pauses once
 - A limit warns once and pauses once per window. After a resume or an override, the same window won't pause you again.
 - A fresh window (new reset time) starts clean.
+- Reset times are compared to the minute, so the small jitter in what Claude Code reports never looks like a new window.
 
 ## Where the numbers come from
 - **Claude Code itself.** The supervisor asks each profile's Claude Code for its usage, the same numbers `/usage` shows, using that profile's own sign-in. It takes about a second, uses no tokens, and never runs your hooks. CC Supervisor stores no passwords or tokens.
@@ -132,13 +141,16 @@ Only one check per profile runs at a time. Refresh requests that arrive during a
 ```sh
 ccs pause --profile work          # pause all work sessions now
 ccs resume --profile work         # resume them now
-ccs pause --session <wrapper_id>  # one session (IDs from `ccs sessions`)
+ccs pause --session 3f9c1a2e      # one session (short ids from `ccs sessions`)
+ccs resume --session 3f9c1a2e
 ```
-- A manual pause lasts until you resume it manually. It doesn't end at a reset.
-- A manual resume clears every pause for that target. It works like an automatic resume: interrupted sessions get the resume prompt, and the current window won't pause them again.
+- A manual pause lasts until you resume it manually. It doesn't end at a reset. Its statusline reads `⏸ … paused (manual)` and the notification "💼 Work paused manually".
+- A manual resume of the profile clears every pause (manual and automatic). It works like an automatic resume: interrupted sessions get the resume prompt, and the current window won't pause them again.
+- Resuming a single session while the profile is still paused lets that one session continue as **overridden**.
+- These need the supervisor running (`ccs daemon start`).
 - The menu bar has the same actions under **Pause / Resume profile**.
 
 ## Turning supervision off
 Settings → Profiles → Supervisor → off (`supervisor.enabled`).
 - Usage display, warnings (statusline and notifications), and warm-ups keep working.
-- Nothing is paused.
+- Nothing is paused. Pauses that are active when you switch it off are lifted right away (interrupted sessions get the resume prompt), and `ccs pause` is refused for that profile.
