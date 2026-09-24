@@ -10,3 +10,4 @@ A stand-in for the real `claude` binary so tests never touch real profiles (ADR-
 - **Unknown subcommands** exit 2.
 - **In tests,** use the `fake_claude(scenario)` fixture from `tests/conftest.py`. It writes the scenario, sets both env vars, and returns `(env, log_path)`.
 - **Extending:** later plans add modes or fields here. Keep the file stdlib-only and backward compatible.
+- **`print` mode (warm-ups, P08):** `print.activate_window_s: N` makes later `get_usage` ok/slow payloads show an active 5h window resetting N s after the `-p` run (state in `$FAKE_CLAUDE_STATE`, default `<scenario>.state.json`).

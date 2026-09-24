@@ -18,6 +18,7 @@ CC Supervisor posts native macOS notifications from the menu bar app while it is
 | Sign-in needed, usage can't be read, config invalid | `errors` | "💼 Work: sign in required" |
 
 - Warn notifications cover the session, weekly, model-scoped (e.g. Fable), and extra-usage limits.
+- Warm-ups notify only their **outcome**: the window started (with its reset time), or the warm-up failed (with the reason, e.g. `timeout`). Started and skipped warm-ups are only logged (`ccs events`).
 - With **Fable warn-only** on, you get a notification at the warn threshold (80%) and again at 95%, instead of a pause.
 
 ## Turning them on or off

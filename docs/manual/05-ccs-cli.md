@@ -120,8 +120,15 @@ Resume now. Sessions interrupted mid-work get the profile's resume prompt. Autom
 
 ### `ccs warmup (--profile <id> | --all) [--trigger <t>] [--force] [--json]`
 Start a session window now ([Warm-up](08-warm-up.md)).
-- `--trigger` is one of `manual` (default), `app_start`, `unlock_wake`, `schedule`, or `auto_chain`.
+- `--trigger` is one of `manual` (default), `app_start`, `unlock_wake`, `schedule`, or `auto_chain`. The trigger decides which on/off switch and rules apply; `manual` has no switch.
 - `--force` ignores "window already active", "session busy", "cooldown", "outside active hours", and "weekly hold". It still respects "warm-up disabled" and "sign-in required".
+- It needs the background supervisor. When the daemon isn't running it exits 1 with `start it with: ccs daemon start`.
+- It prints one decision per profile and returns immediately; started warm-ups finish in the background (`ccs events --follow`):
+  ```
+  💼 work: started (window will be confirmed; see ccs events --follow)
+  🏠 personal: skipped (window_active, resets 20:00)
+  ```
+- `--json` prints `{"ok": true, "trigger": "manual", "results": [{"profile_id", "decision": "started"|"skipped", "reason", "resets_at"?}]}`.
 
 ## Setup
 ### `ccs auth login [--terminal] | status | logout --profile <id> [--json]`

@@ -17,7 +17,7 @@ Contract between `ccs daemon run` and its clients: the launcher (P05), the app (
 | `line_too_long` | the line exceeds 1 MB (connection closes) |
 | `bad_json` | the line isn't a JSON object (connection stays open) |
 | `unknown_op` | there is no handler for `op` |
-| `not_implemented` | `pause` / `resume` / `warmup` before the P06/P08 handlers are installed |
+| `not_implemented` | `pause` / `resume` / `warmup` before the P06/P08 handlers are installed (the P08 scheduler installs `warmup`) |
 | `bad_request` | a required field is missing |
 | `unknown_profile` | the `profile_id` isn't in the config (the daemon reloads the config once before answering) |
 | `unknown_wrapper` | the `wrapper_event` names an unregistered wrapper |
@@ -98,6 +98,16 @@ Until those plans install their handlers:
 ← {"proto":1,"id":9,"ok":false,"error":"not_implemented"}
 ```
 Request fields (ADR-0005): `pause`/`resume` take `{profile_id? | wrapper_id?}`; `warmup` takes `{profile_id? | all: true, trigger, force?}`.
+
+### `warmup` (P08, installed by `ccs.daemon.scheduler`)
+Evaluates the ADR-0010 skip rules synchronously and returns one decision per profile; started runs continue in the background and report as `warmup.started|succeeded|failed` events. `trigger` defaults to `manual` (one of `manual`, `app_start`, `unlock_wake`, `schedule`, `auto_chain`). `unlock_wake` first runs the missed-schedule catch-up.
+```json
+→ {"proto":1,"id":10,"op":"warmup","all":true,"trigger":"unlock_wake"}
+← {"proto":1,"id":10,"ok":true,"trigger":"unlock_wake","results":[
+    {"profile_id":"work","decision":"started","reason":null},
+    {"profile_id":"personal","decision":"skipped","reason":"window_active","resets_at":"2026-09-24T20:00:00Z"}]}
+```
+`reason` is a rule reason (`disabled`, `needs_sign_in`, `window_active`, `session_busy`, `cooldown`, `outside_active_hours`, `weekly_hold`) or `in_progress`. `resets_at` is the current session reset when known. Errors: `bad_trigger`, `bad_request` (neither `profile_id` nor `all`), `unknown_profile`.
 
 ## Commands: daemon → launcher
 The daemon pushes a command on the launcher's registered connection. The launcher answers with an ack line (no `id`, no `op`). With no ack within 10 s, the daemon records `result: "timeout"`.

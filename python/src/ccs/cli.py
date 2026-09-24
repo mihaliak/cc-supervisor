@@ -22,6 +22,7 @@ from ccs.launcher.args import parse_launcher_args as _parse_launcher_args
 from ccs.output import EXIT_ERROR, EXIT_USAGE, eprint
 from ccs.statusline import commands as statusline_cli
 from ccs.usage import cli as usage_cli
+from ccs.warmup import cli as warmup_cli
 
 __all__ = ["build_parser", "launch", "main", "parse_launcher_args"]
 
@@ -46,6 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     daemon_cli.register(sub)
     auth_cli.register(sub)
     statusline_cli.register(sub)
+    warmup_cli.register(sub)
     return parser
 
 

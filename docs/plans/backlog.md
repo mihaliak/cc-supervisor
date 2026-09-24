@@ -22,7 +22,7 @@ The single source of truth for plan status. Workflow rules are in [ADR-0014](../
 | P05 | [ccs launcher & PTY proxy](done/P05-ccs-launcher-pty.md) | done | P00, P04 | python |
 | P06 | [Supervisor policy & pause/resume](todo/P06-supervisor-policy.md) | todo | P04, P05 | python |
 | P07 | [Statusline generate/render/apply](done/P07-statusline.md) | done | P00, P02, P03, P04 | python |
-| P08 | [Warm-up scheduler](todo/P08-warmup.md) | todo | P00, P04 | python |
+| P08 | [Warm-up scheduler](done/P08-warmup.md) | done | P00, P04 | python |
 | P09 | [Auth wrapper](done/P09-auth.md) | done | P00, P02, P03, P04 | python |
 | P10 | [macOS app shell (menu bar, bridge, notifications, OS triggers)](done/P10-macos-app-shell.md) | done | P00, P04 | swift |
 | P11 | [Settings UI (profiles, sign-in, statusline apply)](todo/P11-settings-ui.md) | todo | P07, P09, P10 | swift |

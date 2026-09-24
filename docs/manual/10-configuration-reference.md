@@ -101,13 +101,13 @@ Thresholds in percent ([Limits & supervisor](07-limits-and-supervisor.md)).
 | `warmup.enabled` | bool | `true` | Master switch for this profile's warm-ups |
 | `warmup.model` | string | `"haiku"` | Model for the warm-up request |
 | `warmup.prompt` | string | `"Reply with just: ok"` | Warm-up prompt |
-| `warmup.triggers.schedule` | array | `[]` | Entries of `{ "time": "HH:MM", "weekdays": ["mon", …] }` |
+| `warmup.triggers.schedule` | array | `[]` | Entries of `{ "time": "HH:MM", "weekdays": ["mon", …] }` in local time; each occurrence runs once. An empty list turns the schedule trigger off |
 | `warmup.triggers.app_start` | bool | `true` | Warm up when the app launches |
 | `warmup.triggers.unlock_wake` | bool | `true` | Warm up on screen unlock or wake |
 | `warmup.triggers.auto_chain` | bool | `true` | Start the next window when one resets, during active hours |
-| `warmup.active_hours.start` | `"HH:MM"` | `"07:00"` | Start of active hours |
-| `warmup.active_hours.end` | `"HH:MM"` | `"23:00"` | End of active hours |
-| `warmup.cooldown_minutes` | int | `10` | Minimum gap between warm-up attempts for this profile |
+| `warmup.active_hours.start` | `"HH:MM"` | `"07:00"` | Start of active hours (included). Limits auto-chain and missed-schedule catch-ups |
+| `warmup.active_hours.end` | `"HH:MM"` | `"23:00"` | End of active hours (excluded). May be earlier than `start` to cross midnight; equal to `start` means all day |
+| `warmup.cooldown_minutes` | int | `10` | Minimum gap between warm-up attempts for this profile (skips don't count) |
 
 ### Seeded profiles
 | id | flag | name | emoji | config_dir |
@@ -175,7 +175,7 @@ Missing keys take their defaults.
 | `usage/<profile>.json` | latest usage per profile |
 | `sessions/<id>.json` | one file per supervised `ccs` session |
 | `supervisor/<profile>.json` | active pauses (survives restarts) |
-| `warmup/<profile>.json` | last and next warm-ups |
+| `warmup/<profile>.json` | last attempt, last skip, next planned run, the last 20 attempts, and which scheduled times already ran |
 | `statusline/<profile>.json` | what `statusline apply` changed, used by `revert` |
 | `widget/snapshot.json` | what the widgets and menu bar display |
 | `live/` | live usage reported by statuslines |

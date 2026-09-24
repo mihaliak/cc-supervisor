@@ -26,6 +26,9 @@ Behavior is driven by a JSON scenario file (env FAKE_CLAUDE_SCENARIO) keyed by m
                  "registry": true writes <CLAUDE_CONFIG_DIR>/sessions/<pid>.json + <pid>.fake.key,
                  removed again only on a graceful (stdin EOF) exit, like the real claude.
     print        {"stdout": "ok", "exit": 0, "delay": 0}     -> `claude -p <prompt>`
+                 "activate_window_s": N  (exit 0 only) -> later `get_usage` ok/slow payloads
+                 show an active 5h window resetting N s from now ("activate_percent", default 1).
+                 State lives in $FAKE_CLAUDE_STATE (default: <scenario>.state.json).
     interactive  {"banner": "FAKE-TUI ready", "exit": 0, "status": "idle",
                   "after_esc": "idle", "after_submit": null, "stop_on": null, "echo": true}
                                                              -> no subcommand (TUI mode)
@@ -45,6 +48,7 @@ Unknown subcommands exit 2. Later plans extend the modes.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import signal
@@ -199,6 +203,62 @@ def remove_registry() -> None:
             pass
 
 
+def state_path() -> str | None:
+    explicit = os.environ.get("FAKE_CLAUDE_STATE")
+    if explicit:
+        return explicit
+    scenario = os.environ.get("FAKE_CLAUDE_SCENARIO")
+    return f"{scenario}.state.json" if scenario else None
+
+
+def load_state() -> dict[str, Any]:
+    path = state_path()
+    if not path or not os.path.exists(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_state(state: dict[str, Any]) -> None:
+    path = state_path()
+    if not path:
+        return
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(state, fh)
+
+
+def apply_state(payload: dict[str, Any]) -> dict[str, Any]:
+    """Overlay the session window a warm-up (`print.activate_window_s`) started."""
+    session = load_state().get("session")
+    limits = payload.get("rate_limits")
+    if not isinstance(session, dict) or not isinstance(limits, dict):
+        return payload
+    payload = copy.deepcopy(payload)
+    resets = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime(session["resets_at_epoch"]))
+    payload["rate_limits"]["five_hour"] = {
+        "utilization": session.get("percent", 1),
+        "resets_at": resets,
+    }
+    return payload
+
+
+def run_print(spec: dict[str, Any]) -> int:
+    code = finish(spec, "ok")
+    seconds = spec.get("activate_window_s")
+    if code == 0 and isinstance(seconds, (int, float)):
+        state = load_state()
+        state["session"] = {
+            "resets_at_epoch": time.time() + float(seconds),
+            "percent": spec.get("activate_percent", 1),
+        }
+        save_state(state)
+    return code
+
+
 def hang_forever() -> None:
     while True:
         time.sleep(3600)
@@ -219,6 +279,7 @@ def usage_response(handler: dict[str, Any], request_id: Any) -> dict[str, Any] |
         payload = handler.get("payload")
         if not isinstance(payload, dict):
             payload = fixture_payload("ok_max.json")
+        payload = apply_state(payload)
     elif mode == "logged_out" or (mode == "auth_marker" and not marker_exists()):
         payload = fixture_payload("logged_out.json")
     elif mode == "auth_marker":
@@ -466,7 +527,7 @@ def main() -> int:
     if mode == "stream":
         return run_stream(spec, argv)
     if mode == "print":
-        return finish(spec, "ok")
+        return run_print(spec)
     return run_interactive(spec, argv)
 
 
