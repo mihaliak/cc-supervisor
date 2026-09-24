@@ -46,6 +46,8 @@ ccs status               # current usage + supervisor state
 | Usage error: **usage source error** | Claude Code changed how it reports usage (that interface is experimental), or `claude` couldn't start | Update CC Supervisor; `ccs doctor`; `ccs daemon logs` for details. Usage shows as unavailable and **no pauses happen** until fixed. |
 | Supervisor can't find `claude` | `PATH` changed since `ccs daemon install` | Re-run `ccs daemon install`, or set `claude_path` in the config |
 | Widgets missing from the gallery | App not in `~/Applications` or never opened; build signing (see [Installation](01-installation.md#signing-local-builds)) | Open the app once; rebuild with `make app` |
+| Ctrl-Z in a `ccs` session | `ccs` handles Ctrl-Z itself: it suspends the whole session and returns you to the shell | `fg` brings it back and repaints the screen |
+| Sign in opens the browser but nothing happens | The browser flow didn't reach Claude Code's local callback (e.g. the tab was closed) | Retry **Sign in**, or run `ccs auth login --profile <id> --terminal` |
 
 ## Reset or start over
 ```sh

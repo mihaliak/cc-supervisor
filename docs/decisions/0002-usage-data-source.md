@@ -37,3 +37,15 @@ Verified on 2026-09-24 with Claude Code 2.1.281:
 - Never store claude.ai cookies or OAuth tokens.
 - Never call Anthropic endpoints directly while `get_usage` works.
 - Keep the raw-to-`UsageSnapshot` mapping in one module with fixture-based tests. Store captured payloads under `python/tests/fixtures/get_usage/`, with personal data scrubbed.
+
+## Verification (P00-S2, 2026-09-24, Claude Code 2.1.281)
+- **Latency:** p50 0.78 s, p95 0.89 s to response over 20 runs (personal), and p95 0.82 s over 10 runs (work). A graceful exit adds about 0.8 s.
+- **Hooks off:** with `disableAllHooks`, no `hook_started` lines appear. Without it, 3 hooks ran.
+- **No persistence:** no transcripts, no `projects/` entries, and no `~/.claude.json` bookkeeping. This holds only when the probe **exits gracefully**, i.e. stdin is closed after the response (rc 0). A SIGKILLed probe leaves `<config_dir>/sessions/<pid>.json` + `<pid>.<hash>.key` behind.
+- **Concurrency:** 3 parallel probes during a busy interactive session of the same profile all succeeded with no interference.
+- **Visible in agents list:** while a probe runs (~1.5 s) it is listed by `claude agents --json` as `kind: interactive`, `status: idle`. The daemon must exclude its own child pids.
+- **Logged-out shape:** `subtype: success` with `rate_limits_available: false`, `rate_limits: null`, `subscription_type: null`, the same as API-key accounts. Distinguish the two with `claude auth status --json` (ADR-0003).
+- **`resets_at` jitter:** it varies by sub-seconds between calls for the same window. Normalize to whole seconds, and derive window-instance keys from the minute-rounded value (P03/P06).
+- **Inactive 5h window:** not observed, because both profiles had active windows. Treat `five_hour` null, `resets_at` null, or `resets_at` in the past as inactive.
+- **Extra fields:** `limits[].is_active` marks the currently binding limit, not window activity. `seven_day_breakdown` and `spend` (minor units) are also present. `extra_usage` fields are all null on accounts without credits configured (the team profile).
+- **Fixtures:** `python/tests/fixtures/get_usage/{ok_max,ok_team,logged_out}.json`.

@@ -33,17 +33,21 @@
 - `async run(argv, *, env, cwd=None, timeout, stdin_data=None) -> Completed(rc, stdout, stderr, duration)`: asyncio subprocess. On timeout it kills the process group and raises `ClaudeTimeout`.
 - `async probe_usage(claude, profile, *, timeout=15.0) -> ProbeResult(raw: dict | None, error_kind: str | None, error: str | None, duration)`:
   - argv: `[claude, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--settings", '{"disableAllHooks":true}']`
-  - `request_id = f"ccs-{uuid4().hex[:12]}"`. Write the single `control_request` line from ADR-0002 and keep stdin **open** (closing it may end the session early). Read stdout lines with an overall deadline.
+  - `request_id = f"ccs-{uuid4().hex[:12]}"`. Write the single `control_request` line from ADR-0002 and keep stdin open until the matching `control_response` arrives. Read stdout lines with an overall deadline.
   - Ignore non-JSON lines and other message types. On a `control_response` with a matching `request_id`:
     - `subtype == "success"` → `raw = response.response`
     - otherwise → `error_kind = "source_error"`, `error = response.error`
-  - `finally`: close stdin, `terminate()`, then after 2 s `kill()`. Always reap.
+  - `finally`: **close stdin (EOF) and wait up to 5 s for a clean exit** (P00-S2: rc 0 after ~0.8 s). Only then `terminate()`, then `kill()` after 2 s. Always reap.
+  - **Never SIGKILL first.** A killed probe leaves Claude's pid registry files `<config_dir>/sessions/<pid>.json` and `<pid>.<hash>.key` behind (P00-S2). After a SIGKILL fallback, remove exactly those two files for that pid.
   - Stderr is captured (bounded to 64 KB) for classification.
 - `async agents_json(claude, profile) -> list[dict]` and `async auth_status(claude, profile) -> dict`: thin wrappers, declared here for P04/P06/P09 to use. Tests use the fake.
 
 ### Error classification (`source_claude.classify`)
-- `needs_sign_in`: the error text or stderr matches the logged-out shape recorded in P00-S2 (e.g. contains "not logged in", "login", "401", or "auth"; the exact matcher is taken from the fixture), **or** `auth status` says logged out.
-- `no_subscription`: the raw has `rate_limits_available == false` or `rate_limits == null`.
+- **P00-S2 finding:** a logged-out profile does **not** error. `get_usage` returns `subtype: success` with `rate_limits_available: false`, `rate_limits: null`, `subscription_type: null` (fixture `logged_out.json`). This is the same shape as API-key or no-subscription accounts.
+- So when `rate_limits_available == false` or `rate_limits == null`, call `auth_status` (`claude auth status --json`; rc 1 and `loggedIn: false` when logged out, per P00-S4):
+  - `loggedIn == false` → `needs_sign_in`
+  - otherwise → `no_subscription`
+- `needs_sign_in` also applies when the error text or stderr mentions "not logged in"/"401" (defensive).
 - `source_error`:
   - timeout
   - non-zero exit before a response
@@ -62,7 +66,8 @@
 - `normalize(raw: dict, *, profile_id, fetched_at) -> UsageSnapshot`:
   - `rate_limits.five_hour` → `session`, `seven_day` → `weekly`. Missing or `null` → `None`.
   - `percent = round(utilization)`, clamped 0–100 (clamping above 100 is allowed only for extra usage).
-  - `resets_at`: ISO 8601 with offset → aware UTC. Microseconds are tolerated. `null` → `None`.
+  - `resets_at`: ISO 8601 with offset → aware UTC, **truncated to whole seconds**. P00-S2 saw sub-second jitter between calls for the same window: `…20:00:00.326066` vs `…20:00:00.742595`. `null` → `None`.
+  - Helper `window_key_time(dt) -> str`: `dt` rounded to the nearest minute, as ISO `YYYY-MM-DDTHH:MMZ`. P06 uses it for every window-instance key and for "resets_at advanced" comparisons, so jitter can never create a new instance.
   - `model_scoped`:
     - Primary: `rate_limits.model_scoped[]` (`display_name`, `utilization`, `resets_at`).
     - Fallback when absent: `rate_limits.limits[]` where `kind == "weekly_scoped"` and `scope.model.display_name` is set (`percent`, `resets_at`).

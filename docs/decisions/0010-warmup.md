@@ -33,3 +33,8 @@ The 5-hour session window starts at the first usage. Starting it early (for exam
 ## Rules for implementers
 - Warm-ups never run in parallel for the same profile. Hold a per-profile asyncio lock.
 - `ccs warmup --force` bypasses rules 3–7 but not rules 1–2.
+
+## Verification (P00-S5, 2026-09-24)
+- The exact warm-up command (run with `stdin=DEVNULL`) exits 0 in ~3.4 s and prints `ok`.
+- No persisted transcript or session files, no `~/.claude.json` bookkeeping, and a measured usage delta of 0 %. This was on a profile whose window was already active.
+- Not yet observed, deliberately: that a warm-up on an **inactive** window sets `resets_at ≈ now + 5h`, because running it would start a real window. It gets confirmed at the user's first real warm-up (`warmup.succeeded` carries the new `resets_at`).

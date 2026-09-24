@@ -13,12 +13,12 @@ Binding project principles. Every plan and implementation must comply. If a deci
 | [0004](0004-config-and-profiles.md) | Config file & profile model | accepted |
 | [0005](0005-state-and-ipc.md) | State directory, file formats, daemon IPC | accepted |
 | [0006](0006-process-model.md) | Process model: launchd daemon + PTY launcher | accepted |
-| [0007](0007-pause-resume.md) | Pause/resume via PTY keystroke injection | proposed (P00-S3) |
+| [0007](0007-pause-resume.md) | Pause/resume via PTY keystroke injection | accepted |
 | [0008](0008-limit-policy.md) | Limit policy & default thresholds | accepted |
 | [0009](0009-display-conventions.md) | Display conventions: colors, times, statusline format | accepted |
 | [0010](0010-warmup.md) | Warm-up sessions | accepted |
 | [0011](0011-macos-app.md) | macOS app: menu bar agent, macOS 26, local builds, XcodeGen | accepted |
-| [0012](0012-widget-data-path.md) | Widget data path & signing | proposed (P00-S1) |
+| [0012](0012-widget-data-path.md) | Widget data path & signing | accepted |
 | [0013](0013-python-engineering.md) | Python engineering standards | accepted |
 | [0014](0014-docs-and-workflow.md) | Docs, plans, and git workflow | accepted |
 | [0015](0015-notifications.md) | Notifications | accepted |

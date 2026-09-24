@@ -14,7 +14,7 @@ The single source of truth for plan status. Workflow rules are in [ADR-0014](../
 ## Plans
 | ID | Plan | Status | Depends on | Area |
 |----|------|--------|------------|------|
-| P00 | [Feasibility spikes](in-progress/P00-feasibility-spikes.md) | in-progress | – | research |
+| P00 | [Feasibility spikes](done/P00-feasibility-spikes.md) | done | – | research |
 | P01 | [Repo scaffolding & tooling](done/P01-repo-scaffolding.md) | done | – | infra |
 | P02 | [Config & state foundation](done/P02-config-and-state.md) | done | P01 | python |
 | P03 | [Usage fetching & normalization](todo/P03-usage-fetching.md) | todo | P00, P02 | python |

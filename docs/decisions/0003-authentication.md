@@ -21,3 +21,14 @@ Each profile maps to a Claude Code config dir (`CLAUDE_CONFIG_DIR`). Claude Code
 
 ## Rules for implementers
 - All auth actions go through `ccs auth ...`. Swift never execs `claude` directly.
+
+## Verification (P00-S4, 2026-09-24)
+- **Headless login works.** With a temp config dir and `stdin=DEVNULL`, `claude auth login --claudeai` prints `Opening browser to sign in…` plus the URL, runs `open <url>` (resolved via `PATH`), and waits on an OAuth `redirect_uri=http://localhost:<port>/callback`. No TTY prompt appears.
+  - The default login path is therefore **headless** (`HEADLESS_LOGIN_SUPPORTED = True`), with `--claudeai` always passed.
+  - `--terminal` stays as a manual fallback.
+  - Completion after browser consent was not exercised; that needs the user.
+- **`claude auth status --json`:**
+  - Fields: `loggedIn`, `authMethod` (`claude.ai` | `none`), `apiProvider`, `analyticsDisabled`, `projectsDirectory`, `configDirectory`.
+  - When logged in, it also has `email`, `orgId`, `orgName`, `subscriptionType`.
+  - It exits **1 when logged out**, and still prints the JSON.
+  - Fixtures: `python/tests/fixtures/auth_status/{logged_in,logged_in_team,logged_out}.json`.

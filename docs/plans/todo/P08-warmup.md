@@ -29,6 +29,11 @@ The daemon owns all of it: rules, scheduling, execution, and events.
 - The warm-up settings UI (P11).
 
 ## Design
+- **P00-S5 findings:**
+  - Verified on a profile with an active window: `claude -p "Reply with just: ok" --model haiku --no-session-persistence --settings '{"disableAllHooks":true}'` with `stdin=DEVNULL` exits 0 in ~3.4 s and prints `ok`.
+  - No transcript or session files were persisted and there was no `~/.claude.json` bookkeeping. The usage delta was 0 %.
+  - "Starts a new window" (`resets_at ≈ now+5h`) is **not yet observed** (it would have started a real window) and is deferred to the user's first real warm-up.
+  - Rule 3 treats `resets_at` null/None **or** in the past as inactive (P03 `session_window_active`).
 
 ### Triggers
 `manual`, `app_start`, `unlock_wake`, `schedule`, `auto_chain` (CLI default `manual`).

@@ -1,6 +1,6 @@
 # ADR-0007: Pause/resume via PTY keystroke injection
 
-- Status: proposed. Confirm or replace after P00-S3.
+- Status: accepted (verified by P00-S3 on 2026-09-24; see Verification)
 - Date: 2026-09-24
 - Source: user decisions (pause mechanism, pause scope, paused-input behavior)
 
@@ -37,3 +37,17 @@ Adopting the fallback requires a superseding ADR.
 - Injection happens only on explicit daemon commands, never heuristically.
 - Every injection is logged as a `wrapper_event`.
 - Never inject while the user is mid-typing: if user input arrived less than 1.5 s ago, wait (up to 30 s) and then inject.
+
+## Verification (P00-S3, 2026-09-24, headless PTY harness)
+- **Worked:**
+  - An ESC injected into the PTY interrupted a busy turn in 0.21 s ("Interrupted · What should Claude do instead?").
+  - A bracketed paste plus `\r` submitted a prompt.
+  - `claude agents --json` mapped the child pid to `status: busy` within 0.5 s, then `idle` after ESC.
+  - Resize propagated.
+  - Exit code with the proxy matched a direct run (0).
+  - Throughput was 95 MB/s through the proxy vs 137 MB/s direct.
+  - The first-run folder-trust dialog passes through the proxy unchanged.
+- **Additional rules learned:**
+  - **Ctrl-Z must be handled by the launcher.** The PTY child is a session leader in an orphaned process group, so claude's own suspend is a no-op: it shows "suspended" but keeps running, and the shell never regains control. The launcher strips Ctrl-Z (`\x1a` and kitty `CSI 122;5u`), suspends itself with the tty restored, and on `SIGCONT` re-raws and nudges the winsize to force a repaint. Verified.
+  - **Never inject slash commands.** `/model <x>` persists `model` into the profile's `settings.json`. Only ESC and the resume prompt text are ever injected.
+- **Not verifiable headless** (deferred to the user's manual check, P05 task): visual fidelity in Ghostty and Terminal.app, mouse scrolling, and kitty keyboard-protocol keys.

@@ -1,6 +1,6 @@
 # ADR-0012: Widget data path & signing
 
-- Status: proposed. Confirm or replace after P00-S1.
+- Status: accepted (primary path verified as far as possible headless by P00-S1 on 2026-09-24; see Verification)
 - Date: 2026-09-24
 - Source: user decision ("spike ad-hoc first") + planner design
 
@@ -34,3 +34,14 @@
 
 ## Rules for implementers
 - The widget never runs processes, never writes files, and never makes network calls.
+
+## Verification (P00-S1, 2026-09-24)
+- **Worked:**
+  - Ad-hoc signed (`CODE_SIGN_IDENTITY=-`, no team) app plus widget extension built with Xcode 26.2 and XcodeGen 2.46.
+  - `pluginkit` registered the extension as `com.apple.widgetkit-extension`, and the system launched it sandboxed (its container was created).
+  - An ad-hoc signed sandboxed tool with the same `home-relative-path.read-only` exception could read `~/.local/state/ccs/widget/snapshot.json`, and was denied `~/.zshrc`.
+- **Implementation notes:**
+  - Inside the sandbox, `NSHomeDirectory()` is the container. Resolve the real home via `getpwuid(getuid())->pw_dir`.
+  - macOS keeps the containers `~/Library/Containers/<bundle id>` after uninstall. They can't be removed with `rm` (containermanagerd).
+- **Not verifiable headless:** the widget showing up in the gallery and rendering on the desktop. The user checks this manually after P12.
+- **Fallback:** fallback A needs the user's Apple ID and was not exercised. Keep a single `SnapshotLocation` abstraction so App Group mirroring can be switched by a build setting.

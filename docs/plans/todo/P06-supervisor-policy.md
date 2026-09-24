@@ -26,7 +26,7 @@
 - `Hold`:
   - `id`: `session` | `weekly` | `model_scoped:<Name>` | `extra_usage` | `manual` (ADR-0005 hold ids)
   - `kind`, `scope: str | None` (the model name for `model_scoped`, the `wrapper_id` for a session-scoped `manual` hold, else `None`)
-  - `instance`: the window-instance key (`session:<resets_at ISO>`, `weekly:<ISO>`, `model_scoped:<name>:<ISO>`, `extra_usage:<YYYY-MM>`, `manual:<created_at ISO>`)
+  - `instance`: the window-instance key (`session:<K>`, `weekly:<K>`, `model_scoped:<name>:<K>`, `extra_usage:<YYYY-MM>`, `manual:<created_at ISO>`). `K = usage.window_key_time(resets_at)` is minute-rounded (P03), because `get_usage` `resets_at` jitters by sub-seconds (P00-S2).
   - `resets_at: datetime | None`, `created_at`
   - `confirm_started_at: datetime | None`, `next_confirm_poll_at: datetime | None`
 - `ProfileSupervisorState` is persisted in `supervisor/<profile>.json`, `schema: 1`:
@@ -59,7 +59,7 @@
      - When `spill_active`, `percent >= pause`, and `profile.supervisor.enabled` → `extra_usage` hold (instance `extra_usage:<YYYY-MM>`, `resets_at=None`).
   5. **Reset confirmation** (per hold with `resets_at`):
      - `now >= resets_at + 15 s` and `confirm_started_at is None` → set it and `ForcePoll(now)`.
-     - While confirming and `fresh` with `snapshot.observed/fetched > resets_at`: clear when the matching window's `resets_at > hold.resets_at` (advanced) **or** `percent < warn`.
+     - While confirming and `fresh` with `snapshot.observed/fetched > resets_at`: clear when the matching window's `resets_at > hold.resets_at + 60 s` (advanced; the tolerance absorbs jitter) **or** `percent < warn`.
      - Not cleared → `ForcePoll(now + 30 s)`.
      - `now >= confirm_started_at + 10 min` → time-based clear plus `LogWarning`, ledger `time_based_clear`, instance added to `released_instances`.
      - An `extra_usage` hold clears when `fresh and (not extra.enabled or extra.percent < pause or not spill)`.

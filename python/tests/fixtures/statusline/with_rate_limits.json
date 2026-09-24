@@ -1,0 +1,72 @@
+{
+ "session_id": "00000000-0000-0000-0000-000000000000",
+ "transcript_path": "/Users/user/.claude/projects/-Users-user-Code-cc-supervisor/00000000-0000-0000-0000-000000000000.jsonl",
+ "cwd": "/Users/user/Code/cc-supervisor",
+ "scratchpad_dir": "/private/tmp/scratch",
+ "prompt_id": "00000000-0000-0000-0000-000000000000",
+ "session_name": "spike-session",
+ "model": {
+  "id": "claude-haiku-4-5-20251001",
+  "display_name": "Haiku 4.5"
+ },
+ "workspace": {
+  "current_dir": "/Users/user/Code/cc-supervisor",
+  "project_dir": "/Users/user/Code/cc-supervisor",
+  "added_dirs": []
+ },
+ "version": "2.1.281",
+ "output_style": {
+  "name": "default"
+ },
+ "cost": {
+  "total_cost_usd": 0.017287800000000002,
+  "total_duration_ms": 24021,
+  "total_api_duration_ms": 2192,
+  "total_lines_added": 0,
+  "total_lines_removed": 0
+ },
+ "context_window": {
+  "total_input_tokens": 33965,
+  "total_output_tokens": 3,
+  "context_window_size": 200000,
+  "current_usage": {
+   "input_tokens": 10,
+   "output_tokens": 3,
+   "cache_creation_input_tokens": 52,
+   "cache_read_input_tokens": 33903
+  },
+  "used_percentage": 17,
+  "remaining_percentage": 83
+ },
+ "exceeds_200k_tokens": false,
+ "prompt_cache": {
+  "warm": true,
+  "caching_observed": true,
+  "ttl": "1h",
+  "expires_at": 1790276262,
+  "requests": 2,
+  "misses": 0,
+  "expected_rebuilds": 0,
+  "hit_ratio": 0.9002860344420854,
+  "cache_write_tokens": 6743,
+  "miss_recache_tokens": 0,
+  "last_miss_at": null,
+  "last_miss_cause": null,
+  "miss_causes": {},
+  "recache_tokens_if_cold": 33965
+ },
+ "fast_mode": false,
+ "thinking": {
+  "enabled": true
+ },
+ "rate_limits": {
+  "five_hour": {
+   "used_percentage": 18,
+   "resets_at": 1790280000
+  },
+  "seven_day": {
+   "used_percentage": 52,
+   "resets_at": 1790402400
+  }
+ }
+}

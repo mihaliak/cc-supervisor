@@ -27,6 +27,12 @@ Each widget is configured by right-click → Edit Widget (profile + row toggles)
 - Interactive buttons that run actions. Taps only open URLs.
 
 ## Design
+- **P00-S1 findings:**
+  - An ad-hoc signed widget extension registers with `pluginkit` (`com.apple.widgetkit-extension`), and the system launches it sandboxed (its container was created).
+  - The `home-relative-path.read-only` temporary exception is honored under ad-hoc signing: the allowed path reads OK, other home files are denied.
+  - Inside the sandbox `NSHomeDirectory()`/`homeDirectoryForCurrentUser` is the **container** path. Resolve the real home with `getpwuid(getuid())->pw_dir`.
+  - Desktop/gallery rendering couldn't be observed headless and is deferred to the user's manual check.
+  - Keep data access behind one `SnapshotLocation` abstraction, so App Group mirroring (ADR-0012 fallback A) is a build-setting switch (`CCS_WIDGET_DATA=appgroup`).
 
 ### Data path (from P00-S1)
 - **Primary:** the sandbox entitlement `com.apple.security.temporary-exception.files.home-relative-path.read-only = ["/.local/state/ccs/widget/"]`. Read `~/.local/state/ccs/widget/snapshot.json`. Resolve the real home via `getpwuid(getuid())`, because the sandbox `HOME` points into the container.

@@ -52,11 +52,9 @@ The daemon's LaunchAgent remembers the `PATH` you had when you ran `ccs daemon i
 
 ## Signing (local builds)
 - Builds are signed "to run locally" (ad-hoc). No Apple ID or developer account is needed.
-- *May apply, pending a technical check (P00-S1):* if macOS refuses to load widgets from an ad-hoc build, the build uses a **free Apple ID** team in Xcode instead. Free signing expires after **7 days**, so you'd need to rebuild weekly:
-  ```sh
-  make app
-  ```
-  This page will say which variant applies once it is verified.
+  - Verified: macOS registers and launches ad-hoc widget extensions, and grants their read-only access to `~/.local/state/ccs/widget/`.
+- **Only if** widgets ever fail to show up after `make app` and opening the app once: the fallback is a **free Apple ID** team in Xcode with an App Group. Free signing expires after **7 days**, so you'd rebuild weekly with `make app`.
+- After uninstalling, macOS keeps a small empty sandbox container at `~/Library/Containers/local.ccsupervisor.app.widgets`. This is normal and harmless.
 
 ## Upgrade
 ```sh

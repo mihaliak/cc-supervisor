@@ -1,0 +1,8 @@
+{
+ "loggedIn": false,
+ "authMethod": "none",
+ "apiProvider": "firstParty",
+ "analyticsDisabled": false,
+ "projectsDirectory": "/tmp/ccs-test-config/projects",
+ "configDirectory": "/tmp/ccs-test-config"
+}

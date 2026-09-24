@@ -35,7 +35,9 @@ Sign in, check, and sign out a profile's Claude Code login (claude.ai OAuth) thr
 
 ### `parse_auth_status(raw: dict) -> AuthStatus`
 - `AuthStatus(logged_in: bool, account: str | None, subscription_type: str | None, raw_keys: list[str])`.
-- Field names come from P00-S4 fixtures. Parse defensively: unknown shape → `logged_in=False` plus `error`.
+- Field names come from P00-S4 fixtures: `loggedIn` (bool), `authMethod` (`claude.ai` | `none`), `apiProvider`, `analyticsDisabled`, `projectsDirectory`, `configDirectory`, `email`, `orgId`, `orgName`, `subscriptionType` (`max` | `team` | …). The last four are absent when logged out.
+- `claude auth status --json` exits **1 when logged out**, and still prints the JSON.
+- Parse defensively: unknown shape → `logged_in=False` plus `error`.
 - `account` (email) is for display only and is never logged.
 
 ### `ccs auth status --profile <id> [--json]`
@@ -49,6 +51,10 @@ Sign in, check, and sign out a profile's Claude Code login (claude.ai OAuth) thr
   - Headless mode, only if P00-S4 confirmed that `claude auth login` completes with `stdin=DEVNULL`, opening the browser and waiting for the callback. Capture output; timeout 600 s.
   - Otherwise it automatically falls back to terminal mode.
   - The choice is a constant `HEADLESS_LOGIN_SUPPORTED` in `auth.py`, set from S4's result. Swift never decides (ADR-0001).
+- **S4 result: `HEADLESS_LOGIN_SUPPORTED = True`.**
+  - `claude auth login --claudeai` with `stdin=DEVNULL` prints `Opening browser to sign in…` plus the URL and calls `open <url>`, resolved via `PATH`.
+  - The OAuth `redirect_uri` is `http://localhost:<port>/callback`, so it completes without a TTY once the user consents.
+  - Always pass `--claudeai` so no method prompt can appear.
 - **Terminal mode** (`--terminal`, or the automatic fallback):
   1. Write `<state>/tmp/signin-<profile>.command` (mode 0700) containing `#!/bin/zsh -l` and `exec "<abs ccs path>" auth login --profile <id>`.
   2. Run `open -a Terminal <file>` (no Apple Events/Automation permission needed).

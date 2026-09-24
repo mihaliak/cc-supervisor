@@ -37,4 +37,5 @@
   - raw mode on the user's TTY, restored on every exit path (`try/finally` plus signal handlers)
   - forward `SIGWINCH` via `TIOCSWINSZ`
   - pass through all bytes unchanged, except for daemon-requested injections
+- The launcher handles Ctrl-Z itself (ADR-0007 Verification): it strips it from input, self-suspends with the tty restored, and repaints on resume.
 - Never write to the user's terminal while claude is running. Supervisor messages appear only in the statusline and in notifications.

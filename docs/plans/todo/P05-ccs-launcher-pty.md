@@ -82,7 +82,12 @@
     - `SIGTERM`/`SIGHUP` → forward to the child, wait up to 5 s, then `SIGKILL`.
     - `SIGINT` never arrives from the keyboard in raw mode. If received externally, forward it.
     - `SIGCHLD` → `waitpid(pid, WNOHANG | WUNTRACED)`:
-      - **stopped child** (Ctrl-Z handled by claude): restore termios, `os.kill(os.getpid(), SIGSTOP)`. On resume (`SIGCONT`), re-raw and `os.kill(pid, SIGCONT)`.
+      - **stopped child** (defensive only): restore termios, `os.kill(os.getpid(), SIGSTOP)`. On resume (`SIGCONT`), re-raw and `os.kill(pid, SIGCONT)`.
+  - **Ctrl-Z is intercepted by the proxy** (P00-S3 finding). Under `pty.fork` claude is a session leader in an orphaned process group, so its own Ctrl-Z suspend is silently discarded: it prints "Claude Code has been suspended" but keeps running, and the user's shell never regains control. So:
+    1. Strip `\x1a`, `\x1b[122;5u` and `\x1b[122;5:1u` (kitty keyboard encodings) from user input.
+    2. Restore termios and `os.kill(os.getpid(), SIGTSTP)`, so the shell sees the job stop.
+    3. On `SIGCONT`, re-raw and force a redraw by nudging the winsize (rows-1, then back, 50 ms apart) so the fullscreen TUI repaints.
+    - Verified in S3 with the spike proxy: proxy `T` while claude kept running, and `fg` restored it.
       - **exited child:** finish.
   - `finally` (all paths, including exceptions): restore termios `TCSAFLUSH`, remove readers, close master.
 - `exit_code = os.waitstatus_to_exitcode(status)`. For signals it is `128 + signum`.
@@ -99,7 +104,8 @@
 - Every injection is reported as `wrapper_event {kind: "injected"|"inject_failed", detail: {cmd_id, what: "esc"|"resume_prompt"}}`.
 
 ### Session map (`launcher/session_map.py`)
-- `async lookup(claude, profile, claude_pid) -> SessionInfo(session_id: str | None, status: "busy" | "shell" | "idle" | "waiting" | "unknown")` via `claude_cli.agents_json`.
+- `async lookup(claude, profile, claude_pid) -> SessionInfo(session_id: str | None, status: "busy" | "shell" | "idle" | "waiting" | "unknown")` via `claude_cli.agents_json`. Fields verified in P00-S3: the entry has `pid`, `sessionId`, `status`, `kind: "interactive"`, `name`, `startedAt`, `cwd`. It became `busy` within 0.5 s of submit and `idle` after ESC.
+- **Never inject slash commands** (e.g. `/model`). They can persist user settings: in P00-S3 `/model sonnet` rewrote `~/.claude/settings.json` `model`. Only ESC and the resume prompt text are ever injected.
 - It matches the entry with `pid == claude_pid` (the field names are confirmed by P00-S3). Not found → `unknown`.
 - `is_busy(status)`: `status != "idle"`. Per ADR-0007, anything other than `idle` counts as busy, including `unknown`, so ESC is sent.
 

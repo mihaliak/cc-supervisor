@@ -1,0 +1,42 @@
+{
+ "session_id": "00000000-0000-0000-0000-000000000000",
+ "transcript_path": "/Users/user/.claude/projects/-Users-user-Code-cc-supervisor/00000000-0000-0000-0000-000000000000.jsonl",
+ "cwd": "/Users/user/Code/cc-supervisor",
+ "scratchpad_dir": "/private/tmp/scratch",
+ "effort": {
+  "level": "low"
+ },
+ "model": {
+  "id": "claude-sonnet-5",
+  "display_name": "Sonnet 5"
+ },
+ "workspace": {
+  "current_dir": "/Users/user/Code/cc-supervisor",
+  "project_dir": "/Users/user/Code/cc-supervisor",
+  "added_dirs": []
+ },
+ "version": "2.1.281",
+ "output_style": {
+  "name": "default"
+ },
+ "cost": {
+  "total_cost_usd": 0,
+  "total_duration_ms": 944,
+  "total_api_duration_ms": 0,
+  "total_lines_added": 0,
+  "total_lines_removed": 0
+ },
+ "context_window": {
+  "total_input_tokens": 0,
+  "total_output_tokens": 0,
+  "context_window_size": 1000000,
+  "current_usage": null,
+  "used_percentage": null,
+  "remaining_percentage": null
+ },
+ "exceeds_200k_tokens": false,
+ "fast_mode": false,
+ "thinking": {
+  "enabled": true
+ }
+}

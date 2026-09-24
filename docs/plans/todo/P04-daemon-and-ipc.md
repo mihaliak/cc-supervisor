@@ -104,6 +104,10 @@
 - Every 15 s for profiles with registered wrappers, and every 60 s otherwise: `agents_json(profile)`.
 - For each entry with `pid` matching a registered wrapper's `claude_pid`, update the in-memory activity (`status`: busy|shell|idle|waiting) and `session_id` in the session file.
 - Everything else is counted into `other_sessions` by `kind` (`interactive`, `background`). Unknown kinds count as `background`.
+- **Exclude the daemon's own children.** P00-S2 showed that a running `get_usage` probe (and likewise a warm-up `claude -p`) appears in `agents --json` as `kind: interactive`, `status: idle` for its ~1.5 s lifetime. The daemon tracks the pids it spawns and skips them.
+- Field names (P00-S3):
+  - every entry: `pid` (only while running), `kind` (`interactive` | `background`), `startedAt` (ms), `sessionId`, `name`, `cwd`, `status` (`busy` | `idle` | `shell` | `waiting`, only while running)
+  - background only: `id` (short) and `state` (e.g. `blocked`, `done`)
 - Failures are logged, and the counts are kept.
 
 ### Reaper (`reaper.py`)

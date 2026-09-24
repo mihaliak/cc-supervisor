@@ -30,6 +30,14 @@ Each profile gets a generated, self-contained, fast statusline script (`<config_
 - Migrating the user's real configs (P14).
 
 ## Design
+- **P00-S6 findings** (verified 2026-09-24, Claude Code 2.1.281):
+  - The statusline command inherits the claude process env: `CCS_*`, `CLAUDE_EFFORT`, `COLUMNS`, `TERM`.
+  - `--settings '{"statusLine":…}'` overrides the `settings.json` statusLine.
+  - `rate_limits.five_hour|seven_day` = `{used_percentage: int, resets_at: int epoch seconds}`, present only after the first API response of the session.
+  - `effort` is absent for Haiku and `{level}` for Sonnet/Opus.
+  - Other top-level keys: `cost`, `exceeds_200k_tokens`, `fast_mode`, `scratchpad_dir`, `prompt_cache`, `prompt_id`, `session_name`.
+  - **Invocation is event-driven:** at startup, after API responses, and on state changes. There is no periodic tick while idle; an 18 s gap was observed with no calls. So the 60 s `observed_at` refresh happens only when an invocation occurs.
+  - Fixtures: `python/tests/fixtures/statusline/{no_rate_limits_yet,with_rate_limits,with_effort}.json`.
 
 ### Segment model
 - `Segment(text: str, color: Literal["green","yellow","red","gray","plain"])`.
