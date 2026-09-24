@@ -1,0 +1,242 @@
+[
+  {
+    "name": "same day",
+    "tz": "Europe/Bratislava",
+    "now": "2026-09-24T15:47:00Z",
+    "reset": "2026-09-24T18:00:00Z",
+    "absolute": "20:00",
+    "relative": "in 2h 13m",
+    "combined": "20:00 (in 2h 13m)",
+    "compact": "20:00 · in 2h 13m"
+  },
+  {
+    "name": "minutes only",
+    "tz": "Europe/Bratislava",
+    "now": "2026-09-24T17:18:00Z",
+    "reset": "2026-09-24T18:00:00Z",
+    "absolute": "20:00",
+    "relative": "in 42m",
+    "combined": "20:00 (in 42m)",
+    "compact": "20:00 · in 42m"
+  },
+  {
+    "name": "crossing midnight",
+    "tz": "Europe/Bratislava",
+    "now": "2026-09-24T21:30:00Z",
+    "reset": "2026-09-25T00:30:00Z",
+    "absolute": "Fri 02:30",
+    "relative": "in 3h",
+    "combined": "Fri 02:30 (in 3h)",
+    "compact": "Fri 02:30 · in 3h"
+  },
+  {
+    "name": "59 seconds",
+    "tz": "Europe/Bratislava",
+    "now": "2026-09-24T17:59:01Z",
+    "reset": "2026-09-24T18:00:00Z",
+    "absolute": "20:00",
+    "relative": "in <1m",
+    "combined": "20:00 (in <1m)",
+    "compact": "20:00 · in <1m"
+  },
+  {
+    "name": "60 seconds",
+    "tz": "Europe/Bratislava",
+    "now": "2026-09-24T17:59:00Z",
+    "reset": "2026-09-24T18:00:00Z",
+    "absolute": "20:00",
+    "relative": "in 1m",
+    "combined": "20:00 (in 1m)",
+    "compact": "20:00 · in 1m"
+  },
+  {
+    "name": "exact hours drop minutes",
+    "tz": "Europe/Bratislava",
+    "now": "2026-09-24T16:00:00Z",
+    "reset": "2026-09-24T18:00:00Z",
+    "absolute": "20:00",
+    "relative": "in 2h",
+    "combined": "20:00 (in 2h)",
+    "compact": "20:00 · in 2h"
+  },
+  {
+    "name": "past",
+    "tz": "Europe/Bratislava",
+    "now": "2026-09-24T18:00:30Z",
+    "reset": "2026-09-24T18:00:00Z",
+    "absolute": "20:00",
+    "relative": "now",
+    "combined": "20:00 (now)",
+    "compact": "20:00 · now"
+  },
+  {
+    "name": "equal",
+    "tz": "Europe/Bratislava",
+    "now": "2026-09-24T18:00:00Z",
+    "reset": "2026-09-24T18:00:00Z",
+    "absolute": "20:00",
+    "relative": "now",
+    "combined": "20:00 (now)",
+    "compact": "20:00 · now"
+  },
+  {
+    "name": "weekly reset",
+    "tz": "Europe/Bratislava",
+    "now": "2026-09-24T15:00:00Z",
+    "reset": "2026-09-26T06:00:00Z",
+    "absolute": "Sat 08:00",
+    "relative": "in 1d 15h",
+    "combined": "Sat 08:00 (in 1d 15h)",
+    "compact": "Sat 08:00 · in 1d 15h"
+  },
+  {
+    "name": "exact days drop hours",
+    "tz": "Europe/Bratislava",
+    "now": "2026-09-23T06:00:00Z",
+    "reset": "2026-09-26T06:00:00Z",
+    "absolute": "Sat 08:00",
+    "relative": "in 3d",
+    "combined": "Sat 08:00 (in 3d)",
+    "compact": "Sat 08:00 · in 3d"
+  },
+  {
+    "name": "6 calendar days (6d 23h)",
+    "tz": "Europe/Bratislava",
+    "now": "2026-09-21T22:30:00Z",
+    "reset": "2026-09-28T21:30:00Z",
+    "absolute": "Mon 23:30",
+    "relative": "in 6d 23h",
+    "combined": "Mon 23:30 (in 6d 23h)",
+    "compact": "Mon 23:30 · in 6d 23h"
+  },
+  {
+    "name": "7 calendar days",
+    "tz": "Europe/Bratislava",
+    "now": "2026-09-21T06:00:00Z",
+    "reset": "2026-09-28T06:00:00Z",
+    "absolute": "28 Sep 08:00",
+    "relative": "in 7d",
+    "combined": "28 Sep 08:00 (in 7d)",
+    "compact": "28 Sep 08:00 · in 7d"
+  },
+  {
+    "name": "more than a week",
+    "tz": "Europe/Bratislava",
+    "now": "2026-09-24T10:00:00Z",
+    "reset": "2026-10-05T10:00:00Z",
+    "absolute": "5 Oct 12:00",
+    "relative": "in 11d",
+    "combined": "5 Oct 12:00 (in 11d)",
+    "compact": "5 Oct 12:00 · in 11d"
+  },
+  {
+    "name": "autumn DST next day",
+    "tz": "Europe/Bratislava",
+    "now": "2026-10-24T20:00:00Z",
+    "reset": "2026-10-25T04:00:00Z",
+    "absolute": "Sun 05:00",
+    "relative": "in 8h",
+    "combined": "Sun 05:00 (in 8h)",
+    "compact": "Sun 05:00 · in 8h"
+  },
+  {
+    "name": "autumn DST same day",
+    "tz": "Europe/Bratislava",
+    "now": "2026-10-25T00:30:00Z",
+    "reset": "2026-10-25T02:30:00Z",
+    "absolute": "03:30",
+    "relative": "in 2h",
+    "combined": "03:30 (in 2h)",
+    "compact": "03:30 · in 2h"
+  },
+  {
+    "name": "spring DST same day",
+    "tz": "Europe/Bratislava",
+    "now": "2026-03-28T23:30:00Z",
+    "reset": "2026-03-29T01:30:00Z",
+    "absolute": "03:30",
+    "relative": "in 2h",
+    "combined": "03:30 (in 2h)",
+    "compact": "03:30 · in 2h"
+  },
+  {
+    "name": "year rollover",
+    "tz": "Europe/Bratislava",
+    "now": "2026-12-24T10:00:00Z",
+    "reset": "2027-01-02T10:00:00Z",
+    "absolute": "2 Jan 11:00",
+    "relative": "in 9d",
+    "combined": "2 Jan 11:00 (in 9d)",
+    "compact": "2 Jan 11:00 · in 9d"
+  },
+  {
+    "name": "exactly one day",
+    "tz": "Europe/Bratislava",
+    "now": "2026-09-24T18:00:00Z",
+    "reset": "2026-09-25T18:00:00Z",
+    "absolute": "Fri 20:00",
+    "relative": "in 1d",
+    "combined": "Fri 20:00 (in 1d)",
+    "compact": "Fri 20:00 · in 1d"
+  },
+  {
+    "name": "23h 59m",
+    "tz": "Europe/Bratislava",
+    "now": "2026-09-24T18:01:00Z",
+    "reset": "2026-09-25T18:00:00Z",
+    "absolute": "Fri 20:00",
+    "relative": "in 23h 59m",
+    "combined": "Fri 20:00 (in 23h 59m)",
+    "compact": "Fri 20:00 · in 23h 59m"
+  },
+  {
+    "name": "1h 1m",
+    "tz": "Europe/Bratislava",
+    "now": "2026-09-24T16:59:00Z",
+    "reset": "2026-09-24T18:00:00Z",
+    "absolute": "20:00",
+    "relative": "in 1h 1m",
+    "combined": "20:00 (in 1h 1m)",
+    "compact": "20:00 · in 1h 1m"
+  },
+  {
+    "name": "reset at local midnight",
+    "tz": "Europe/Bratislava",
+    "now": "2026-09-24T20:00:00Z",
+    "reset": "2026-09-24T22:00:00Z",
+    "absolute": "Fri 00:00",
+    "relative": "in 2h",
+    "combined": "Fri 00:00 (in 2h)",
+    "compact": "Fri 00:00 · in 2h"
+  },
+  {
+    "name": "seconds round down",
+    "tz": "Europe/Bratislava",
+    "now": "2026-09-24T15:47:30Z",
+    "reset": "2026-09-24T18:00:00Z",
+    "absolute": "20:00",
+    "relative": "in 2h 12m",
+    "combined": "20:00 (in 2h 12m)",
+    "compact": "20:00 · in 2h 12m"
+  },
+  {
+    "name": "utc zone",
+    "tz": "UTC",
+    "now": "2026-09-24T10:00:00Z",
+    "reset": "2026-09-24T15:00:00Z",
+    "absolute": "15:00",
+    "relative": "in 5h",
+    "combined": "15:00 (in 5h)",
+    "compact": "15:00 · in 5h"
+  },
+  {
+    "name": "new york",
+    "tz": "America/New_York",
+    "now": "2026-09-24T12:00:00Z",
+    "reset": "2026-09-26T06:00:00Z",
+    "absolute": "Sat 02:00",
+    "relative": "in 1d 18h",
+    "combined": "Sat 02:00 (in 1d 18h)",
+    "compact": "Sat 02:00 · in 1d 18h"
+  }
+]

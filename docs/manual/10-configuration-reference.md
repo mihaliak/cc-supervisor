@@ -116,8 +116,9 @@ Thresholds in percent ([Limits & supervisor](07-limits-and-supervisor.md)).
 | `work` | `work` | Work | 💼 | `~/.claude-work` |
 
 ## Validation rules
-- `version` is `1`. `revision` is a whole number ≥ 0.
-- `default_profile` must be the `id` of an existing profile.
+- `version` is `1`. A file with a higher version is rejected with a message to upgrade `ccs`. `revision` is a whole number ≥ 0.
+- `default_profile` must be the `id` of an existing profile (checked only while at least one profile exists).
+- `ccs_path` and `claude_path` are `null` or a non-empty path.
 - Profile `id` and `flag`:
   - each must be unique
   - both use lowercase letters, digits, and `-`, start with a letter or digit, and are at most 32 characters
@@ -128,10 +129,13 @@ Thresholds in percent ([Limits & supervisor](07-limits-and-supervisor.md)).
 - `emoji` is required, at most 8 characters (code points).
 - Thresholds are whole numbers from 1 to 100, and each `warn` must be lower than its `pause`.
 - Colors: `0 < yellow_from < red_from ≤ 100`.
-- Times are `HH:MM` (24h). Weekdays are `mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun`, with no duplicates.
+- `name`, `warmup.model`, `warmup.prompt`, and `supervisor.resume_prompt` are non-empty strings; toggles are `true`/`false`.
+- Times are `HH:MM` (24h). Each schedule entry needs at least one weekday; weekdays are `mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun`, with no duplicates.
 - `cooldown_minutes` is 0–1440. Polling intervals are 5–3600 seconds.
 - `display.menu_bar` is `emoji_percent` or `icon_only`. `display.time_format` is `24h`.
 - Unknown keys are kept as they are, so newer settings survive older tools.
+- The file is written with sorted keys, 2-space indentation, and literal emoji, by both the app and `ccs`. `ccs` never adds defaults to the file: keys you leave out keep following the defaults.
+- A JSON Schema of the file is in the repo at `schema/config.schema.json`. `ccs config validate` also checks the cross-field rules above (unique ids, warn < pause, reserved flags).
 
 ## Example
 ```json

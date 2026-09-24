@@ -1,0 +1,326 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ccsupervisor/schema/config.schema.json",
+  "title": "CC Supervisor config (ADR-0004)",
+  "description": "~/.config/ccs/config.json. Missing optional keys take the defaults from `ccs config defaults`. Unknown keys are preserved by every writer. Cross-field rules (warn < pause, unique ids/flags/config dirs, default_profile exists, reserved flags) are enforced by `ccs config validate`.",
+  "type": "object",
+  "required": [
+    "version",
+    "profiles"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "default_profile": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "ccs_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "claude_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "display": {
+      "type": "object",
+      "properties": {
+        "time_format": {
+          "enum": [
+            "24h"
+          ]
+        },
+        "colors": {
+          "type": "object",
+          "properties": {
+            "yellow_from": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "red_from": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        },
+        "menu_bar": {
+          "enum": [
+            "emoji_percent",
+            "icon_only"
+          ]
+        }
+      }
+    },
+    "polling": {
+      "type": "object",
+      "properties": {
+        "interval_seconds": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 3600
+        },
+        "fast_interval_seconds": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 3600
+        },
+        "fast_when_percent_at_least": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "idle_interval_seconds": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 3600
+        }
+      }
+    },
+    "notifications": {
+      "type": "object",
+      "properties": {
+        "limit_warn": {
+          "type": "boolean"
+        },
+        "limit_pause": {
+          "type": "boolean"
+        },
+        "limit_resume": {
+          "type": "boolean"
+        },
+        "warmup": {
+          "type": "boolean"
+        },
+        "errors": {
+          "type": "boolean"
+        }
+      }
+    },
+    "profiles": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/profile"
+      }
+    }
+  },
+  "$defs": {
+    "profile": {
+      "type": "object",
+      "required": [
+        "id",
+        "flag",
+        "name",
+        "emoji",
+        "config_dir"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+        },
+        "flag": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "emoji": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8
+        },
+        "config_dir": {
+          "type": "string",
+          "pattern": "^[~/]"
+        },
+        "limits": {
+          "type": "object",
+          "properties": {
+            "session": {
+              "type": "object",
+              "properties": {
+                "warn": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                },
+                "pause": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                }
+              }
+            },
+            "weekly": {
+              "type": "object",
+              "properties": {
+                "warn": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                },
+                "pause": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                }
+              }
+            },
+            "model_scoped": {
+              "type": "object",
+              "properties": {
+                "warn": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                },
+                "pause": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                },
+                "warn_only": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "extra_usage": {
+              "type": "object",
+              "properties": {
+                "warn": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                },
+                "pause": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                },
+                "spill": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "supervisor": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "resume_prompt": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "statusline": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          }
+        },
+        "warmup": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1
+            },
+            "prompt": {
+              "type": "string",
+              "minLength": 1
+            },
+            "triggers": {
+              "type": "object",
+              "properties": {
+                "schedule": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "time",
+                      "weekdays"
+                    ],
+                    "properties": {
+                      "time": {
+                        "type": "string",
+                        "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                      },
+                      "weekdays": {
+                        "type": "array",
+                        "minItems": 1,
+                        "uniqueItems": true,
+                        "items": {
+                          "enum": [
+                            "mon",
+                            "tue",
+                            "wed",
+                            "thu",
+                            "fri",
+                            "sat",
+                            "sun"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                "app_start": {
+                  "type": "boolean"
+                },
+                "unlock_wake": {
+                  "type": "boolean"
+                },
+                "auto_chain": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "active_hours": {
+              "type": "object",
+              "properties": {
+                "start": {
+                  "type": "string",
+                  "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                },
+                "end": {
+                  "type": "string",
+                  "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                }
+              }
+            },
+            "cooldown_minutes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1440
+            }
+          }
+        }
+      }
+    }
+  }
+}

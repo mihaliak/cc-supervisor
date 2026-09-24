@@ -16,7 +16,7 @@ The single source of truth for plan status. Workflow rules are in [ADR-0014](../
 |----|------|--------|------------|------|
 | P00 | [Feasibility spikes](in-progress/P00-feasibility-spikes.md) | in-progress | – | research |
 | P01 | [Repo scaffolding & tooling](done/P01-repo-scaffolding.md) | done | – | infra |
-| P02 | [Config & state foundation](todo/P02-config-and-state.md) | todo | P01 | python |
+| P02 | [Config & state foundation](done/P02-config-and-state.md) | done | P01 | python |
 | P03 | [Usage fetching & normalization](todo/P03-usage-fetching.md) | todo | P00, P02 | python |
 | P04 | [Daemon, IPC, events, snapshot](todo/P04-daemon-and-ipc.md) | todo | P03 | python |
 | P05 | [ccs launcher & PTY proxy](todo/P05-ccs-launcher-pty.md) | todo | P00, P04 | python |

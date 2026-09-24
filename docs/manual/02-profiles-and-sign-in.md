@@ -5,7 +5,7 @@
 A **profile** is one Claude Code identity: a config dir (`CLAUDE_CONFIG_DIR`) plus how CC Supervisor shows and supervises it. Widgets, the menu bar, `ccs`, and statuslines all share the same profiles.
 
 ## Seeded profiles
-On first run, two profiles are created:
+On first run (the first `ccs` command that needs the config), the config file is created with these profiles. A profile is only seeded if its config dir already exists; if neither does, only `personal` is created. The first seeded profile becomes the default.
 
 | id | Launcher | Name | Emoji | Config dir | Default |
 |----|----------|------|-------|------------|---------|
@@ -41,11 +41,14 @@ ccs profile set client limits.session.pause=92 warmup.model=haiku
 ccs profile set client warmup.triggers.schedule='[{"time":"06:00","weekdays":["mon","tue","wed","thu","fri"]}]'
 ccs profile remove client
 ```
-- `set` takes dotted keys. Values are read as JSON when valid, otherwise as plain strings.
-- `remove` deletes only the profile entry in CC Supervisor. It doesn't delete the config dir or sign you out.
-- The default profile is `default_profile` in the [config](10-configuration-reference.md).
+- `add`: `--flag` defaults to the id, `--name` to the id in title case (`client-x` → `Client X`). `--default` also makes it the default profile; the very first profile always becomes the default.
+- `set` takes dotted keys. Values are read as JSON when valid, otherwise as plain strings. The `id` can't be changed.
+- `remove` deletes only the profile entry in CC Supervisor. It doesn't delete the config dir or sign you out. Removing the default profile while others exist needs `--default <other>`.
+- The default profile is `default_profile` in the [config](10-configuration-reference.md). Change it with `ccs config set default_profile=work`.
+- Every change is validated before it is saved. If it's invalid, nothing is written and the errors are listed with their key paths.
 
 ## Flag rules
+- Lowercase letters, digits, and `-`, starting with a letter or digit, at most 32 characters (the same rule as the id).
 - Must be unique across profiles.
 - Must not be a reserved name:
   - ccs's own options: `help`, `version`, `profile`, `force`, `no-supervise`, `json`

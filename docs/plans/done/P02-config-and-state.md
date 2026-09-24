@@ -1,6 +1,6 @@
 # P02: Config & state foundation
 
-- Status: todo
+- Status: done
 - Milestone: M1
 - Depends on: P01
 - ADRs: [0004](../../decisions/0004-config-and-profiles.md), [0005](../../decisions/0005-state-and-ipc.md), [0009](../../decisions/0009-display-conventions.md), [0013](../../decisions/0013-python-engineering.md), [0016](../../decisions/0016-identifiers.md), [0017](../../decisions/0017-cli-surface.md)
@@ -141,18 +141,18 @@
 - JSON errors: `{"ok": false, "error": "...", "issues": [...]}` on stdout with exit 1. Human errors go to stderr.
 
 ## Tasks
-- [ ] `paths.py` plus tests (XDG overrides, `CCS_STATE_DIR` override, `expand_config_dir`).
-- [ ] `fsio.py` plus tests (atomic replace leaves no temp files; `read_json` tolerant on truncated JSON; lock exclusivity across two processes via `multiprocessing`).
-- [ ] `clock.py` (`SystemClock`, `FakeClock`).
-- [ ] `timefmt.py` plus `schema/fixtures/time_format.json` (≥ 20 vectors) plus a parametrized test over the fixture.
-- [ ] `config/defaults.py` (all defaults in one place).
-- [ ] `config/models.py` with `from_dict`/`to_dict` and extra-key preservation.
-- [ ] `config/validate.py` with `RESERVED_FLAGS` (completed from `claude --help`).
-- [ ] `config/store.py` with lock, revision, validate-before-write.
-- [ ] `config/seed.py`.
-- [ ] `schema/config.schema.json` (draft 2020-12) matching ADR-0004. A test asserts `default_config_dict()` and the seed validate against the schema's required keys. Since the runtime is stdlib-only, do a minimal structural check in the test, not a full JSON Schema validator.
-- [ ] CLI wiring for `config` and `profile` subcommands in `cli.py` (argparse subparsers). `main()` routes to them.
-- [ ] Docstrings on public functions. `mypy --strict` clean.
+- [x] `paths.py` plus tests (XDG overrides, `CCS_STATE_DIR` override, `expand_config_dir`).
+- [x] `fsio.py` plus tests (atomic replace leaves no temp files; `read_json` tolerant on truncated JSON; lock exclusivity across two processes via `multiprocessing`).
+- [x] `clock.py` (`SystemClock`, `FakeClock`).
+- [x] `timefmt.py` plus `schema/fixtures/time_format.json` (≥ 20 vectors) plus a parametrized test over the fixture.
+- [x] `config/defaults.py` (all defaults in one place).
+- [x] `config/models.py` with `from_dict`/`to_dict` and extra-key preservation.
+- [x] `config/validate.py` with `RESERVED_FLAGS` (completed from `claude --help`).
+- [x] `config/store.py` with lock, revision, validate-before-write.
+- [x] `config/seed.py`.
+- [x] `schema/config.schema.json` (draft 2020-12) matching ADR-0004. A test asserts `default_config_dict()` and the seed validate against the schema's required keys. Since the runtime is stdlib-only, do a minimal structural check in the test, not a full JSON Schema validator.
+- [x] CLI wiring for `config` and `profile` subcommands in `cli.py` (argparse subparsers). `main()` routes to them.
+- [x] Docstrings on public functions. `mypy --strict` clean.
 
 ## Tests
 - `test_timefmt.py`: every fixture vector (absolute, relative, combined) under the `TZ` from the vector.
@@ -181,14 +181,78 @@
 - `02-profiles-and-sign-in.md`: creating and editing profiles from the CLI, and reserved flag names.
 
 ## Done when
-- [ ] `make test lint` passes.
-- [ ] `ccs profile list --json` on a fresh `XDG_CONFIG_HOME` seeds and lists profiles.
-- [ ] `ccs config validate --json` reports issues for a hand-broken file and exits 1.
-- [ ] `ccs config set default_profile=work` updates the file (revision +1). `ccs config set profiles=[]` is rejected with exit 2.
-- [ ] The time format vectors live in `schema/fixtures/time_format.json` (reused by P07 and P12).
-- [ ] The listed manual pages describe these commands and keys.
+- [x] `make test lint` passes.
+- [x] `ccs profile list --json` on a fresh `XDG_CONFIG_HOME` seeds and lists profiles.
+- [x] `ccs config validate --json` reports issues for a hand-broken file and exits 1.
+- [x] `ccs config set default_profile=work` updates the file (revision +1). `ccs config set profiles=[]` is rejected with exit 2.
+- [x] The time format vectors live in `schema/fixtures/time_format.json` (reused by P07 and P12).
+- [x] The listed manual pages describe these commands and keys.
 
 ## Risks & mitigations
 - **The reserved flag list goes stale as claude adds options:** the static list is dated. `ccs doctor` (P13) diffs it against `claude --help` and warns.
 - **Swift writes a config with a newer shape:** extra-key preservation plus `version` gating (reject `version > 1` with a clear message).
 - **DST and timezone bugs:** fixture vectors with explicit `tz`, computed via `zoneinfo`.
+
+## Result
+- **Shipped:**
+  - Modules: `ccs/paths.py`, `fsio.py`, `clock.py`, `timefmt.py`, `output.py`, `config/{__init__,defaults,models,validate,store,seed,cli}.py`.
+  - Contracts: `schema/config.schema.json` (draft 2020-12) and `schema/fixtures/time_format.json` (24 vectors, including autumn and spring DST, 6 vs 7 calendar days, year rollover, UTC and New York). The vectors were computed by hand and cross-checked against the implementation.
+  - CLI: `ccs config path|show|validate|defaults|set` and `ccs profile list|show|add|remove|set`, all with `--json`.
+- **Verification:**
+  - `make test lint`: 112 Python tests pass, Swift tests pass, ruff and mypy `--strict` are clean.
+  - Live check against scratch XDG dirs:
+    - `profile list --json` seeds personal and work.
+    - `config set default_profile=work` moves the revision 0→1.
+    - `config set profiles=[]` exits 2.
+    - A hand-broken reserved flag gives `validate` exit 1.
+- **Public API for later plans:**
+  - `paths`:
+    - `config_dir/config_file/state_dir`
+    - `daemon_sock/daemon_lock/log_dir/daemon_log`
+    - `usage_dir/usage_file(pid)`
+    - `live_dir/live_file(wrapper_id=, session_id=)`
+    - `sessions_dir/session_file(wid)`
+    - `supervisor_dir/supervisor_file(pid)`
+    - `warmup_dir/warmup_file(pid)/warmup_cwd`
+    - `statusline_dir/statusline_file(pid)`
+    - `widget_dir/widget_snapshot`
+    - `events_file/events_seen_file`
+    - `ensure_state_layout()`
+    - `expand_config_dir(s)`: resolved; use it for identity and comparison
+    - `config_dir_env_value(s)`: `~` expanded, symlinks kept; use it for `CLAUDE_CONFIG_DIR`, per ADR-0003 Keychain hashing
+  - `fsio`:
+    - `dumps_json`, `atomic_write_text`, `atomic_write_json(path, obj, *, mode=0o600)`
+    - `read_json(path) -> dict | None`
+    - `append_jsonl`
+    - `FileLock(path).acquire(blocking)/release()`, `file_lock(path)` (context manager), `try_lock(path) -> FileLock | None`. The caller releases.
+  - `clock`: `Clock` (Protocol), `SystemClock`, `FakeClock(start).advance(s)/set(dt)`, `local_tz()` (a DST-aware `ZoneInfo`).
+  - `timefmt`: `format_reset_absolute(reset, now, tz)`, `format_relative(reset, now)`, `format_reset_combined(...)` for the statusline, `format_reset_compact(...)` for widgets and the menu bar (`20:00 · in 2h 13m`). Also `WEEKDAYS` and `MONTHS`.
+  - `config`:
+    - `store.load(path=None) -> (Config, raw)`
+    - `store.load_raw`
+    - `store.save(mutator, *, expected_revision=None, path=None) -> Config`
+    - `store.create(raw)`
+    - `store.ensure_config()`, which seeds when missing
+    - Errors: `ConfigError`, `ConfigMissing`, `ConfigInvalid(.issues)`, `RevisionConflict(.expected, .actual)`
+  - `config.validate.validate(raw) -> list[Issue(path, message)]`, plus `RESERVED_FLAGS`, `CCS_RESERVED`, `CLAUDE_LONG_OPTIONS`.
+  - `config.models`:
+    - `Config`: `.profile(id)`, `.profile_by_flag(flag)`, `.default()`, `.to_dict()`
+    - `Profile`: `.config_path`, `.config_dir_env`
+    - `Colors.level(percent) -> green|yellow|red`
+    - `deep_merge`
+  - `config.defaults`: `default_config_dict()`, `profile_defaults()`, `default_profile_dict(...)`.
+  - `output`: `emit_json`, `eprint`, `fail(as_json, msg, code=, issues=)`, `UsageError`, `EXIT_OK/ERROR/USAGE`.
+  - CLI registration pattern: each feature module exposes `register(subparsers)`, called from `cli.build_parser()`. Handlers are set via `set_defaults(func=…)` and return the exit code.
+- **Deviations:**
+  - Added `ccs/output.py`, a shared CLI output helper that isn't in the ADR-0016 map, to avoid a `cli` ↔ `config.cli` import cycle.
+  - `profile add`: `--flag` and `--name` are optional (defaulting to the id and a title-cased id), and the first profile becomes the default automatically.
+  - Emptiness rules: `default_profile` is checked only while profiles exist, and schedule `weekdays` must be non-empty.
+  - Fixtures carry an extra `compact` field (the widget form) next to `absolute`, `relative` and `combined`.
+  - `conftest.py`: `tmp_xdg` now also unsets `CCS_STATE_DIR`, and there's a new `tmp_home` fixture.
+  - Every successful `--json` output includes `"ok": true`.
+  - `store.save` never injects defaults into the file, so user files stay minimal.
+- **Follow-ups for later plans:**
+  - P05 must set `CLAUDE_CONFIG_DIR` from `Profile.config_dir_env`, not `config_path`.
+  - P13 `ccs doctor` diffs `CLAUDE_LONG_OPTIONS` (captured from 2.1.281) against `claude --help`.
+  - P11 Swift decoding should reuse the `schema/fixtures/time_format.json` vectors, including `compact`.
+

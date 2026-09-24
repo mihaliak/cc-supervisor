@@ -35,7 +35,17 @@ def tmp_xdg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> XdgDirs:
     dirs.state_home.mkdir()
     monkeypatch.setenv("XDG_CONFIG_HOME", str(dirs.config_home))
     monkeypatch.setenv("XDG_STATE_HOME", str(dirs.state_home))
+    monkeypatch.delenv("CCS_STATE_DIR", raising=False)
     return dirs
+
+
+@pytest.fixture
+def tmp_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A fake HOME so `~` never resolves into the real home directory."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    return home
 
 
 @pytest.fixture

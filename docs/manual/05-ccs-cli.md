@@ -113,7 +113,7 @@ ccs profile add --id <id> --flag <flag> --name <name> --emoji <emoji> --config-d
 ccs profile set <id> <dotted.key>=<value> [<dotted.key>=<value>…]
 ccs profile remove <id> [--default <other>]
 ```
-- `add --default` also makes the new profile the default one (used by plain `ccs`).
+- `add`: `--flag` defaults to the id and `--name` to the id in title case. `--default` also makes the new profile the default one (used by plain `ccs`); the first profile always becomes the default.
 - `remove` deletes only the profile entry. Your Claude config dir and its login stay untouched. To remove the default profile while others exist, name the new default with `--default <other>`.
 `set` values are parsed as JSON when valid, otherwise as strings:
 ```sh
@@ -128,7 +128,12 @@ ccs profile set work supervisor.resume_prompt="Limits reset. Continue the task."
 | `show` | Prints the effective config, with defaults filled in |
 | `validate` | Checks the file and lists errors with their key paths |
 | `defaults` | Prints every default value |
-| `set` | Changes top-level settings, e.g. `ccs config set default_profile=work display.menu_bar=icon_only`. Profiles are changed with `ccs profile set`. |
+| `set` | Changes top-level settings, e.g. `ccs config set default_profile=work display.menu_bar=icon_only`. Profiles are changed with `ccs profile set`; `version` and `revision` are managed automatically. |
+
+- The first command that needs the config creates it with the [seeded profiles](02-profiles-and-sign-in.md#seeded-profiles).
+- `profile set`, `profile add`, and `config set` validate the whole config before saving. On errors nothing is written, the command lists each issue with its key path, and exits with 1.
+- `validate --json` prints `{"ok": true|false, "issues": [{"path", "message"}], "revision": n, "path": "…"}` and exits 0 when valid, 1 when not (including a missing or unreadable file).
+- Successful `--json` output always has `"ok": true`. Errors print `{"ok": false, "error": "…", "issues": […]}`.
 
 ### `ccs daemon install | uninstall | start | stop | restart | status | run | logs [--json]`
 The background supervisor (a LaunchAgent).
