@@ -25,6 +25,17 @@ ccs events --follow      # live
 ccs status               # current usage + supervisor state
 ```
 
+## The background supervisor
+```sh
+ccs daemon status        # installed? loaded? responding? pid, uptime
+ccs daemon restart       # restart it (e.g. after upgrading ccs)
+ccs daemon install       # (re)install: rewrites the LaunchAgent with your current PATH
+```
+- `ccs daemon status` says **loaded but not responding**: look at `ccs daemon logs`. launchd's own output for crashes that happen before logging starts is in `~/.local/state/ccs/logs/launchd.err.log`.
+- To run it by hand and watch its log, stop the LaunchAgent first (`ccs daemon stop`), then run `ccs daemon run --foreground`. A second copy exits immediately with `daemon already running`.
+- Low-level launchd checks: `launchctl print gui/$(id -u)/local.ccsupervisor.daemon` shows state and pid; `launchctl kickstart -k gui/$(id -u)/local.ccsupervisor.daemon` restarts it.
+- The supervisor rewrites `~/.local/state/ccs/usage/<profile>.json` and `widget/snapshot.json` after every usage check, even a failed one. A file older than 5 minutes means the supervisor isn't running, which is what `⚠ supervisor offline` in the statusline and widgets reports.
+
 ## Common problems
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
@@ -47,6 +58,8 @@ ccs status               # current usage + supervisor state
 | `ccs usage` says `no plan limits` | The profile is signed in with an API key, or the account has no Claude subscription | Nothing to track. Sign in with a subscription account: `ccs auth login --profile <id>` |
 | Usage error: **usage source error** | Claude Code changed how it reports usage (that interface is experimental), or `claude` couldn't start | Update CC Supervisor; `ccs usage --refresh --profile <id>` shows the error text directly; `ccs doctor`; `ccs daemon logs`. The last good numbers stay visible, and **no pauses happen** until fixed. |
 | Supervisor can't find `claude` | `PATH` changed since `ccs daemon install` | Re-run `ccs daemon install`, or set `claude_path` in the config |
+| `ccs status` first line says `daemon: not running` | The supervisor is stopped or not installed; the numbers shown are the last saved ones | `ccs daemon start`, or `ccs daemon install` |
+| `ccs daemon start` says "not installed" | The LaunchAgent was never installed or was uninstalled | `ccs daemon install` |
 | Widgets missing from the gallery | App not in `~/Applications` or never opened; build signing (see [Installation](01-installation.md#signing-local-builds)) | Open the app once; rebuild with `make app` |
 | Ctrl-Z in a `ccs` session | `ccs` handles Ctrl-Z itself: it suspends the whole session and returns you to the shell | `fg` brings it back and repaints the screen |
 | Sign in opens the browser but nothing happens | The browser flow didn't reach Claude Code's local callback (e.g. the tab was closed) | Retry **Sign in**, or run `ccs auth login --profile <id> --terminal` |

@@ -1,13 +1,20 @@
-"""Synchronous client for the daemon socket (ADR-0005: JSON Lines, `proto: 1`).
+"""Clients for the daemon socket (ADR-0005: JSON Lines, `proto: 1`).
 
-Used by CLI commands (`ccs usage --refresh`, later `ccs status`, …). Server-pushed
-`{"event": …}` / `{"cmd": …}` lines are skipped while waiting for a reply.
+- `DaemonClient`: synchronous, for CLI commands (`ccs usage --refresh`, `ccs status`,
+  `ccs events --follow`). Server pushes that arrive while waiting for a reply are buffered
+  and returned by `iter_pushes()`.
+- `AsyncDaemonClient`: asyncio, for long-lived clients (the P05 launcher, tests). Replies are
+  matched by `id`; pushes (`event`, `snapshot`, `cmd`) go to `next_push()`.
 """
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import socket
+from collections import deque
+from collections.abc import Iterator
 from pathlib import Path
 from types import TracebackType
 from typing import Any
@@ -30,6 +37,7 @@ class DaemonClient:
         self._sock: socket.socket | None = None
         self._buf = b""
         self._next_id = 0
+        self._pushes: deque[dict[str, Any]] = deque()
 
     def connect(self) -> None:
         """Open the socket; raises `DaemonUnavailable`."""
@@ -96,10 +104,34 @@ class DaemonClient:
                 continue
             if isinstance(reply, dict) and reply.get("id") == req_id:
                 return reply
+            if isinstance(reply, dict) and "id" not in reply:
+                self._pushes.append(reply)
 
     def hello(self, client: str = "cli") -> dict[str, Any]:
         """The `hello` handshake."""
         return self.request("hello", client=client, version=__version__)
+
+    def subscribe(self, topics: list[str]) -> dict[str, Any]:
+        """Subscribe to `events` and/or `snapshot` pushes."""
+        return self.request("subscribe", topics=topics)
+
+    def iter_pushes(self) -> Iterator[dict[str, Any]]:
+        """Yield server pushes forever (blocks without a timeout). Ends when the daemon closes."""
+        assert self._sock is not None
+        self._sock.settimeout(None)
+        while True:
+            while self._pushes:
+                yield self._pushes.popleft()
+            try:
+                line = self._readline()
+            except DaemonUnavailable:
+                return
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(msg, dict) and "id" not in msg:
+                self._pushes.append(msg)
 
 
 def daemon_available(*, timeout: float = 1.0, sock_path: Path | None = None) -> bool:
@@ -109,3 +141,111 @@ def daemon_available(*, timeout: float = 1.0, sock_path: Path | None = None) -> 
             return bool(client.hello().get("ok"))
     except DaemonUnavailable:
         return False
+
+
+class AsyncDaemonClient:
+    """An asyncio connection: `request()` awaits replies by id, pushes queue up separately."""
+
+    def __init__(self, sock_path: Path | None = None, *, timeout: float = 5.0) -> None:
+        self.sock_path = Path(sock_path) if sock_path is not None else paths.daemon_sock()
+        self.timeout = timeout
+        self._reader: asyncio.StreamReader | None = None
+        self._writer: asyncio.StreamWriter | None = None
+        self._task: asyncio.Task[None] | None = None
+        self._next_id = 0
+        self._replies: dict[int, asyncio.Future[dict[str, Any]]] = {}
+        self._pushes: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+        self.closed = False
+
+    async def connect(self) -> None:
+        """Open the connection; raises `DaemonUnavailable`."""
+        try:
+            self._reader, self._writer = await asyncio.wait_for(
+                asyncio.open_unix_connection(str(self.sock_path), limit=16 * 1024 * 1024),
+                self.timeout,
+            )
+        except (OSError, TimeoutError) as exc:
+            raise DaemonUnavailable(f"daemon not reachable at {self.sock_path}: {exc}") from exc
+        self._task = asyncio.ensure_future(self._read_loop())
+
+    async def _read_loop(self) -> None:
+        assert self._reader is not None
+        try:
+            while True:
+                line = await self._reader.readline()
+                if not line:
+                    break
+                try:
+                    msg = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(msg, dict):
+                    continue
+                req_id = msg.get("id")
+                fut = self._replies.pop(req_id, None) if isinstance(req_id, int) else None
+                if fut is not None:
+                    if not fut.done():
+                        fut.set_result(msg)
+                elif "id" not in msg or req_id is None:
+                    self._pushes.put_nowait(msg)
+        except (ConnectionError, OSError, ValueError):
+            pass
+        finally:
+            self.closed = True
+            for fut in self._replies.values():
+                if not fut.done():
+                    fut.set_exception(DaemonUnavailable("daemon closed the connection"))
+            self._replies.clear()
+            self._pushes.put_nowait(None)
+
+    async def send(self, obj: dict[str, Any]) -> None:
+        """Write one raw message (e.g. a command ack)."""
+        if self._writer is None or self.closed:
+            raise DaemonUnavailable("not connected")
+        try:
+            self._writer.write((json.dumps({"proto": PROTO, **obj}) + "\n").encode("utf-8"))
+            await self._writer.drain()
+        except (ConnectionError, OSError) as exc:
+            raise DaemonUnavailable(f"daemon write failed: {exc}") from exc
+
+    async def request(
+        self, op: str, *, timeout: float | None = None, **fields: Any
+    ) -> dict[str, Any]:
+        """Send a request and await its reply (raises `DaemonUnavailable` on close/timeout)."""
+        self._next_id += 1
+        req_id = self._next_id
+        fut: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
+        self._replies[req_id] = fut
+        await self.send({"id": req_id, "op": op, **fields})
+        try:
+            return await asyncio.wait_for(fut, timeout if timeout is not None else self.timeout)
+        except TimeoutError as exc:
+            self._replies.pop(req_id, None)
+            raise DaemonUnavailable(f"no reply to {op}") from exc
+
+    async def hello(self, client: str = "cli") -> dict[str, Any]:
+        return await self.request("hello", client=client, version=__version__)
+
+    async def next_push(self, timeout: float | None = None) -> dict[str, Any] | None:
+        """The next pushed message (`None` once the connection closed)."""
+        if timeout is None:
+            return await self._pushes.get()
+        return await asyncio.wait_for(self._pushes.get(), timeout)
+
+    async def close(self) -> None:
+        if self._writer is not None:
+            with contextlib.suppress(Exception):
+                self._writer.close()
+                await self._writer.wait_closed()
+        if self._task is not None:
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self._task
+        self.closed = True
+
+    async def __aenter__(self) -> AsyncDaemonClient:
+        await self.connect()
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        await self.close()

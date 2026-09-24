@@ -8,6 +8,7 @@ from typing import cast
 
 from ccs import __version__
 from ccs.config import cli as config_cli
+from ccs.daemon import cli as daemon_cli
 from ccs.usage import cli as usage_cli
 
 
@@ -21,6 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", metavar="<command>")
     config_cli.register(sub)
     usage_cli.register(sub)
+    daemon_cli.register(sub)
     return parser
 
 

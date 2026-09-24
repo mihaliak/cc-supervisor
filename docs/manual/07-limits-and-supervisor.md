@@ -7,6 +7,17 @@ The supervisor runs in the background (see [Installation](01-installation.md)) a
 - **pauses** your `ccs` sessions before the limit is used up, leaving headroom
 - **resumes** them automatically when the window resets
 
+## The background supervisor
+One supervisor process (`ccs daemon`, a LaunchAgent) runs per Mac and handles every profile:
+- asks Claude Code for each profile's usage on a schedule (below). It uses the profile's own login, costs no tokens, and runs no hooks.
+- merges in the fresher numbers your running sessions' statuslines report after every Claude response
+- keeps the files the widgets, menu bar and statusline read (`~/.local/state/ccs/`) up to date, and rewrites them after every check, even a failed one
+- counts other Claude Code sessions of each profile (background agents, plain `claude`) about once a minute, and every 15 s while `ccs` sessions run
+- notices when a `ccs` session's terminal closed or crashed, and forgets it within ~10 s
+- picks up config changes within ~2 s. An invalid config is ignored (the last good one stays active) and reported once.
+
+Manage it with `ccs daemon …` ([ccs CLI](05-ccs-cli.md)). Its log is `~/.local/state/ccs/logs/daemon.log`.
+
 ## Why pause before 100%?
 Claude Code already stops at 100% and continues by itself after the reset. The supervisor stops **earlier**, so some capacity stays free for quick manual work, and so running agents don't drain the window to zero.
 
@@ -107,9 +118,11 @@ If fresh usage hasn't arrived for more than 10 minutes, or a profile needs sign-
 | no `ccs` sessions for the profile | every 120 s |
 
 On top of that, usage is checked:
-- right after a reset, a warm-up, or a config change
-- whenever you click Refresh
+- right after a reset, a warm-up, or a change to a profile's config dir (a newly added profile is checked immediately)
+- whenever you click Refresh or run `ccs usage --refresh`
 - live, from the statusline, while you work
+
+Only one check per profile runs at a time. Refresh requests that arrive during a check are combined into a single follow-up check.
 
 ## Manual control
 ```sh

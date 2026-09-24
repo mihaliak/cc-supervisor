@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ccsupervisor/schema/event.schema.json",
+  "title": "Event (one line of events.jsonl, or a pushed `event`)",
+  "description": "Events are built by emitters and finalized by `EventBus.emit`, which adds `data.title`, `data.body` and `data.notify` (ADR-0005/0015).",
+  "type": "object",
+  "required": [
+    "schema",
+    "ts",
+    "type",
+    "profile_id",
+    "key",
+    "data"
+  ],
+  "properties": {
+    "schema": {
+      "const": 1
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "type": {
+      "enum": [
+        "limit.warn",
+        "limit.pause",
+        "limit.resume",
+        "limit.override",
+        "warmup.started",
+        "warmup.skipped",
+        "warmup.succeeded",
+        "warmup.failed",
+        "auth.required",
+        "usage.source_error",
+        "config.invalid",
+        "session.started",
+        "session.ended",
+        "daemon.started",
+        "daemon.stopped"
+      ]
+    },
+    "profile_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "key": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "dedupe key; null = never deduped"
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "title",
+        "body",
+        "notify"
+      ],
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "notify": {
+          "type": "boolean",
+          "description": "post a notification (toggle on, not deduped)"
+        }
+      }
+    }
+  }
+}

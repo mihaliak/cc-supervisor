@@ -39,6 +39,33 @@ _STRIP_EXACT = frozenset(
 _STRIP_PREFIXES = ("CLAUDE_CODE_",)
 
 
+# pids of `claude` children spawned by this process (running or recently exited). The daemon
+# excludes them from `claude agents --json` (a probe shows up there as an idle interactive
+# session for ~1.5 s, P00-S2).
+_RUNNING: set[int] = set()
+_EXITED: dict[int, float] = {}
+RECENT_EXIT_S = 10.0
+
+
+def _track_spawn(pid: int) -> None:
+    _RUNNING.add(pid)
+
+
+def _track_exit(pid: int) -> None:
+    _RUNNING.discard(pid)
+    now = time.monotonic()
+    _EXITED[pid] = now
+    for old, when in list(_EXITED.items()):
+        if now - when > RECENT_EXIT_S:
+            del _EXITED[old]
+
+
+def spawned_pids(recent_s: float = RECENT_EXIT_S) -> set[int]:
+    """Pids of `claude` children still running or exited within `recent_s` seconds."""
+    now = time.monotonic()
+    return set(_RUNNING) | {pid for pid, when in _EXITED.items() if now - when <= recent_s}
+
+
 class ClaudeCliError(Exception):
     """A `claude` invocation failed (bad exit, unparseable output)."""
 
@@ -175,6 +202,7 @@ async def run(
         )
     except FileNotFoundError as exc:
         raise ClaudeNotFound(f"cannot execute {argv[0]}: {exc}") from exc
+    _track_spawn(proc.pid)
     try:
         out, err = await asyncio.wait_for(proc.communicate(stdin_data), timeout)
     except TimeoutError:
@@ -182,6 +210,13 @@ async def run(
         with contextlib.suppress(Exception):
             await proc.wait()
         raise ClaudeTimeout(f"{Path(argv[0]).name} {' '.join(argv[1:3])} timed out") from None
+    except asyncio.CancelledError:
+        _signal_group(proc, signal.SIGKILL)  # never leave a child behind a cancelled caller
+        with contextlib.suppress(Exception):
+            await asyncio.shield(proc.wait())
+        raise
+    finally:
+        _track_exit(proc.pid)
     return Completed(
         rc=proc.returncode if proc.returncode is not None else -1,
         stdout=out.decode("utf-8", errors="replace"),
@@ -261,6 +296,7 @@ async def probe_usage(
         )
     except OSError as exc:
         return ProbeResult(None, "source_error", f"cannot execute claude: {exc}", 0.0)
+    _track_spawn(proc.pid)
 
     stderr_task = asyncio.ensure_future(_drain(proc.stderr, STDERR_LIMIT))
     raw: dict[str, Any] | None = None
@@ -309,6 +345,7 @@ async def probe_usage(
             with contextlib.suppress(Exception):
                 await proc.stdin.wait_closed()
         forced = await _reap(proc, graceful_s=graceful_s)
+        _track_exit(proc.pid)
         if forced:
             removed = remove_registry_files(run_env.get("CLAUDE_CONFIG_DIR", ""), proc.pid)
             log.warning(

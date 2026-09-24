@@ -43,16 +43,22 @@ If you answer `y`, or pass `--force`, the session starts as **overridden**: it r
 
 ## Observe
 ### `ccs status [--profile <id>] [--json]`
-Usage plus supervisor state plus daemon health.
+Usage plus supervisor state plus daemon health. The data comes from the running supervisor. If it isn't running, `ccs status` shows the last saved state and says so in the first line.
 ```
-Supervisor: running · polling every 60s
-💼 Work      Session 90% 20:00 (in 42m) ⏸ paused
-             Weekly 61% Sat 08:00 · Fable 12% Sat 08:00 · Extra usage off
-             ccs sessions: 3 active, 2 paused · other sessions: 1 · next warm-up 20:00
-🏠 Personal  Session  1% 20:00 (in 3h 52m)
-             Weekly 50% Sat 08:00 · Fable 4% Sat 08:00
-             ccs sessions: 0 · next warm-up Fri 06:00
+daemon: running (pid 4242, up 2h 13m)
+💼 Work   Session   90%  20:00 (in 42m)
+          Weekly    61%  Sat 08:00 (in 1d 13h)
+          Fable     12%  Sat 08:00 (in 1d 13h)
+          Extra usage off · €0.00 / €10.00
+          sessions: 3 supervised (2 paused) · other: 1 interactive, 0 background
+🏠 Personal  Session    1%  20:00 (in 3h 52m)
+             Weekly    50%  Sat 08:00 (in 1d 13h)
+             sessions: 0 supervised · other: 0 interactive, 2 background
 ```
+- **"supervised"** counts `ccs` sessions. **"other"** counts background agents and plain `claude` sessions of that profile, which the supervisor only counts and never touches.
+- `--json` prints `{"ok": true, "daemon": {…}, "profiles": [{"id", "usage", "supervisor", "sessions", "other_sessions", "next_warmup_at"}]}`.
+  - `daemon` carries `version`, `pid`, `started_at`, `uptime_s` and `responsive: true`, or only `{"responsive": false}` when the supervisor isn't running.
+  - `usage` is the `usage/<profile>.json` snapshot, and `sessions` are the supervised session records.
 
 ### `ccs usage [--profile <id>] [--refresh] [--json]`
 Only the usage numbers, for every profile or just `--profile <id>`.
@@ -88,11 +94,14 @@ work     –         cosmos          –         other (background agent)
 ```
 
 ### `ccs events [--follow] [--json]`
-The event history (warnings, pauses, resumes, warm-ups, errors). `--follow` keeps streaming.
+The event history: warnings, pauses, resumes, warm-ups, sign-in problems, sessions starting and ending, and the supervisor starting and stopping. Without `--follow` it prints the last 50 events.
 ```
-2026-09-24 19:18  work  limit.pause   Work paused at 90%: 2 sessions. Resumes 20:00 (in 42m)
-2026-09-24 20:00  work  limit.resume  Work resumed: 2 sessions continued
+19:18:04  limit.pause  work  💼 Work paused at 90% — 2 sessions paused. Resumes 20:00 (in 42m)
+20:00:16  limit.resume  work  💼 Work resumed — 2 sessions continued
+20:03:41  session.ended  work  💼 Work: session.ended
 ```
+- `--follow` keeps streaming new events live from the supervisor, or by watching the event log file when the supervisor isn't running. Stop it with Ctrl-C.
+- `--json` prints `{"ok": true, "events": [...]}`. With `--follow`, it prints one JSON event per line instead. The event format is `schema/event.schema.json`.
 
 ## Control
 ### `ccs pause (--profile <id> | --session <wrapper_id>) [--json]`
@@ -151,11 +160,23 @@ ccs profile set work supervisor.resume_prompt="Limits reset. Continue the task."
 - Successful `--json` output always has `"ok": true`. Errors print `{"ok": false, "error": "…", "issues": […]}`.
 
 ### `ccs daemon install | uninstall | start | stop | restart | status | run | logs [--json]`
-The background supervisor (a LaunchAgent).
-- `install` registers it and captures your current `PATH`, so it can find `claude`.
-- `start`, `stop`, and `restart` are for everyday use.
-- `logs` shows recent daemon log lines.
-- `run` is what launchd executes. You don't normally run it yourself.
+The background supervisor, a LaunchAgent labelled `local.ccsupervisor.daemon` (`~/Library/LaunchAgents/local.ccsupervisor.daemon.plist`).
+
+| Action | Does |
+|--------|------|
+| `install` | Writes the LaunchAgent and starts it. It captures your current `PATH` and `HOME` so the supervisor finds `claude`, which means you should re-run it after moving `claude` or `ccs`. The supervisor then starts at login and is restarted if it crashes. |
+| `uninstall` | Stops it and removes the LaunchAgent. Your config and state are kept. |
+| `start` | Starts the installed supervisor, loading it first if needed (e.g. after `stop`). |
+| `stop` | Stops it until the next `start` or login. It stays installed. |
+| `restart` | Restarts it. Use this after upgrading `ccs`. |
+| `status` | Installed, loaded, responsive, pid, uptime, and socket round-trip time. |
+| `logs` | The last 200 lines of `~/.local/state/ccs/logs/daemon.log`. |
+| `run` | Runs the supervisor in the foreground. This is what launchd executes; you normally don't. A second copy exits right away with `daemon already running`. |
+
+```
+$ ccs daemon status
+daemon: running (pid 4242, up 2h 13m, 1.8 ms)
+```
 
 ### `ccs doctor [--json]`
 Checks everything and suggests fixes. See [Troubleshooting](11-troubleshooting.md).

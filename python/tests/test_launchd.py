@@ -1,0 +1,133 @@
+"""LaunchAgent: golden plist and launchctl argv via an injected runner (no real launchd)."""
+
+from __future__ import annotations
+
+import os
+import plistlib
+from pathlib import Path
+
+import pytest
+
+from ccs.daemon.launchd import (
+    LABEL,
+    Launchd,
+    LaunchdError,
+    RunResult,
+    install_env,
+    parse_print,
+    render_plist,
+)
+
+GOLDEN = Path(__file__).parent / "golden" / "daemon.plist"
+
+
+class FakeRunner:
+    def __init__(self, loaded: bool = False) -> None:
+        self.loaded = loaded
+        self.calls: list[list[str]] = []
+
+    def __call__(self, argv: list[str]) -> RunResult:
+        self.calls.append(argv)
+        verb = argv[1]
+        if verb == "print":
+            if self.loaded:
+                return RunResult(0, "\tstate = running\n\tpid = 4242\n", "")
+            return RunResult(113, "", "Could not find service")
+        if verb == "bootstrap":
+            self.loaded = True
+        if verb == "bootout":
+            was = self.loaded
+            self.loaded = False
+            return RunResult(0 if was else 3, "", "")
+        return RunResult(0, "", "")
+
+
+def test_render_plist_matches_golden() -> None:
+    data = render_plist(
+        "/Users/me/.local/bin/ccs",
+        {"PATH": "/usr/bin:/bin", "HOME": "/Users/me"},
+        Path("/Users/me/.local/state/ccs"),
+    )
+    assert data == GOLDEN.read_bytes()
+    doc = plistlib.loads(data)
+    assert doc["Label"] == LABEL
+    assert doc["ProgramArguments"] == ["/Users/me/.local/bin/ccs", "daemon", "run"]
+    assert doc["KeepAlive"] is True and doc["RunAtLoad"] is True
+    assert doc["ProcessType"] == "Interactive"
+
+
+def test_install_env_keeps_only_passthrough() -> None:
+    env = install_env({"PATH": "/p", "HOME": "/h", "SECRET": "x", "XDG_STATE_HOME": "/s"})
+    assert env == {"PATH": "/p", "HOME": "/h", "XDG_STATE_HOME": "/s"}
+
+
+def test_parse_print() -> None:
+    assert parse_print("a\n\tstate = running\n\tpid = 12\n") == {"state": "running", "pid": 12}
+    assert parse_print("") == {"state": None, "pid": None}
+
+
+@pytest.fixture
+def ld(tmp_path: Path, tmp_xdg: object) -> tuple[Launchd, FakeRunner]:
+    runner = FakeRunner()
+    return Launchd(runner=runner, plist=tmp_path / "agents" / f"{LABEL}.plist"), runner
+
+
+def target() -> str:
+    return f"gui/{os.getuid()}/{LABEL}"
+
+
+def test_install_writes_plist_and_bootstraps(ld: tuple[Launchd, FakeRunner]) -> None:
+    launchd, runner = ld
+    launchd.install(ccs_exec="/x/ccs", env={"PATH": "/p", "HOME": "/h"})
+    assert launchd.plist.exists()
+    assert plistlib.loads(launchd.plist.read_bytes())["ProgramArguments"][0] == "/x/ccs"
+    assert runner.calls == [
+        ["launchctl", "bootout", target()],
+        ["launchctl", "bootstrap", f"gui/{os.getuid()}", str(launchd.plist)],
+    ]
+
+
+def test_start_bootstraps_when_unloaded_else_kickstarts(ld: tuple[Launchd, FakeRunner]) -> None:
+    launchd, runner = ld
+    with pytest.raises(LaunchdError):
+        launchd.start()  # not installed
+    launchd.install(ccs_exec="/x/ccs", env={})
+    launchd.stop()
+    runner.calls.clear()
+    launchd.start()
+    assert runner.calls[-1][:2] == ["launchctl", "bootstrap"]
+    runner.calls.clear()
+    launchd.start()
+    assert runner.calls[-1] == ["launchctl", "kickstart", target()]
+
+
+def test_restart_and_uninstall(ld: tuple[Launchd, FakeRunner]) -> None:
+    launchd, runner = ld
+    launchd.install(ccs_exec="/x/ccs", env={})
+    runner.calls.clear()
+    launchd.restart()
+    assert runner.calls[-1] == ["launchctl", "kickstart", "-k", target()]
+    launchd.uninstall()
+    assert not launchd.plist.exists()
+    assert runner.calls[-1] == ["launchctl", "bootout", target()]
+
+
+def test_status_reports_loaded_and_probe(ld: tuple[Launchd, FakeRunner]) -> None:
+    launchd, _ = ld
+    launchd.install(ccs_exec="/x/ccs", env={})
+    status = launchd.status(probe=lambda: {"responsive": True, "version": "9", "uptime_s": 5})
+    assert status["installed"] is True and status["loaded"] is True
+    assert status["pid"] == 4242 and status["state"] == "running"
+    assert status["responsive"] is True and status["version"] == "9"
+    launchd.uninstall()
+    status = launchd.status(probe=lambda: None)
+    assert status == {
+        "installed": False,
+        "loaded": False,
+        "state": None,
+        "pid": None,
+        "responsive": False,
+        "version": None,
+        "uptime_s": None,
+        "latency_ms": None,
+    }

@@ -40,6 +40,12 @@ Make sure `~/.local/bin` is on your `PATH` (`pipx ensurepath`).
 
 The daemon's LaunchAgent remembers the `PATH` you had when you ran `ccs daemon install`, so it can find `claude`. If you later move Claude Code, run `ccs daemon install` again, or set `claude_path` in the [config](10-configuration-reference.md).
 
+Check that the supervisor is up:
+```sh
+ccs daemon status   # daemon: running (pid …, up …)
+ccs status          # usage per profile, as the supervisor sees it
+```
+
 ## First launch
 - The app lives in the **menu bar** only. It has no Dock icon.
 - macOS asks for **notification permission**. Allow it so you get limit warnings (see [Notifications](09-notifications.md)).

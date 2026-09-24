@@ -14,6 +14,7 @@ from ccs.config import store
 from ccs.config.models import Config, Profile
 from ccs.daemon.client import DaemonClient, DaemonUnavailable
 from ccs.output import EXIT_OK, EXIT_USAGE, emit_json, fail
+from ccs.snapshot import format_money
 from ccs.timefmt import format_relative, format_reset_combined
 from ccs.usage.merge import apply_staleness, merge
 from ccs.usage.model import (
@@ -34,8 +35,6 @@ SOURCE_DIRECT = "direct_probe"
 REFRESH_WAIT_S = 20.0
 NO_DATA_HINT = "run: ccs usage --refresh"
 NO_RESET = "\u2013"  # en dash: window without a reset time
-
-CURRENCY_SYMBOLS = {"EUR": "€", "USD": "$", "GBP": "£", "JPY": "¥"}
 
 
 def register(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -112,10 +111,7 @@ def display_width(text: str) -> int:
 
 
 def _money(value: float | None, currency: str | None) -> str:
-    amount = f"{value or 0:.2f}"
-    if currency in CURRENCY_SYMBOLS:
-        return f"{CURRENCY_SYMBOLS[currency]}{amount}"
-    return f"{amount} {currency}" if currency else amount
+    return format_money(value, currency)
 
 
 def extra_line(extra: ExtraUsage) -> str:

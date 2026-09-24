@@ -5,6 +5,7 @@ Behavior is driven by a JSON scenario file (env FAKE_CLAUDE_SCENARIO) keyed by m
 
     version      {"stdout": "...", "exit": 0}
     agents       {"sessions": [...], "exit": 0}              -> `claude agents --json`
+                 string values "$PID<n>" become the n-th pid of $FAKE_CLAUDE_AGENTS_PIDS
     auth_status  {"json": {...}, "exit": 0}                  -> `claude auth status [--json]`
     auth_login   {"stdout": "...", "exit": 0, "delay": 0}    -> `claude auth login`
     stream       {"get_usage": {...}, "delay": 0, "registry": false, "ignore_sigterm": false}
@@ -235,6 +236,25 @@ def run_interactive(spec: dict[str, Any]) -> int:
     return int(spec.get("exit", 0))
 
 
+def resolve_pids(sessions: Any) -> Any:
+    """Replace `"$PID<n>"` values with the n-th pid of $FAKE_CLAUDE_AGENTS_PIDS (comma list)."""
+    raw = os.environ.get("FAKE_CLAUDE_AGENTS_PIDS", "")
+    pids = [int(x) for x in raw.split(",") if x.strip()]
+
+    def one(value: Any) -> Any:
+        if isinstance(value, str) and value.startswith("$PID") and value[4:].isdigit():
+            idx = int(value[4:])
+            return pids[idx] if idx < len(pids) else None
+        return value
+
+    if not isinstance(sessions, list):
+        return sessions
+    return [
+        {k: one(v) for k, v in item.items()} if isinstance(item, dict) else item
+        for item in sessions
+    ]
+
+
 def main() -> int:
     argv = sys.argv[1:]
     mode = detect_mode(argv)
@@ -250,7 +270,7 @@ def main() -> int:
         return finish(spec, "0.0.0-fake (Claude Code)")
     if mode == "agents":
         if "sessions" in spec and "stdout" not in spec:
-            spec = {**spec, "stdout": json.dumps(spec["sessions"])}
+            spec = {**spec, "stdout": json.dumps(resolve_pids(spec["sessions"]))}
         return finish(spec, "[]")
     if mode == "auth_status":
         if "json" in spec and "stdout" not in spec:

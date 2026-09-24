@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.ccsupervisor/schema/widget-snapshot.schema.json",
+  "title": "Widget snapshot (widget/snapshot.json)",
+  "description": "Display model for the widgets and the menu bar, precomputed by the daemon (ADR-0001/0005). Rewritten after every poll attempt; `generated_at` older than 5 min means the daemon is offline. Times are UTC `YYYY-MM-DDTHH:MM:SSZ`; Swift formats them (ADR-0009).",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at",
+    "profiles"
+  ],
+  "properties": {
+    "schema": {
+      "const": 1
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "profiles": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/profile"
+      }
+    }
+  },
+  "$defs": {
+    "profile": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "emoji",
+        "status",
+        "stale",
+        "level",
+        "updated_at",
+        "rows",
+        "supervisor"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string"
+        },
+        "emoji": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "needs_sign_in",
+            "no_subscription",
+            "source_error",
+            "stale",
+            "no_data"
+          ]
+        },
+        "stale": {
+          "type": "boolean"
+        },
+        "level": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "green",
+            "yellow",
+            "red",
+            null
+          ],
+          "description": "worst row level; null without rows"
+        },
+        "updated_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "latest of fetched_at and live observed_at"
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/row"
+          }
+        },
+        "supervisor": {
+          "$ref": "#/$defs/supervisor"
+        }
+      }
+    },
+    "row": {
+      "type": "object",
+      "required": [
+        "kind",
+        "label",
+        "percent",
+        "level",
+        "resets_at"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "session",
+            "weekly",
+            "model_scoped",
+            "extra_usage"
+          ]
+        },
+        "label": {
+          "type": "string",
+          "description": "Session, Weekly, <model name>, Extra usage"
+        },
+        "percent": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "level": {
+          "enum": [
+            "green",
+            "yellow",
+            "red"
+          ]
+        },
+        "resets_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "detail": {
+          "type": "string",
+          "description": "preformatted text, e.g. `€3.20 / €10.00` (extra usage)"
+        }
+      }
+    },
+    "supervisor": {
+      "type": "object",
+      "required": [
+        "state",
+        "active_sessions",
+        "paused_sessions",
+        "other_sessions",
+        "resume_at",
+        "next_warmup_at"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "enum": [
+            "normal",
+            "warned",
+            "paused"
+          ]
+        },
+        "active_sessions": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "supervised (ccs) sessions"
+        },
+        "paused_sessions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "other_sessions": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "background agents + plain claude sessions"
+        },
+        "resume_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "latest resets_at among active holds (P06)"
+        },
+        "next_warmup_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "next scheduled or auto-chain warm-up (P08)"
+        }
+      }
+    }
+  }
+}

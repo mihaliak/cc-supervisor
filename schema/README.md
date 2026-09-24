@@ -2,7 +2,8 @@
 
 JSON contracts between the Python `ccs` side and the Swift app/widgets (ADR-0001, ADR-0005).
 
-- One JSON Schema file per contract, e.g. `config.schema.json`, `usage-snapshot.schema.json`, `live-report.schema.json`, `widget-snapshot.schema.json`.
+- One JSON Schema file per contract, e.g. `config.schema.json`, `usage-snapshot.schema.json`, `live-report.schema.json`, `widget-snapshot.schema.json`, `event.schema.json`.
+- `ipc.md` is the daemon socket protocol: every op, push and command with examples.
 - `fixtures/` holds shared test vectors that **both** test suites load, e.g. `time_format.json` (ADR-0009) and sample snapshots.
 
 ## Adding or changing a contract

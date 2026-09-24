@@ -1,6 +1,6 @@
 # P04: Daemon, IPC, events, snapshot
 
-- Status: todo
+- Status: done
 - Milestone: M1
 - Depends on: P03
 - ADRs: [0002](../../decisions/0002-usage-data-source.md), [0005](../../decisions/0005-state-and-ipc.md), [0006](../../decisions/0006-process-model.md), [0008](../../decisions/0008-limit-policy.md), [0009](../../decisions/0009-display-conventions.md), [0013](../../decisions/0013-python-engineering.md), [0015](../../decisions/0015-notifications.md), [0016](../../decisions/0016-identifiers.md), [0017](../../decisions/0017-cli-surface.md)
@@ -173,19 +173,19 @@
   - Shared by the CLI, the launcher (P05), and tests.
 
 ## Tasks
-- [ ] `events.py` (`Event`, `EventBus.emit` pipeline: dedupe → `notification_text` (minimal fallback) → toggles → `data.notify` → append → push; dedupe persistence, rotation).
-- [ ] `snapshot.py` (`level_for`, `build_widget_snapshot`, debounced writer) plus `schema/widget-snapshot.schema.json`.
-- [ ] `daemon/hooks.py` (`DaemonHooks` registry with no-op defaults).
-- [ ] `daemon/server.py` (lock, socket, handshake, op dispatch, `WrapperConn.send_cmd` + ack futures, graceful shutdown).
-- [ ] `daemon/client.py`.
-- [ ] `daemon/poller.py` (`interval_for`, `poll_loop`, `request_poll` with coalescing, status-transition events, usage-file rewrite on every attempt incl. failures with `polled_at`).
-- [ ] `daemon/watchers.py` (live + config).
-- [ ] `daemon/sampler.py` (activity + other sessions).
-- [ ] `daemon/reaper.py`.
-- [ ] `daemon/launchd.py` plus `daemon/cli.py` (`install|uninstall|start|stop|restart|status|run|logs`).
-- [ ] `ccs status`, `ccs events` CLI.
-- [ ] `schema/event.schema.json`, `schema/ipc.md` (every op and cmd with example request/response).
-- [ ] Extend the fake claude: `agents --json` scenario (a list with a pid placeholder resolved from the env `FAKE_CLAUDE_AGENTS_PIDS`).
+- [x] `events.py` (`Event`, `EventBus.emit` pipeline: dedupe → `notification_text` (minimal fallback) → toggles → `data.notify` → append → push; dedupe persistence, rotation).
+- [x] `snapshot.py` (`level_for`, `build_widget_snapshot`, debounced writer) plus `schema/widget-snapshot.schema.json`.
+- [x] `daemon/hooks.py` (`DaemonHooks` registry with no-op defaults).
+- [x] `daemon/server.py` (lock, socket, handshake, op dispatch, `WrapperConn.send_cmd` + ack futures, graceful shutdown).
+- [x] `daemon/client.py`.
+- [x] `daemon/poller.py` (`interval_for`, `poll_loop`, `request_poll` with coalescing, status-transition events, usage-file rewrite on every attempt incl. failures with `polled_at`).
+- [x] `daemon/watchers.py` (live + config).
+- [x] `daemon/sampler.py` (activity + other sessions).
+- [x] `daemon/reaper.py`.
+- [x] `daemon/launchd.py` plus `daemon/cli.py` (`install|uninstall|start|stop|restart|status|run|logs`).
+- [x] `ccs status`, `ccs events` CLI.
+- [x] `schema/event.schema.json`, `schema/ipc.md` (every op and cmd with example request/response).
+- [x] Extend the fake claude: `agents --json` scenario (a list with a pid placeholder resolved from the env `FAKE_CLAUDE_AGENTS_PIDS`).
 
 ## Tests
 - `test_ipc.py`:
@@ -220,15 +220,84 @@
 - `01-installation.md`: `ccs daemon install` step.
 
 ## Done when
-- [ ] `make test lint` passes.
-- [ ] `ccs daemon install && ccs daemon status --json` shows `loaded: true, responsive: true`.
-- [ ] `usage/*.json` and `widget/snapshot.json` refresh at the configured cadence against the real profiles (observed for ≥ 5 min).
-- [ ] Killing the daemon process → launchd restarts it within 15 s, and the state files survive.
-- [ ] `ccs events --follow` shows `daemon.started` after a restart.
-- [ ] The manual pages above are updated.
+- [x] `make test lint` passes.
+- [ ] `ccs daemon install && ccs daemon status --json` shows `loaded: true, responsive: true`. Deferred: no real LaunchAgent per the user's directive (see Result).
+- [x] `usage/*.json` and `widget/snapshot.json` refresh at the configured cadence against the real profiles (observed for ≥ 5 min).
+- [ ] Killing the daemon process → launchd restarts it within 15 s, and the state files survive. Deferred: needs the real LaunchAgent (P13 install / user).
+- [x] `ccs events --follow` shows `daemon.started` after a restart. Tested with a real `daemon run` subprocess and `--follow` through the socket; the launchd variant is deferred.
+- [x] The manual pages above are updated.
 
 ## Risks & mitigations
 - **Probe spawn cost with many profiles:** the per-profile lock plus the ADR-0008 cadence. `probe_usage` durations are measured in the logs, and `ccs doctor` (P13) reports p95.
 - **launchd PATH differs from the shell:** capture PATH at install. `ccs doctor` verifies `claude` resolves under the daemon's env.
 - **A socket left behind after a crash:** unlink after acquiring the flock (the lock proves no other daemon is running).
 - **Snapshot write storms from live reports:** 1 s debounce, and write only on changed merged values.
+
+## Result
+- **Shipped:**
+  - `ccs/events.py`: `Event`, `EventBus`, `notification_text`, `register_text`, `hour_bucket`, `read_tail`.
+  - `ccs/snapshot.py`: `level_for`, `worst_level`, `format_money`, `build_widget_snapshot`, `write_widget_snapshot`, `read_widget_snapshot`.
+  - `ccs/daemon/`: `server` (`Daemon`, `Conn`), `hooks`, `extensions`, `poller`, `watchers`, `sampler`, `reaper`, `launchd`, `cli`. `client.py` was extended.
+  - CLI: `ccs daemon install|uninstall|start|stop|restart|status|run|logs`, `ccs status`, `ccs events [--follow]`.
+  - Schemas and protocol: `schema/widget-snapshot.schema.json`, `schema/event.schema.json`, `schema/ipc.md`.
+  - The fake `claude` `agents` mode takes `$PID<n>` placeholders.
+- **Tests:** `make test lint` is green: 292 Python tests (1 live test skipped), the Swift tests, ruff, and mypy `--strict`. The new test files are:
+  - `test_events`, `test_snapshot`, `test_poller`, `test_ipc`, `test_watchers`, `test_sampler`, `test_reaper`, `test_launchd` (golden `tests/golden/daemon.plist`)
+  - `test_cli_daemon`, which includes a real `ccs daemon run` subprocess lifecycle and `ccs events --follow` through the socket.
+  - Tests leave no processes behind.
+- **Live smoke test** (5.5 min, foreground `ccs daemon run`, scratch XDG/state, read-only probes of the real `~/.claude` and `~/.claude-work`):
+  - Probes took 1.9–3.0 s each (graceful exit included).
+  - With no `ccs` sessions, the idle cadence of 120 s held for both profiles. A `ccs usage --refresh` at +150 s went through the daemon (`source: daemon`) and reset the cadence.
+  - `usage/*.json` and `widget/snapshot.json` were rewritten after every poll.
+  - `ccs status` showed live numbers and other-session counts (1 interactive, 2 background per profile). `ccs daemon status --json` reported `responsive: true` with a 0.3 ms round trip.
+  - On SIGTERM the daemon exited 0 and removed its socket; events were `daemon.started` then `daemon.stopped`.
+  - The real `sessions/` dirs were unchanged afterwards. The scratch dirs were removed.
+- **Deviations:**
+  - Extensions are module paths in `ccs.daemon.extensions.EXTENSIONS` (empty for now), each exposing `install(daemon)`. Tests pass `Daemon(extensions=[...])`.
+  - `send_cmd` never raises. It returns the ack dict, or `{"result": "timeout" | "not_connected"}`.
+  - Forced polls on config change happen only for newly added profiles (their first poll) and profiles whose `config_dir` changed. Threshold and UI edits don't cause probe storms; P06 re-evaluates through `on_config_changed`.
+  - Deduped events are dropped entirely (not logged). The dedupe horizon is 8 days, with at most 1000 keys. Event lines carry `"schema": 1`.
+  - `EventBus` already has templates for the events P04 emits (`auth.required`, `usage.source_error`, `config.invalid`). Every other type uses the `<emoji> <name>: <type>` fallback until P06 calls `register_text`.
+  - Snapshot:
+    - `profiles[].level` is null when there are no rows, and `status` is `no_data` when there is no snapshot.
+    - `supervisor.other_sessions` is an int (interactive plus background).
+    - The supervisor object only publishes the six ADR keys.
+  - Added to the P03 module `claude_cli`:
+    - `spawned_pids()`, so the sampler excludes the daemon's own probe and warm-up children
+    - `run()` now kills the child when its caller is cancelled
+  - `DaemonClient` buffers pushes and gains `subscribe()` and `iter_pushes()`. New `AsyncDaemonClient` for P05.
+  - `format_money` moved to `ccs.snapshot`; `ccs usage` reuses it.
+  - `ccs daemon status --json` also reports `state`, `daemon_pid`, and `latency_ms`.
+  - `ccs events --follow --json` prints one JSON event per line.
+  - `register_wrapper` with an unknown profile forces one config reload before answering `unknown_profile`.
+  - Shutdown waits up to 20 s for in-flight probes, so probe children always exit gracefully and never leave Claude registry files behind.
+- **Not done here** (the user's directive: no real LaunchAgent on this machine):
+  - `ccs daemon install && ccs daemon status` against real launchd
+  - launchd restarting a killed daemon within 15 s
+  - `events --follow` across a launchd restart
+
+  These are covered by the golden plist, argv assertions on a mocked `launchctl`, and the real `daemon run` subprocess test. They run for real at install time (P13), or the user checks them.
+- **Extension points for later plans** (`daemon` is the `Daemon` passed to `install(daemon)`):
+  - **Hooks:**
+    - `daemon.hooks.on_usage_updated(fn(pid))`
+    - `on_tick(fn(now))` (1 s)
+    - `on_wrapper_registered(fn(info) -> dict)` (merged into the register reply)
+    - `on_wrapper_unregistered(fn(info))`, `on_wrapper_event(fn(info, msg))`
+    - `on_config_changed(fn(old, new))`
+    - `contribute_supervisor(fn(pid) -> dict)` (snapshot and status `supervisor` fields, including `next_warmup_at`)
+    - `handle_op(name, async fn(conn, msg) -> dict)`
+  - **Daemon API:**
+    - `daemon.add_task(factory)`
+    - `daemon.request_poll(pid, at=None)`, awaitable, returns the merged snapshot
+    - `daemon.emit(Event(type, profile_id, key, data))`
+    - `daemon.send_cmd(wrapper_id, "pause"|"resume", payload, timeout=10)`
+    - `daemon.sessions`, a dict of `wrapper_id → record`, mutated with `daemon.update_session(wrapper_id, fn)`, which writes the file and the snapshot
+    - `daemon.sessions_for(pid)`, `daemon.snapshots[pid]`, `daemon.other_sessions[pid]`
+    - `daemon.config`, `daemon.profile(pid)`, `daemon.clock`, `daemon.request_snapshot_write()`
+    - `WrapperInfo` carries `started_overridden` and `reregistered`.
+  - **Per plan:**
+    - **P05:** `AsyncDaemonClient` (`hello`, `request`, `next_push`, `send` for acks), and `launchd.is_installed()` / `launchd.start()`.
+    - **P06:** `events.register_text(type, builder)` for the notification templates. `supervisor/<pid>.json` is written by the P06 engine inside the daemon.
+    - **P07:** `on_config_changed` for script regeneration.
+    - **P08:** `add_task`, `on_tick`, `handle_op("warmup")`, `request_poll`, `contribute_supervisor({"next_warmup_at": dt})`.
+    - **P10:** `schema/ipc.md` (hello, then `subscribe` with `["events", "snapshot"]`; pushes `{"proto":1,"event"|"snapshot":…}`), `widget-snapshot.schema.json`, `event.schema.json`.
