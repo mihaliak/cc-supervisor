@@ -41,6 +41,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: local.ccsupervisor.app
         PRODUCT_NAME: CC Supervisor
+        PRODUCT_MODULE_NAME: CCSupervisor
     dependencies:
       - target: CCSupervisorWidgets
         embed: true
@@ -74,6 +75,9 @@ targets:
     platform: macOS
     sources:
       - path: Tests
+      - path: ../schema/fixtures
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: CCSupervisor
     settings:

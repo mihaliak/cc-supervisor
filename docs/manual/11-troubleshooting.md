@@ -52,7 +52,11 @@ ccs daemon install       # (re)install: rewrites the LaunchAgent with your curre
 | Session wasn't interrupted at the pause threshold | It was idle (only marked paused); it isn't a `ccs` session (background agents and plain `claude` aren't supervised); it was already overridden this window; or data was stale | `ccs sessions` shows supervision state; `ccs events` shows what happened |
 | Paused session didn't continue after the reset | It was idle when paused (no prompt needed), you overrode it, or the reset isn't confirmed yet | Type your prompt, or `ccs resume --profile <id>`. Resume is forced 10 min after the reset time if data can't confirm it. |
 | Warm-up didn't run | A skip rule applied: window already active, session busy, cooldown, outside active hours, weekly pause, sign-in required, trigger off | `ccs events` shows the skip reason. Force with `ccs warmup --profile <id> --force`. |
-| Unlock/app-start warm-ups never happen | The app isn't running (it forwards these triggers) | Start the app; enable Settings → General → Launch at login |
+| Menu shows **ccs not found at …** | The app can't find the `ccs` command (GUI apps don't see your shell `PATH`) | Install it (`make install-dev`) or set `ccs_path` in the config / Settings |
+| Menu shows **Supervisor daemon not installed / stopped** | The background supervisor isn't running | Click **Install daemon** / **Start daemon** in the banner, or `ccs daemon install` / `ccs daemon start` |
+| Menu bar shows `?%` | No session data for that profile yet (just installed, or sign-in required) | Wait for the first poll, or sign in (card → **Sign in**) |
+| "updated … ago" in the menu header is orange | The supervisor hasn't written data for over 5 minutes | `ccs daemon status`; restart with `ccs daemon restart` |
+| Unlock/app-start warm-ups never happen | The app isn't running, or the supervisor was offline when the event happened (the app only forwards triggers while connected) | Start the app; enable Settings → General → Launch at login; check `ccs daemon status` |
 | Notifications come from "Script Editor" | The app isn't running, so the fallback is used | Start the app |
 | No notifications at all | Permission denied or toggles off | System Settings → Notifications → CC Supervisor; Settings → General → Notifications |
 | `ccs --myflag` runs the default profile or errors | Flag unknown, reserved, or not the first argument | `ccs profile list`; put the profile flag first |

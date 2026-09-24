@@ -1,0 +1,9 @@
+{
+  "account": "user@example.com",
+  "config_dir": "/Users/user/.claude-work",
+  "error": null,
+  "keychain_service": "Claude Code-credentials-1e91dd84",
+  "logged_in": true,
+  "profile_id": "work",
+  "subscription_type": "team"
+}

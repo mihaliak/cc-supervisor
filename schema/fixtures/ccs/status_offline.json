@@ -1,0 +1,30 @@
+{
+  "daemon": {
+    "responsive": false
+  },
+  "ok": true,
+  "profiles": [
+    {
+      "id": "personal",
+      "next_warmup_at": null,
+      "other_sessions": null,
+      "sessions": [],
+      "supervisor": {
+        "holds": [],
+        "state": "normal"
+      },
+      "usage": null
+    },
+    {
+      "id": "work",
+      "next_warmup_at": null,
+      "other_sessions": null,
+      "sessions": [],
+      "supervisor": {
+        "holds": [],
+        "state": "normal"
+      },
+      "usage": null
+    }
+  ]
+}

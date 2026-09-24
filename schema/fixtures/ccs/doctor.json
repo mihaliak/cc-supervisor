@@ -1,0 +1,30 @@
+{
+  "checks": [
+    {
+      "fix": null,
+      "id": "python.version",
+      "message": "Python 3.14.7",
+      "scope": "global",
+      "status": "ok"
+    },
+    {
+      "fix": "ccs daemon start",
+      "id": "daemon.running",
+      "message": "daemon installed but not running",
+      "scope": "global",
+      "status": "fail"
+    },
+    {
+      "fix": "ccs auth login --profile work",
+      "id": "profile.auth",
+      "message": "not signed in",
+      "scope": "profile:work",
+      "status": "warn"
+    }
+  ],
+  "summary": {
+    "fail": 1,
+    "ok": 1,
+    "warn": 1
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "ok": true,
+  "results": [
+    {
+      "decision": "started",
+      "profile_id": "work",
+      "reason": null
+    },
+    {
+      "decision": "skipped",
+      "profile_id": "personal",
+      "reason": "window_active"
+    }
+  ]
+}

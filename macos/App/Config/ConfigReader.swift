@@ -1,0 +1,48 @@
+import Foundation
+
+enum MenuBarMode: String, Sendable, Equatable {
+    case emojiPercent = "emoji_percent"
+    case iconOnly = "icon_only"
+}
+
+/// The bits of `config.json` the app shell needs (ADR-0004). Read-only here;
+/// P11 adds writes. A missing or unreadable file yields the defaults and is
+/// never created by the app.
+struct AppConfig: Sendable, Equatable {
+    var ccsPath: String
+    var menuBarMode: MenuBarMode
+    var fileExists: Bool
+
+    static func defaultCcsPath(home: URL = StateLocation.realHome()) -> String {
+        home.appendingPathComponent(".local/bin/ccs").path
+    }
+}
+
+enum ConfigReader {
+    static func read(
+        file: URL = StateLocation.configFile(),
+        home: URL = StateLocation.realHome()
+    ) -> AppConfig {
+        guard let data = try? Data(contentsOf: file) else {
+            return AppConfig(ccsPath: AppConfig.defaultCcsPath(home: home), menuBarMode: .emojiPercent, fileExists: false)
+        }
+        return parse(data, home: home)
+    }
+
+    static func parse(_ data: Data, home: URL = StateLocation.realHome()) -> AppConfig {
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        var ccsPath = AppConfig.defaultCcsPath(home: home)
+        if let raw = object["ccs_path"] as? String, !raw.isEmpty {
+            ccsPath = expandTilde(raw, home: home)
+        }
+        let display = object["display"] as? [String: Any]
+        let mode = (display?["menu_bar"] as? String).flatMap(MenuBarMode.init(rawValue:)) ?? .emojiPercent
+        return AppConfig(ccsPath: ccsPath, menuBarMode: mode, fileExists: true)
+    }
+
+    static func expandTilde(_ path: String, home: URL) -> String {
+        if path == "~" { return home.path }
+        if path.hasPrefix("~/") { return home.appendingPathComponent(String(path.dropFirst(2))).path }
+        return path
+    }
+}

@@ -1,0 +1,7 @@
+{
+  "account": "user@example.com",
+  "error": null,
+  "logged_in": true,
+  "mode": "headless",
+  "profile_id": "work"
+}

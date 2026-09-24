@@ -1,0 +1,12 @@
+{
+  "daemon_pid": 4242,
+  "installed": true,
+  "latency_ms": 0.3,
+  "loaded": true,
+  "ok": true,
+  "pid": 4242,
+  "responsive": true,
+  "state": "running",
+  "uptime_s": 7980,
+  "version": "0.1.0"
+}

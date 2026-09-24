@@ -49,7 +49,8 @@ ccs status          # usage per profile, as the supervisor sees it
 ## First launch
 - The app lives in the **menu bar** only. It has no Dock icon.
 - macOS asks for **notification permission**. Allow it so you get limit warnings (see [Notifications](09-notifications.md)).
-- **Launch at login** is offered in **Settings… → General**. Keep it on: the app forwards app-start and unlock/wake warm-up triggers and shows notifications.
+- **Launch at login** is off until you turn it on in **Settings… → General** (`make install` turns it on for you). Keep it on: the app forwards app-start and unlock/wake warm-up triggers and shows notifications.
+- If the dropdown shows a **Supervisor daemon not installed** banner, click **Install daemon** (same as `ccs daemon install`).
 - **Sign in** each profile ([Profiles & sign-in](02-profiles-and-sign-in.md)).
 - **Add widgets:**
   1. Right-click the desktop → **Edit Widgets…**

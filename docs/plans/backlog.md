@@ -24,7 +24,7 @@ The single source of truth for plan status. Workflow rules are in [ADR-0014](../
 | P07 | [Statusline generate/render/apply](done/P07-statusline.md) | done | P00, P02, P03, P04 | python |
 | P08 | [Warm-up scheduler](todo/P08-warmup.md) | todo | P00, P04 | python |
 | P09 | [Auth wrapper](done/P09-auth.md) | done | P00, P02, P03, P04 | python |
-| P10 | [macOS app shell (menu bar, bridge, notifications, OS triggers)](todo/P10-macos-app-shell.md) | todo | P00, P04 | swift |
+| P10 | [macOS app shell (menu bar, bridge, notifications, OS triggers)](done/P10-macos-app-shell.md) | done | P00, P04 | swift |
 | P11 | [Settings UI (profiles, sign-in, statusline apply)](todo/P11-settings-ui.md) | todo | P07, P09, P10 | swift |
 | P12 | [Widgets (small/medium/large)](todo/P12-widgets.md) | todo | P00, P06, P10 | swift |
 | P13 | [Install, uninstall, doctor](todo/P13-install-and-doctor.md) | todo | P06, P07, P08, P09, P12 | infra |

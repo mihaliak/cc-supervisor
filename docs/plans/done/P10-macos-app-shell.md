@@ -1,6 +1,6 @@
 # P10: macOS app shell (menu bar, bridge, notifications, OS triggers)
 
-- Status: todo
+- Status: done
 - Milestone: M2
 - Depends on: P00 (S1: signing/data path outcome, S4: login mode), P04 (daemon socket, events, `widget/snapshot.json`)
 - Uses when available: P06 (`pause`/`resume`), P08 (`warmup`), P09 (`auth login`). Buttons surface errors gracefully until those plans ship.
@@ -115,19 +115,19 @@ A native menu bar app, `CC Supervisor.app`. It:
 - Unknown URLs are ignored and logged.
 
 ## Tasks
-- [ ] `macos/project.yml`: app target settings, Info.plist keys, entitlements file `App/CCSupervisor.entitlements`, Shared sources group, AppTests target with the fixtures in `schema/fixtures/` as test resources.
-- [ ] `Shared/Snapshot.swift`: Codable models for `widget/snapshot.json` (`schema: 1`), all non-essential fields optional.
-- [ ] `Shared/TimeFormat.swift` + `Shared/LevelColor.swift`.
-- [ ] `App/Bridge/CcsClient.swift` + result models `App/Bridge/CcsModels.swift`.
-- [ ] `App/Bridge/DaemonConnection.swift` (NWConnection unix socket, JSON Lines, backoff).
-- [ ] `App/Store/SnapshotStore.swift` + `App/Store/WidgetReloader.swift` (`WidgetReloadPolicy` pure).
-- [ ] `App/Config/ConfigReader.swift`.
-- [ ] `App/MenuBar/MenuLabelView.swift`, `MenuContentView.swift`, `ProfileCardView.swift`, `UsageRowView.swift`, `DaemonBannerView.swift`.
-- [ ] `App/Notifications/NotificationRouter.swift`.
-- [ ] `App/System/OSTriggers.swift`, `App/System/LoginItemController.swift` (+ `--unregister-login-item` handling in the app init).
-- [ ] `App/URLRouter.swift` + `.onOpenURL` wiring.
-- [ ] `App/Settings/SettingsPlaceholderView.swift`.
-- [ ] Verify `make app` produces `~/Applications/CC Supervisor.app`. It launches with no Dock icon, and the menu shows fixture data when `CCS_STATE_DIR` points at the fixtures (debug env honored by `SnapshotStore`).
+- [x] `macos/project.yml`: app target settings, Info.plist keys, entitlements file `App/CCSupervisor.entitlements`, Shared sources group, AppTests target with the fixtures in `schema/fixtures/` as test resources.
+- [x] `Shared/Snapshot.swift`: Codable models for `widget/snapshot.json` (`schema: 1`), all non-essential fields optional.
+- [x] `Shared/TimeFormat.swift` + `Shared/LevelColor.swift`.
+- [x] `App/Bridge/CcsClient.swift` + result models `App/Bridge/CcsModels.swift`.
+- [x] `App/Bridge/DaemonConnection.swift` (NWConnection unix socket, JSON Lines, backoff).
+- [x] `App/Store/SnapshotStore.swift` + `App/Store/WidgetReloader.swift` (`WidgetReloadPolicy` pure).
+- [x] `App/Config/ConfigReader.swift`.
+- [x] `App/MenuBar/MenuLabelView.swift`, `MenuContentView.swift`, `ProfileCardView.swift`, `UsageRowView.swift`, `DaemonBannerView.swift`.
+- [x] `App/Notifications/NotificationRouter.swift`.
+- [x] `App/System/OSTriggers.swift`, `App/System/LoginItemController.swift` (+ `--unregister-login-item` handling in the app init).
+- [x] `App/URLRouter.swift` + `.onOpenURL` wiring.
+- [x] `App/Settings/SettingsPlaceholderView.swift`.
+- [x] Verify `make app` produces `~/Applications/CC Supervisor.app`. It launches with no Dock icon, and the menu shows fixture data when `CCS_STATE_DIR` points at the fixtures (debug env honored by `SnapshotStore`).
 
 ## Tests (XCTest, `macos/Tests/AppTests`)
 - Decode every snapshot fixture in `schema/fixtures/snapshot/`: ok, stale, needs_sign_in, paused, no model-scoped, extra usage enabled.
@@ -144,15 +144,35 @@ A native menu bar app, `CC Supervisor.app`. It:
 - `11-troubleshooting.md` (ccs not found, daemon offline, no notifications)
 
 ## Done when
-- [ ] `make app` builds and installs. XCTest passes.
-- [ ] The menu bar shows live data from the real daemon and updates on snapshot changes.
-- [ ] Notifications appear for daemon events that have `notify: true`, and clicking one opens the profile.
-- [ ] Unlock, wake, and app start produce `warmup` calls (visible in `ccs events`).
-- [ ] The login item is registered on first launch.
-- [ ] Listed manual pages describe the shipped behavior and are marked `shipped`.
+- [x] `make app` builds and installs. XCTest passes. (Build + XCTest verified; the `~/Applications` copy was not run on this machine, see Result.)
+- [x] The menu bar shows live data from the real daemon and updates on snapshot changes. (Real `ccs daemon run` with the fake `claude`, scratch state.)
+- [ ] Notifications appear for daemon events that have `notify: true`, and clicking one opens the profile. (Unit-tested request building; live check left for the user.)
+- [ ] Unlock, wake, and app start produce `warmup` calls (visible in `ccs events`). (App start verified — the call reached `ccs`; unlock/wake need a real session; `ccs events` shows them once P08 lands.)
+- [ ] The login item is registered on first launch. (Changed by user directive: explicit toggle / `--register-login-item` only.)
+- [ ] Listed manual pages describe the shipped behavior and are marked `shipped`. (Content updated; the orchestrator flips the Status lines.)
 
 ## Risks & mitigations
 - **The GUI app PATH lacks the user's tools** → absolute ccs path plus a PATH prefix. `ccs` itself resolves `claude` via config/daemon (ADR-0006).
 - **Menu bar label color flattening** → the `ImageRenderer` fallback.
 - **Notifications from an ad-hoc signed app get denied or suppressed** → verify in P00-S1. The daemon's osascript fallback covers it when no app is connected. Document it in troubleshooting.
 - **The socket path is long** (unix path limit 104 bytes) → the state dir path is short (`~/.local/state/ccs/daemon.sock`). Assert its length in `DaemonConnection`.
+
+## Result
+- **Shipped** (`macos/`, XcodeGen, Swift 6 strict concurrency, macOS 26, ad-hoc signed, no warnings):
+  - `Shared/` (app + widget): `Snapshot.swift` (lenient `WidgetSnapshot`/`ProfileSnapshot`/`UsageRow`/`SupervisorSummary`, `Level`, `isDaemonOffline(now:)` = `generated_at` > 5 min, `worstLevel`), `TimeFormat.swift` (`absolute`/`relative`/`combined`/`compact` + `ago`), `LevelColor.swift`, `StateLocation.swift` (`StateLocation` mirrors `ccs.paths`, real home via `getpwuid`; `SnapshotLocation` with the `CCS_WIDGET_APPGROUP` compile-time switch for ADR-0012 fallback A), `DeepLink.swift` (`ccsupervisor://profile|signin/<id>`, `refresh`).
+  - `App/`: `CCSupervisorApp` (MenuBarExtra `.window` + Settings), `AppModel` (all actions via `ccs`), `Bridge/` (`ProcessRunner`, `CcsClient` actor, `CcsModels`, `DaemonConnection` over `NWConnection` unix socket with `JSONLinesFramer` + `ReconnectBackoff`), `Store/` (`SnapshotStore` directory watcher + 30 s re-read + socket pushes, `WidgetReloader` + pure `WidgetReloadPolicy`), `Config/ConfigReader`, `MenuBar/` (label, content, profile card, usage row, daemon banner), `Notifications/NotificationRouter`, `System/` (`OSTriggers` + `TriggerDebouncer`, `LoginItemController`), `URLRouter` + `AppDelegate`, `Settings/SettingsPlaceholderView` (launch-at-login toggle, read-only paths, profile picker bound to `selectedProfileID`).
+  - Fixtures: `schema/fixtures/snapshot/{ok,stale,needs_sign_in,paused,no_model_scoped,extra_usage}.json` (validated against the schema by `python/tests/test_shared_fixtures.py`), `schema/fixtures/ccs/*.json` (`status_offline` and `daemon_status_not_installed` captured from the real CLI; the rest hand-written from the P06/P08/P09/P13 contracts). The test bundle copies `schema/fixtures/` as a folder resource.
+- **Tests:** `make test lint` green: 299 Python (1 skipped) + 33 Swift (snapshot decoding for every fixture, CLI models, all 24 `time_format.json` vectors, reload policy, debouncer, deep links, notification requests, framer/backoff/message parsing, `CcsClient` against fake scripts incl. timeout and error paths, and an end-to-end `DaemonConnection` test against a POSIX unix-socket server: hello → subscribe → snapshot + event pushes).
+- **Smoke** (`build/smoke_app.py`, scratch `XDG_CONFIG_HOME`, `CCS_STATE_DIR=/tmp/ccs-p10`, daemon with the fake `claude`, ccs via a wrapper script): the built app started, loaded the snapshot, connected (`daemon online` in the unified log), received snapshot pushes after `ccs usage --refresh`, and fired the `app_start` trigger (it failed with `invalid choice: 'warmup'` because P08 is not merged in this tree — the error surfaced in the log as designed). No real config/state was created; scratch removed.
+- **Deviations:**
+  - **Login item is not registered on first launch** (user directive: no automatic system changes). It is a toggle (Settings placeholder now, P11 General tab later) plus `--register-login-item` / `--unregister-login-item` launch flags for `make install` / `make uninstall` (P13).
+  - **App-start trigger** fires once per launch when the daemon connection first comes online (no 10 s fallback): the warm-up CLI needs the daemon anyway. Unlock/wake triggers are skipped while offline.
+  - URL opens arrive via `NSApplicationDelegate.application(_:open:)` (a menu bar app has no window for `.onOpenURL`). Settings opens through the always-rendered menu bar label (`openSettings` on a `settingsRequest` counter).
+  - Menu actions are per-card buttons (Warm up now, Pause/Resume, ⚙) instead of submenus; manual 04 matches.
+  - The app skips all side effects when hosted by XCTest (`AppEnvironment.isRunningTests`).
+  - Entitlements file keeps the P01 name `App/App.entitlements` (empty dict = not sandboxed).
+  - `make app` (copy to `~/Applications`) was not run on this machine (directive); `make app-build` + direct binary launch verified instead.
+- **Not verifiable headless / left for the user:** colored label appearance in the real menu bar, the notification permission prompt and a real notification click, unlock/wake triggers, launch-at-login registration. Running the smoke launched the app once from the build dir, so macOS may have shown the notification permission prompt.
+- **Reuse for P11/P12:**
+  - Widget (P12): `WidgetSnapshot` + `SnapshotDecoding.decode`, `SnapshotLocation.snapshotFile()` (sandbox: real home via `getpwuid`), `TimeFormat.compact/absolute/relative/ago`, `LevelColor.color`, `DeepLink.profile(id).url` for `widgetURL`, `WidgetSnapshot.isDaemonOffline(now:)`. Reloads come from the app's `WidgetReloader` (≤ 1/60 s, immediate on status/state change).
+  - Settings (P11): `AppModel.selectedProfileID` (set by `ccsupervisor://profile/<id>` and the card ⚙), `AppModel.requestSettings(profileID:)`, `AppModel.setLoginItem(_:)`, `AppModel.reloadConfig()`, `CcsClient` helpers (`authLogin`/`authStatus`/`doctor`/`daemonStatus|Install|Start`, generic `run(_:as:timeout:decodeOnFailure:)` with `.convertFromSnakeCase`), `ConfigReader` (read-only; P11 adds writes), `StateLocation.configFile()`. Replace `SettingsPlaceholderView` in `CCSupervisorApp`.

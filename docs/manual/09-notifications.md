@@ -2,7 +2,11 @@
 
 > Status: planned. This page describes target behavior and will be marked "shipped" when implemented (see [../plans/backlog.md](../plans/backlog.md)).
 
-CC Supervisor posts native macOS notifications from the menu bar app. Clicking one opens Settings on the profile it's about.
+CC Supervisor posts native macOS notifications from the menu bar app while it is connected to the background supervisor. Clicking one opens Settings on the profile it's about.
+
+- The text is written by the supervisor; the app shows it exactly as sent.
+- A newer notification about the same limit replaces the older one instead of stacking.
+- Notifications of one profile are grouped together in Notification Center.
 
 ## What you get notified about
 | When | Toggle | Example |
@@ -27,7 +31,7 @@ Settings → General → Notifications, or in the config:
 These toggles apply to all profiles.
 
 ## Permission
-macOS asks the first time the app starts. If you declined, enable it in System Settings → Notifications → **CC Supervisor**.
+macOS asks the first time the app starts. If you declined, enable it in System Settings → Notifications → **CC Supervisor**. Notifications also show while the menu is open or another app is in front (banner + Notification Center).
 
 ## No duplicates
 - Each limit warns **once per window**, and pauses and resumes are announced once each.
