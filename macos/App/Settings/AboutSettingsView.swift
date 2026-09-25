@@ -38,7 +38,7 @@ struct AppIdentityHeader: View {
 
 /// About pane (ADR-0020): identity plus a short description of every feature.
 struct AboutSettingsView: View {
-    private struct Feature: Identifiable {
+    struct Feature: Identifiable {
         let icon: String
         let title: String
         let text: LocalizedStringKey
@@ -68,28 +68,23 @@ struct AboutSettingsView: View {
                 text: "`ccs doctor` checks the whole setup and says how to fix what's wrong."),
     ]
 
-    private let columns = [GridItem(.flexible(), spacing: 20, alignment: .top), GridItem(.flexible(), spacing: 20, alignment: .top)]
+    /// The features in rows of two.
+    private static var rows: [[Feature]] {
+        stride(from: 0, to: features.count, by: 2).map { Array(features[$0..<min($0 + 2, features.count)]) }
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 AppIdentityHeader(large: true)
                 Divider()
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
-                    ForEach(Self.features) { feature in
-                        HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: feature.icon)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 22, height: 22)
-                                .foregroundStyle(Color(red: 0.95, green: 0.42, blue: 0.1))
-                                .accessibilityHidden(true)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(feature.title).font(.headline)
-                                Text(feature.text)
-                                    .font(.callout)
-                                    .foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
+                // A two-column grid: both columns get the same width, every icon and title
+                // starts at its column's x, and the two titles of a row share one baseline.
+                Grid(alignment: .topLeading, horizontalSpacing: 20, verticalSpacing: 16) {
+                    ForEach(Self.rows, id: \.first?.id) { row in
+                        GridRow(alignment: .firstTextBaseline) {
+                            ForEach(row) { feature in
+                                FeatureCell(feature: feature)
                             }
                         }
                     }
@@ -105,5 +100,29 @@ struct AboutSettingsView: View {
             }
             .padding(24)
         }
+    }
+}
+
+/// One About feature: a fixed-width icon column, then the title and its description.
+private struct FeatureCell: View {
+    let feature: AboutSettingsView.Feature
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            // Font-sized symbols keep one optical size; the fixed width keeps every title at the same x.
+            Image(systemName: feature.icon)
+                .font(.system(size: 19))
+                .frame(width: 28)
+                .foregroundStyle(Color(red: 0.95, green: 0.42, blue: 0.1))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(feature.title).font(.headline)
+                Text(feature.text)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
