@@ -4,7 +4,7 @@ import Foundation
 public enum WidgetSize: Sendable, CaseIterable {
     case small, medium, large
 
-    /// Maximum usage rows the family shows (the small family shows only the session row).
+    /// Maximum usage rows the family shows (the small family shows one: see `smallRow`).
     var rowCapacity: Int {
         switch self {
         case .small: 1
@@ -100,19 +100,37 @@ public struct WidgetDisplay: Equatable, Sendable {
     /// Tap target for the whole widget.
     public var url: URL?
 
-    public var title: String { emoji.isEmpty ? name : "\(emoji) \(name)" }
+    public var title: String { ProfileTitle.text(emoji: emoji, name: name) }
 
     /// Whether usage values are shown (dimmed when offline or stale) instead of a message.
+    /// When false, `message` says why (the builder guarantees one), so no family renders blank.
     public var showsValues: Bool {
         guard session != nil || !rows.isEmpty else { return false }
         return state != .notConfigured && state != .needsSignIn
     }
 
+    /// The row the small widget features: the session row, else the first row shown (e.g.
+    /// only a weekly limit is reported), so a profile with usage rows never renders blank.
+    public var smallRow: WidgetRowDisplay? { rows(for: .small).first }
+
+    /// The featured row's label when it isn't the session row (the session needs none).
+    public var smallCaption: String? {
+        guard let row = smallRow, row.kind != .session else { return nil }
+        return row.label
+    }
+
+    /// The small widget's weekly footer, unless the featured row already is the weekly row.
+    public var smallWeeklyLine: WidgetCompactLine? {
+        smallRow?.kind == .weekly ? nil : weeklyLine
+    }
+
     /// Rows for a family. When space runs out, drop extra usage, then model-scoped,
-    /// then weekly (P12). The session row is never dropped.
+    /// then weekly (P12). The session row is never dropped. Small: `smallRow` only.
     public func rows(for size: WidgetSize) -> [WidgetRowDisplay] {
         var out = rows
-        if size == .small { return Array(out.filter { $0.kind == .session }.prefix(1)) }
+        if size == .small {
+            return (out.first { $0.kind == .session } ?? out.first).map { [$0] } ?? []
+        }
         for kind in [RowKind.extraUsage, .modelScoped, .weekly] {
             while out.count > size.rowCapacity, let index = out.lastIndex(where: { $0.kind == kind }) {
                 out.remove(at: index)
@@ -181,6 +199,9 @@ public enum WidgetDisplayBuilder {
             message = "Sign in required"
         } else if known.isEmpty {
             message = noDataMessage(profile.status)
+        } else if ordered.isEmpty {
+            // No session row and every other row turned off: say so instead of a blank body.
+            message = rowsHiddenMessage
         }
 
         let state: WidgetState
@@ -268,6 +289,8 @@ public enum WidgetDisplayBuilder {
         parts.append("\(s.otherSessions) other")
         return parts.joined(separator: " · ")
     }
+
+    static let rowsHiddenMessage = "Turn on a row in Edit Widget"
 
     static func noDataMessage(_ status: ProfileStatus) -> String {
         switch status {

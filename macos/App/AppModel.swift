@@ -43,7 +43,7 @@ struct SignInPrompt: Equatable {
     var message: String
 
     init(profileID: String, profile: ProfileSnapshot?) {
-        let label = profile.map { [$0.emoji, $0.name].filter { !$0.isEmpty }.joined(separator: " ") } ?? ""
+        let label = profile?.title ?? ""
         title = "Sign in to \(label.isEmpty ? profileID : label)?"
         message = "A link asked CC Supervisor to sign in the profile “\(profileID)”. "
             + "This opens your browser to sign in to claude.ai."
@@ -97,6 +97,16 @@ final class AppModel {
     @ObservationIgnored private var quitHandlers: [@MainActor () -> Void] = []
     /// Asks before a `ccsupervisor://signin/<id>` link starts a sign-in (ADR-0022).
     @ObservationIgnored var confirmSignIn: @MainActor (SignInPrompt) -> Bool = SignInPrompt.runAlert
+    /// Any app or web page can open `ccsupervisor://refresh`: at most one such link runs
+    /// per window, so links can't make the app launch `ccs` over and over. The menu's
+    /// Refresh button isn't limited.
+    @ObservationIgnored private var refreshLinks = TriggerDebouncer(window: AppModel.refreshLinkWindow)
+    static let refreshLinkWindow: TimeInterval = 30
+    /// The clock for link throttling (tests move it).
+    @ObservationIgnored var now: () -> Date = Date.init
+    /// Set when widgets can't read the daemon's state dir (ADR-0022); shown in the menu
+    /// and Settings → Advanced.
+    let widgetAccessWarning: WidgetAccessWarning? = WidgetAccessWarning.current
     @ObservationIgnored private let log = Logger(subsystem: "local.ccsupervisor.app", category: "model")
 
     init(
@@ -311,9 +321,20 @@ final class AppModel {
             return
         }
         switch link {
-        case .profile(let id): requestSettings(profileID: id)
-        case .signIn(let id): confirmAndSignIn(profileID: id)
-        case .refresh: refresh()
+        case .profile(let id):
+            // Widget and notification taps. Crafted links can only open Settings: an id
+            // that isn't a known profile selects nothing.
+            let known = snapshot?.profile(id: id) != nil
+            if !known { log.info("profile link for unknown id \(id, privacy: .public)") }
+            requestSettings(profileID: known ? id : nil)
+        case .signIn(let id):
+            confirmAndSignIn(profileID: id)
+        case .refresh:
+            guard refreshLinks.shouldFire(now: now()) else {
+                log.info("ignoring refresh link: one ran in the last \(Int(Self.refreshLinkWindow)) s")
+                return
+            }
+            refresh()
         }
     }
 

@@ -33,14 +33,49 @@ struct SettingsView: View {
             "Settings changed elsewhere",
             isPresented: Binding(get: { store.conflict != nil }, set: { _ in })
         ) {
-            Button("Keep mine") { Task { await store.resolveConflict(.keepMine) } }
-            Button("Take theirs", role: .cancel) { Task { await store.resolveConflict(.takeTheirs) } }
+            conflictButton(.keepMine, store: store)
+            conflictButton(.takeTheirs, store: store)
         } message: {
             let fields = store.conflict?.fields.map(\.description).joined(separator: ", ") ?? ""
             Text("config.json was changed by another program (e.g. `ccs`) while you edited the same setting: \(fields). Keep your values, or take the values on disk?")
         }
         .sheet(isPresented: $settings.showingLogs) {
             DaemonLogsSheet(result: settings.logs)
+        }
+    }
+
+    private func conflictButton(_ choice: ConflictChoice, store: ConfigStore) -> some View {
+        Button(choice.title, role: choice.role) {
+            Task { await store.resolveConflict(choice.resolution) }
+        }
+    }
+}
+
+/// The "Settings changed elsewhere" alert's buttons. Esc and clicking outside pick the
+/// cancel-role button, so that one keeps the user's edits; taking the values on disk
+/// discards them and is marked destructive.
+enum ConflictChoice: CaseIterable {
+    case keepMine
+    case takeTheirs
+
+    var title: String {
+        switch self {
+        case .keepMine: "Keep mine"
+        case .takeTheirs: "Take theirs"
+        }
+    }
+
+    var role: ButtonRole {
+        switch self {
+        case .keepMine: .cancel
+        case .takeTheirs: .destructive
+        }
+    }
+
+    var resolution: ConflictResolution {
+        switch self {
+        case .keepMine: .keepMine
+        case .takeTheirs: .takeTheirs
         }
     }
 }

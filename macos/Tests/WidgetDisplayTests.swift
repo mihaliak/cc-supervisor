@@ -203,6 +203,78 @@ final class WidgetDisplayTests: XCTestCase {
         XCTAssertEqual(many.rows(for: .medium).map(\.label), ["S", "W1", "W2", "W3"])
     }
 
+    /// Regression: a profile with rows but no session row (e.g. only weekly limits) rendered
+    /// the small widget as a title over empty space: `showsValues` was true, but the small
+    /// view needed a session row and `message` was nil.
+    func testSmallWidgetFeaturesTheFirstRowWithoutASession() throws {
+        var snap = try snapshot("ok")
+        snap.profiles[0].rows.removeAll { $0.kind == .session }
+        let d = build(snap, "work", at: "2026-09-24T15:47:00Z")
+        XCTAssertEqual(d.state, .ok)
+        XCTAssertNil(d.session)
+        XCTAssertTrue(d.showsValues)
+        XCTAssertEqual(d.rows(for: .small).map(\.kind), [.weekly])
+        XCTAssertEqual(d.smallRow?.percentText, "72%")
+        XCTAssertEqual(d.smallCaption, "Weekly")
+        XCTAssertNil(d.smallWeeklyLine, "the weekly row isn't repeated in the footer")
+
+        let withSession = build(try snapshot("ok"), "work", at: "2026-09-24T15:47:00Z")
+        XCTAssertEqual(withSession.smallRow?.kind, .session)
+        XCTAssertNil(withSession.smallCaption)
+        XCTAssertEqual(withSession.smallWeeklyLine?.text, "W 72% · Sat 08:00")
+    }
+
+    /// No session row and every other row turned off: a message instead of a blank body.
+    func testAllRowsHiddenSaysSo() throws {
+        var snap = try snapshot("ok")
+        snap.profiles[0].rows.removeAll { $0.kind == .session }
+        let d = build(snap, "work", at: "2026-09-24T15:47:00Z", options: WidgetOptions(showWeekly: false, showModelScoped: false))
+        XCTAssertFalse(d.showsValues)
+        XCTAssertEqual(d.message, WidgetDisplayBuilder.rowsHiddenMessage)
+    }
+
+    /// Every family renders something: values with at least one row, or a message.
+    func testNoFamilyRendersBlank() throws {
+        let optionSets = [
+            WidgetOptions(),
+            WidgetOptions(showWeekly: false),
+            WidgetOptions(showWeekly: false, showModelScoped: false, showExtraUsage: false),
+        ]
+        for file in try Fixtures.files(in: "snapshot") {
+            var snap = try SnapshotDecoding.decode(try Data(contentsOf: file))
+            let noSession = snap.profiles.map { p -> ProfileSnapshot in
+                var copy = p
+                copy.id = p.id + "-nosession"
+                copy.rows.removeAll { $0.kind == .session }
+                return copy
+            }
+            snap.profiles += noSession
+            for profile in snap.profiles {
+                for options in optionSets {
+                    for at in ["2026-09-24T15:47:10Z", "2026-09-24T18:00:00Z"] {
+                        let d = build(snap, profile.id, at: at, options: options)
+                        let label = "\(file.lastPathComponent) \(profile.id) \(options) \(at)"
+                        if d.showsValues {
+                            for size in WidgetSize.allCases {
+                                XCTAssertFalse(d.rows(for: size).isEmpty, "\(label) \(size)")
+                            }
+                            XCTAssertNotNil(d.smallRow, label)
+                        } else {
+                            XCTAssertNotNil(d.message, label)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func testTitleWithoutEmoji() throws {
+        var snap = try snapshot("ok")
+        snap.profiles[0].emoji = ""
+        XCTAssertEqual(build(snap, "work", at: "2026-09-24T15:47:00Z").title, "Work")
+        XCTAssertEqual(WidgetProfileCatalog.choices(snap).first?.title, "Work")
+    }
+
     func testSessionRowOrderedFirst() throws {
         var snap = try snapshot("ok")
         snap.profiles[0].rows.reverse()

@@ -83,10 +83,30 @@ final class DeepLinkTests: XCTestCase {
         XCTAssertNil(DeepLink(url: try XCTUnwrap(URL(string: "https://profile/work"))))
     }
 
-    func testRoundTrip() {
+    func testRoundTrip() throws {
         for link in [DeepLink.profile("work"), .signIn("personal"), .refresh] {
-            XCTAssertEqual(DeepLink(url: link.url), link)
+            XCTAssertEqual(DeepLink(url: try XCTUnwrap(link.url)), link)
         }
+    }
+
+    /// Regression: `url` force-unwrapped a URL built from any id. Ids come from the snapshot
+    /// and daemon events (files other programs can write), so a bad one could crash the
+    /// widget extension; now it gets no link.
+    func testURLNeedsAValidID() {
+        for bad in ["", "Bad ID", "a b", "a/b", "%zz", "work\n", "-lead", "#x", "é", String(repeating: "a", count: 33)] {
+            XCTAssertNil(DeepLink.profile(bad).url, bad.debugDescription)
+            XCTAssertNil(DeepLink.signIn(bad).url, bad.debugDescription)
+        }
+        XCTAssertEqual(DeepLink.profile(String(repeating: "a", count: 32)).url?.lastPathComponent.count, 32)
+        XCTAssertEqual(DeepLink.profile("my-work2").url?.absoluteString, "ccsupervisor://profile/my-work2")
+    }
+
+    func testIDRuleMatchesTheWholeString() throws {
+        XCTAssertTrue(DeepLink.isValidID("work"))
+        XCTAssertTrue(DeepLink.isValidID("0-a"))
+        XCTAssertFalse(DeepLink.isValidID("work\n"))
+        XCTAssertFalse(DeepLink.isValidID("Work"))
+        XCTAssertNil(DeepLink(url: try XCTUnwrap(URL(string: "ccsupervisor://profile/work%0A"))))
     }
 }
 
@@ -113,5 +133,27 @@ final class NotificationRouterTests: XCTestCase {
         XCTAssertNil(NotificationRouter.request(for: event(notify: nil)))
         XCTAssertNil(NotificationRouter.request(for: event(notify: true, title: "")))
         XCTAssertFalse(try XCTUnwrap(NotificationRouter.request(for: event(notify: true, key: nil))).identifier.isEmpty)
+    }
+
+    /// A tampered `profile_id` still posts, but without a click-through link (and no crash).
+    func testInvalidProfileIDGetsNoLink() throws {
+        var bad = event(notify: true)
+        bad.profileId = "not a slug%zz"
+        let request = try XCTUnwrap(NotificationRouter.request(for: bad))
+        XCTAssertNil(request.content.userInfo["url"])
+        XCTAssertEqual(request.content.title, "💼 Work: session at 82%")
+    }
+
+    /// Settings → Send Test Notification: the daemon pushes a `notify.test` event (no
+    /// profile, no dedupe key). Event types are an open string, so it's posted like any other.
+    func testNotifyTestEventIsPosted() throws {
+        let line = Data(#"{"event":{"ts":"2026-09-25T10:00:00Z","type":"notify.test","profile_id":null,"key":null,"data":{"title":"CC Supervisor","body":"Test notification: notifications are working.","notify":true}}}"#.utf8)
+        guard case .event(let event) = DaemonMessage.parse(line) else { return XCTFail("not an event") }
+        XCTAssertEqual(event.type, "notify.test")
+        let request = try XCTUnwrap(NotificationRouter.request(for: event))
+        XCTAssertEqual(request.content.title, "CC Supervisor")
+        XCTAssertEqual(request.content.body, "Test notification: notifications are working.")
+        XCTAssertNil(request.content.userInfo["url"])
+        XCTAssertFalse(request.identifier.isEmpty)
     }
 }

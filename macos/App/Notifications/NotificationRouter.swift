@@ -39,7 +39,10 @@ final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate {
         content.sound = .default
         if let profile = event.profileId, !profile.isEmpty {
             content.threadIdentifier = profile
-            content.userInfo = ["url": DeepLink.profile(profile).url.absoluteString]
+            // An id that isn't a valid profile id gets no click-through link.
+            if let url = DeepLink.profile(profile).url {
+                content.userInfo = ["url": url.absoluteString]
+            }
         }
         let identifier = (event.key?.isEmpty == false ? event.key : nil) ?? UUID().uuidString
         return UNNotificationRequest(identifier: identifier, content: content, trigger: nil)

@@ -46,7 +46,7 @@ public struct WidgetProfileChoice: Equatable, Sendable, Identifiable {
     public var name: String
     public var emoji: String
 
-    public var title: String { emoji.isEmpty ? name : "\(emoji) \(name)" }
+    public var title: String { ProfileTitle.text(emoji: emoji, name: name) }
 }
 
 public enum WidgetProfileCatalog {

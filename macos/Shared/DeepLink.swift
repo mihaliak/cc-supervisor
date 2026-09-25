@@ -27,16 +27,29 @@ public enum DeepLink: Equatable, Sendable {
         }
     }
 
-    public var url: URL {
+    /// The link, or nil when the id isn't a valid profile id. Ids come from files other
+    /// programs can write (the snapshot, daemon events), so they're checked with the same
+    /// rule as parsing and never trusted to form a URL.
+    public var url: URL? {
         switch self {
-        case .profile(let id): URL(string: "\(Self.scheme)://profile/\(id)")!
-        case .signIn(let id): URL(string: "\(Self.scheme)://signin/\(id)")!
-        case .refresh: URL(string: "\(Self.scheme)://refresh")!
+        case .profile(let id): Self.isValidID(id) ? URL(string: "\(Self.scheme)://profile/\(id)") : nil
+        case .signIn(let id): Self.isValidID(id) ? URL(string: "\(Self.scheme)://signin/\(id)") : nil
+        case .refresh: URL(string: "\(Self.scheme)://refresh")
         }
     }
 
-    /// Profile ids are slugs (ADR-0004): `^[a-z0-9][a-z0-9-]{0,31}$`.
+    /// Profile ids are slugs (ADR-0004): `[a-z0-9][a-z0-9-]{0,31}`, the whole string.
     static func isValidID(_ id: String) -> Bool {
-        id.range(of: "^[a-z0-9][a-z0-9-]{0,31}$", options: .regularExpression) != nil
+        let bytes = Array(id.utf8)
+        guard let first = bytes.first, bytes.count <= 32, isSlugByte(first), first != UInt8(ascii: "-") else {
+            return false
+        }
+        return bytes.allSatisfy(isSlugByte)
+    }
+
+    private static func isSlugByte(_ byte: UInt8) -> Bool {
+        (UInt8(ascii: "a")...UInt8(ascii: "z")).contains(byte)
+            || (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(byte)
+            || byte == UInt8(ascii: "-")
     }
 }

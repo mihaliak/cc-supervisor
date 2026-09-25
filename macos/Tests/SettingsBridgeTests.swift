@@ -27,6 +27,19 @@ final class StatuslinePreviewTests: XCTestCase {
     }
 }
 
+/// Regression: "Take theirs" was the alert's cancel button, so Esc silently threw away the
+/// user's edits. Esc now keeps them; taking the file's values is the destructive choice.
+final class ConflictAlertTests: XCTestCase {
+    func testEscapeKeepsLocalEdits() {
+        let cancel = ConflictChoice.allCases.filter { $0.role == .cancel }
+        XCTAssertEqual(cancel, [.keepMine], "exactly one Esc choice, and it keeps local edits")
+        XCTAssertEqual(ConflictChoice.keepMine.resolution, .keepMine)
+        XCTAssertEqual(ConflictChoice.takeTheirs.role, .destructive)
+        XCTAssertEqual(ConflictChoice.takeTheirs.resolution, .takeTheirs)
+        XCTAssertEqual(ConflictChoice.allCases.map(\.title), ["Keep mine", "Take theirs"])
+    }
+}
+
 final class CcsSettingsClientTests: XCTestCase {
     private var dir: URL!
 

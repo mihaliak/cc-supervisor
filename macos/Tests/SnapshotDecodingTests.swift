@@ -74,6 +74,21 @@ final class SnapshotDecodingTests: XCTestCase {
         XCTAssertEqual(p.supervisor.activeSessions, 0)
     }
 
+    /// Regression: one malformed profile (or row) dropped every profile, so the menu said
+    /// "No profiles yet." and every widget showed "Choose a profile".
+    func testOneBadProfileDoesNotHideTheOthers() throws {
+        let json = """
+        {"schema":1,"generated_at":"2026-09-24T15:47:10Z","profiles":[
+          {"id":"work","name":"Work","emoji":"💼","status":"ok","rows":[]},
+          {"name":"no id"},
+          42,
+          {"id":"personal","rows":[7,{"kind":"session","label":"Session","percent":5}]}]}
+        """
+        let snapshot = try SnapshotDecoding.decode(Data(json.utf8))
+        XCTAssertEqual(snapshot.profiles.map(\.id), ["work", "personal"])
+        XCTAssertEqual(snapshot.profile(id: "personal")?.rows.map(\.percent), [5])
+    }
+
     func testDaemonOfflineAfterFiveMinutes() throws {
         let snapshot = try SnapshotDecoding.decode(try Fixtures.data("snapshot/ok.json"))
         let generated = try XCTUnwrap(snapshot.generatedAt)
@@ -102,6 +117,15 @@ final class SnapshotDecodingTests: XCTestCase {
         let json = #"{"generated_at":null,"profiles":[{"id":"work","name":"work"},{"id":"x9","name":" "}]}"#
         let snapshot = try? SnapshotDecoding.decode(Data(json.utf8))
         XCTAssertEqual(snapshot?.profiles.map(\.initial), ["W", "X"])
+    }
+
+    /// Regression: the menu card rendered `"\(emoji) \(name)"`, a leading space when the
+    /// (optional) emoji is empty. Menu cards, widgets and pickers share one title rule.
+    func testProfileTitleSkipsEmptyParts() {
+        XCTAssertEqual(ProfileSnapshot(id: "work", name: "Work", emoji: "💼", status: .ok).title, "💼 Work")
+        XCTAssertEqual(ProfileSnapshot(id: "work", name: "Work", emoji: "", status: .ok).title, "Work")
+        XCTAssertEqual(ProfileSnapshot(id: "work", name: "Work", emoji: " ", status: .ok).title, "Work")
+        XCTAssertEqual(ProfileTitle.text(emoji: "💼", name: ""), "💼")
     }
 
     func testStatusChips() throws {

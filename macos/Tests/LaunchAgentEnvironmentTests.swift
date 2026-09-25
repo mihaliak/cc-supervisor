@@ -96,3 +96,36 @@ final class LaunchAgentEnvironmentTests: XCTestCase {
         XCTAssertTrue(env["PATH"]?.hasPrefix("/Users/u/.local/bin:") == true)
     }
 }
+
+/// Widgets can only read `~/.local/state/ccs/widget/` (ADR-0012/0022). When the daemon's
+/// state dir is elsewhere, the app warns instead of widgets silently staying "offline".
+final class WidgetAccessWarningTests: XCTestCase {
+    private let home = URL(fileURLWithPath: "/Users/u", isDirectory: true)
+
+    private func warning(_ agentEnv: [String: String]) -> WidgetAccessWarning? {
+        let env = LaunchAgentEnvironment.apply(agentEnv, to: ["XDG_STATE_HOME": "/inherited/by/the/app"])
+        return WidgetAccessWarning.check(stateDir: StateLocation.stateDir(environment: env, home: home), home: home)
+    }
+
+    func testDefaultStateDirHasNoWarning() {
+        XCTAssertNil(warning([:]))
+        XCTAssertNil(warning(["XDG_STATE_HOME": "/Users/u/.local/state"]))
+        XCTAssertNil(warning(["CCS_STATE_DIR": "/Users/u/.local/state/ccs/"]))
+        XCTAssertNil(warning(["CCS_STATE_DIR": "/Users/u/.local/state/./ccs"]))
+    }
+
+    func testMovedStateDirWarns() throws {
+        let moved = try XCTUnwrap(warning(["CCS_STATE_DIR": "/Users/u/data/ccs"]))
+        XCTAssertTrue(moved.detail.contains("~/data/ccs"), moved.detail)
+        XCTAssertTrue(moved.detail.contains("~/.local/state/ccs/widget/"))
+        XCTAssertTrue(moved.detail.contains("Supervisor offline"))
+        let xdg = try XCTUnwrap(warning(["XDG_STATE_HOME": "/Volumes/x/state"]))
+        XCTAssertTrue(xdg.detail.contains("/Volumes/x/state/ccs"), xdg.detail)
+    }
+
+    func testWidgetPathMatchesTheEntitlement() throws {
+        // `Widgets.entitlements` grants read access to exactly this home-relative folder.
+        let widgetDir = StateLocation.defaultStateDir(home: home).appendingPathComponent("widget").path
+        XCTAssertEqual(widgetDir, "/Users/u/.local/state/ccs/widget")
+    }
+}

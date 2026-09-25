@@ -105,8 +105,9 @@ struct NotificationsSettingsView: View {
     }
 }
 
-/// Advanced pane: the `ccs` CLI, the daemon, diagnostics.
+/// Advanced pane: the `ccs` CLI, the daemon, widgets (when they can't read the data), diagnostics.
 struct AdvancedSettingsView: View {
+    @Environment(AppModel.self) private var app
     @Environment(SettingsController.self) private var settings
 
     var body: some View {
@@ -164,6 +165,21 @@ struct AdvancedSettingsView: View {
                 }
                 .disabled(settings.isBusy("daemon") || settings.isBusy("logs"))
                 MessageLine(message: settings.message("daemon"))
+            }
+
+            if let warning = app.widgetAccessWarning {
+                Section("Widgets") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label(warning.title, systemImage: "rectangle.3.group")
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(.orange)
+                        Text(warning.detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
 
             Section("Diagnostics") {

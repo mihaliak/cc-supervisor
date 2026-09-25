@@ -46,6 +46,62 @@ final class ProcessRunnerTests: XCTestCase {
         }
     }
 
+    /// Regression: output was only collected at EOF. A grandchild holding the pipes open made
+    /// the runner give up after 2 s with empty stdout/stderr ("unexpected ccs output" for a
+    /// successful command), while two reader threads stayed blocked for the grandchild's life.
+    func testOutputKeptWhenAGrandchildHoldsThePipes() async throws {
+        let pidFile = dir.appendingPathComponent("grandchild.pid")
+        let url = try script("""
+        echo '{"ok":true}'
+        echo 'careful' >&2
+        sleep 30 &
+        echo $! > "\(pidFile.path)"
+        """)
+        defer {
+            if let pid = Int32(((try? String(contentsOf: pidFile, encoding: .utf8)) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)) {
+                kill(pid, SIGKILL)
+            }
+        }
+        let begin = Date()
+        let result = try await ProcessRunner.run(executable: url, arguments: [], environment: [:], timeout: 20)
+        XCTAssertEqual(result.status, 0)
+        XCTAssertFalse(result.timedOut)
+        XCTAssertEqual(String(decoding: result.stdout, as: UTF8.self), "{\"ok\":true}\n")
+        XCTAssertEqual(String(decoding: result.stderr, as: UTF8.self), "careful\n")
+        XCTAssertLessThan(Date().timeIntervalSince(begin), 8, "doesn't wait for the grandchild")
+    }
+
+    /// After the drain time the runner stops reading and closes its read ends: a grandchild
+    /// that keeps writing gets EPIPE instead of keeping a reader busy forever.
+    func testStopsReadingAfterTheDrainTime() async throws {
+        let pidFile = dir.appendingPathComponent("writer.pid")
+        let url = try script("""
+        echo first
+        (while echo tick; do sleep 0.05; done) &
+        echo $! > "\(pidFile.path)"
+        """)
+        let pid = { Int32(((try? String(contentsOf: pidFile, encoding: .utf8)) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)) }
+        defer { if let pid = pid() { kill(pid, SIGKILL) } }
+        let begin = Date()
+        let result = try await ProcessRunner.run(executable: url, arguments: [], environment: [:], timeout: 20)
+        XCTAssertLessThan(Date().timeIntervalSince(begin), ProcessRunner.drainTimeout + 4)
+        XCTAssertTrue(String(decoding: result.stdout, as: UTF8.self).hasPrefix("first\n"))
+        let writer = try XCTUnwrap(pid())
+        for _ in 0..<150 where kill(writer, 0) == 0 {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertNotEqual(kill(writer, 0), 0, "the writer lost its reader and ended")
+    }
+
+    /// Output larger than the pipe buffer is read while the child runs, not only at exit.
+    func testLargeOutputIsComplete() async throws {
+        let url = try script("head -c 1000000 /dev/zero | tr '\\0' x; echo done >&2")
+        let result = try await ProcessRunner.run(executable: url, arguments: [], environment: [:], timeout: 20)
+        XCTAssertEqual(result.stdout.count, 1_000_000)
+        XCTAssertTrue(result.stdout.allSatisfy { $0 == UInt8(ascii: "x") })
+        XCTAssertEqual(String(decoding: result.stderr, as: UTF8.self), "done\n")
+    }
+
     /// Cancelling sends SIGINT first: `ccs` handles it like Ctrl-C and stops the
     /// `claude auth login` process group, which SIGTERM would leave orphaned.
     func testCancelSendsSIGINTFirst() async throws {

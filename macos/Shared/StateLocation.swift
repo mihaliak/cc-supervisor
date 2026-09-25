@@ -20,14 +20,23 @@ public enum StateLocation {
         return URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
     }
 
-    public static func stateDir(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+    public static func stateDir(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        home: URL = realHome()
+    ) -> URL {
         if let override = environment["CCS_STATE_DIR"], override.hasPrefix("/") {
             return URL(fileURLWithPath: override, isDirectory: true)
         }
         if let xdg = environment["XDG_STATE_HOME"], xdg.hasPrefix("/") {
             return URL(fileURLWithPath: xdg, isDirectory: true).appendingPathComponent("ccs", isDirectory: true)
         }
-        return realHome().appendingPathComponent(".local/state/ccs", isDirectory: true)
+        return defaultStateDir(home: home)
+    }
+
+    /// `~/.local/state/ccs`. The only state dir widgets can read: their sandbox exception is
+    /// pinned to its `widget/` folder (`Widgets.entitlements`, ADR-0012/0022).
+    public static func defaultStateDir(home: URL = realHome()) -> URL {
+        home.appendingPathComponent(".local/state/ccs", isDirectory: true)
     }
 
     public static func configFile(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {

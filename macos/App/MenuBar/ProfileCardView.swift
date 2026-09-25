@@ -30,7 +30,7 @@ struct ProfileCardView: View {
 
     private var header: some View {
         HStack {
-            Text("\(profile.emoji) \(profile.name)")
+            Text(profile.title)
                 .font(.headline)
             Spacer()
             if profile.supervisor.state == .paused {

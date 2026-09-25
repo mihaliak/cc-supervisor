@@ -28,7 +28,8 @@ public struct WidgetSnapshot: Codable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         schema = (try? c.decodeIfPresent(Int.self, forKey: .schema)) ?? 1
         generatedAt = c.lenientDate(.generatedAt)
-        profiles = (try? c.decodeIfPresent([ProfileSnapshot].self, forKey: .profiles)) ?? []
+        // Per element: one malformed profile must not hide the others.
+        profiles = c.lossyArray(ProfileSnapshot.self, .profiles) ?? []
     }
 
     /// True when the snapshot is missing a timestamp or is older than `offlineAfter`.
@@ -123,7 +124,7 @@ public struct ProfileSnapshot: Codable, Sendable, Equatable, Identifiable {
         stale = (try? c.decodeIfPresent(Bool.self, forKey: .stale)) ?? false
         level = c.lenientLevel(.level)
         updatedAt = c.lenientDate(.updatedAt)
-        rows = (try? c.decodeIfPresent([UsageRow].self, forKey: .rows)) ?? []
+        rows = c.lossyArray(UsageRow.self, .rows) ?? []
         supervisor = (try? c.decodeIfPresent(SupervisorSummary.self, forKey: .supervisor)) ?? SupervisorSummary()
     }
 
@@ -133,10 +134,24 @@ public struct ProfileSnapshot: Codable, Sendable, Equatable, Identifiable {
     /// The 7-day (all models) row, if present.
     public var weeklyRow: UsageRow? { rows.first { $0.kind == .weekly } }
 
+    /// `{emoji} {name}` (menu cards, widgets, pickers); see `ProfileTitle`.
+    public var title: String { ProfileTitle.text(emoji: emoji, name: name) }
+
     /// First letter of the name, uppercased (menu bar label, ADR-0018).
     public var initial: String {
         let source = name.trimmingCharacters(in: .whitespaces).isEmpty ? id : name
         return source.first.map { String($0).uppercased() } ?? "?"
+    }
+}
+
+/// A profile's display title: `emoji name`, with no stray space when the emoji (optional
+/// in the schema) or the name is empty. One rule for every surface.
+public enum ProfileTitle {
+    public static func text(emoji: String, name: String) -> String {
+        [emoji, name]
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 }
 

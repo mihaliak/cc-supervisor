@@ -17,6 +17,9 @@ struct MenuContentView: View {
         VStack(alignment: .leading, spacing: 10) {
             header(now: now)
             DaemonBannerView(state: model.banner)
+            if let warning = model.widgetAccessWarning {
+                WidgetAccessBanner(warning: warning)
+            }
             if let snapshot = model.snapshot, !snapshot.profiles.isEmpty {
                 ScrollView {
                     VStack(spacing: 8) {
@@ -70,5 +73,25 @@ struct MenuContentView: View {
             Button("Quit") { NSApp.terminate(nil) }
         }
         .controlSize(.small)
+    }
+}
+
+/// Widgets can't read the daemon's state dir (`WidgetAccessWarning`).
+struct WidgetAccessBanner: View {
+    let warning: WidgetAccessWarning
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label(warning.title, systemImage: "rectangle.3.group")
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(.orange)
+            Text(warning.detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
     }
 }

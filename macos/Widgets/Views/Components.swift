@@ -115,6 +115,20 @@ struct SmallResetLine: View {
     }
 }
 
+/// Small widget: what the featured row is, when it isn't the session row.
+struct SmallCaption: View {
+    let text: String?
+
+    var body: some View {
+        if let text, !text.isEmpty {
+            Text(text)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+    }
+}
+
 /// Small footer `W 50% · Sat 08:00`, percent in level color.
 struct WeeklyLineView: View {
     let line: WidgetCompactLine
@@ -182,6 +196,8 @@ struct UsageGaugeView: View {
     let percent: Int
     let level: Level?
     let percentText: String
+    /// What the gauge measures, for VoiceOver.
+    var label = "Session"
 
     var body: some View {
         let color = LevelColor.color(level)
@@ -217,7 +233,7 @@ struct UsageGaugeView: View {
                 .minimumScaleFactor(0.6)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Session \(percent) percent")
+        .accessibilityLabel("\(label) \(percent) percent")
     }
 }
 
