@@ -9,7 +9,9 @@ struct ProfileWidgetIntent: WidgetConfigurationIntent {
     @Parameter(title: "Profile", optionsProvider: ProfileOptionsProvider())
     var profileID: String?
 
-    @Parameter(title: "Small widget style", optionsProvider: SmallStyleOptionsProvider())
+    /// With a default, so Edit Widget shows "Progress bar" instead of an empty field on
+    /// new widgets (widget parameters must stay optional).
+    @Parameter(title: "Small widget style", default: SmallWidgetStyle.bar.rawValue, optionsProvider: SmallStyleOptionsProvider())
     var smallStyle: String?
 
     @Parameter(title: "Show weekly", default: true)

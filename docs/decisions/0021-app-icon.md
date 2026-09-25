@@ -17,6 +17,7 @@
 
 ## Packaging notes (2026-09-25)
 - The widget extension carries the same `AppIcon` asset catalog (`CFBundleIconName`) as the app, so any system lookup of the extension finds the icon too.
+- `make app` restarts the widget extension process (`killall CCSupervisorWidgets`) after installing. macOS otherwise keeps running the old extension, which can't read settings added by the new version, so widgets hang on loading skeletons and Edit Widget options break.
 - `CFBundleVersion` is the git commit count (`make app` passes `CURRENT_PROJECT_VERSION`), so every upgrade changes the build number.
 - **Known macOS issue:** the system icon cache can keep a "generic app" icon for the bundle id from before the icon existed. It shows up in notification banners and the widget gallery, while Finder shows the right icon. Fix, once: `sudo rm -rf /Library/Caches/com.apple.iconservices.store && sudo killall -9 iconservicesd iconservicesagent; killall NotificationCenter` (the manual's troubleshooting page has it).
 

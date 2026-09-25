@@ -5,15 +5,19 @@ Shared test vectors: `schema/fixtures/time_format.json` (Swift uses the same fil
 
 from __future__ import annotations
 
-from datetime import datetime, tzinfo
+from datetime import datetime, timedelta, tzinfo
 
 WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 
 def format_reset_absolute(reset: datetime, now: datetime, tz: tzinfo) -> str:
-    """`HH:MM` today, `Ddd HH:MM` within the next 6 local days, else `D Mon HH:MM`."""
-    r = reset.astimezone(tz)
+    """`HH:MM` today, `Ddd HH:MM` within the next 6 local days, else `D Mon HH:MM`.
+
+    The clock time is rounded to the nearest minute: Claude reports resets a moment off the
+    minute (`07:59:59.9` for 08:00), which must not show as `07:59`.
+    """
+    r = (reset + timedelta(seconds=30)).astimezone(tz)
     n = now.astimezone(tz)
     hm = f"{r.hour:02d}:{r.minute:02d}"
     days = (r.date() - n.date()).days

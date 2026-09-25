@@ -7,7 +7,9 @@ public enum TimeFormat {
     private static let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
     /// `HH:MM` today, `Ddd HH:MM` within the next 6 local days, else `D Mon HH:MM`.
+    /// The clock time is rounded to the nearest minute (`07:59:59.9` shows as `08:00`).
     public static func absolute(_ reset: Date, now: Date, timeZone: TimeZone = .current) -> String {
+        let reset = reset.addingTimeInterval(30)
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
         let r = calendar.dateComponents([.year, .month, .day, .hour, .minute, .weekday], from: reset)

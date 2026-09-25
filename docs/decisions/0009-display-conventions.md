@@ -20,6 +20,7 @@
   - within 6 days: `Sat 08:00`
   - later: `26 Sep 08:00`
 - **Relative:** `in 2h 13m`, `in 42m`, `in 3d 4h`, `in <1m`, `now`. Round down to minutes; drop zero minor units (`in 2h`).
+- **Clock time is rounded to the nearest minute** (added 2026-09-25). Claude reports resets a moment off the minute (`07:59:59` for 08:00), which must show as `08:00`, not `07:59`. The data keeps full precision; only the displayed clock time is rounded.
 - **Combined:** `20:00 (in 2h 13m)`.
 - Test vectors live in `schema/fixtures/time_format.json`. **Both** the Python and Swift test suites must pass them.
 

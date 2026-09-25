@@ -230,7 +230,8 @@ final class WidgetDisplayTests: XCTestCase {
         let now = Fixtures.date("2026-09-24T12:00:10Z")
         snap.generatedAt = now
         snap.profiles[0].updatedAt = now
-        snap.profiles[0].rows[0].resetsAt = Fixtures.date("2026-09-24T12:05:30Z")
+        // :20 (not :30): the clock time rounds to the nearest minute, so :30 would show 14:06.
+        snap.profiles[0].rows[0].resetsAt = Fixtures.date("2026-09-24T12:05:20Z")
         let items = WidgetTimeline.items(snapshot: snap, profileID: "work", now: now, timeZone: tz)
         XCTAssertEqual(items.count, 60)
         let trailing = items.prefix(8).map { $0.display.session?.trailing ?? "" }

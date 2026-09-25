@@ -5,19 +5,23 @@ import WidgetKit
 struct HeaderView: View {
     let display: WidgetDisplay
     var compact = false
+    /// Small widget in Gauge style: name (and the paused mark next to it) centered.
+    var centered = false
 
     var body: some View {
         HStack(spacing: 4) {
+            if centered { Spacer(minLength: 0) }
             Text(display.title)
                 .font(compact ? .caption.weight(.semibold) : .headline)
                 .lineLimit(1)
-            Spacer(minLength: 4)
+            if !centered { Spacer(minLength: 4) }
             if display.isPaused {
                 Text(compact ? "⏸" : WidgetDisplay.pausedBadge)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.orange)
                     .accessibilityLabel("Paused")
             }
+            if centered { Spacer(minLength: 0) }
         }
     }
 }

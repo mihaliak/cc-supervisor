@@ -77,6 +77,9 @@ app: app-build ## build and install to ~/Applications/CC Supervisor.app
 	rm -rf "$(APP_DEST)"
 	ditto "$(APP_BUILT)" "$(APP_DEST)"
 	@bash scripts/lsclean.sh "$(APP_DEST)"
+	@# macOS keeps the old widget extension process running after an update; restart it so
+	@# the new widget code (and its Edit Widget options) is used right away.
+	@killall CCSupervisorWidgets 2>/dev/null || true
 	@echo "installed: $(APP_DEST)"
 
 icon: ## regenerate the app icon PNGs + SVG from macos/Branding/render-icon.swift

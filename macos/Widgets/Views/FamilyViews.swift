@@ -7,8 +7,8 @@ struct SmallWidgetView: View {
     var style: SmallWidgetStyle = .bar
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HeaderView(display: display, compact: true)
+        VStack(alignment: style == .gauge ? .center : .leading, spacing: 4) {
+            HeaderView(display: display, compact: true, centered: style == .gauge)
             Spacer(minLength: 0)
             if display.showsValues, let session = display.session, style == .gauge {
                 VStack(spacing: 2) {
@@ -27,6 +27,7 @@ struct SmallWidgetView: View {
                 Spacer(minLength: 0)
                 if let weekly = display.weeklyLine {
                     WeeklyLineView(line: weekly)
+                        .frame(maxWidth: .infinity)
                         .opacity(display.dimmed ? 0.5 : 1)
                 }
             } else if display.showsValues, let session = display.session {

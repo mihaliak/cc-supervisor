@@ -12,7 +12,7 @@ Each widget shows **one profile**. Add as many as you like, for example one per 
 | Option | Sizes | Effect |
 |--------|-------|--------|
 | Profile | all | Which profile to show. The list comes from your profiles; a new widget starts with the first one. Widgets added before 2026-09-25 need their profile picked again once. |
-| Small widget style | small | **Progress bar** (default): big percent, a bar and the reset time. **Gauge**: a half-circle gauge like the app icon, colored green/yellow/red by the same thresholds, with its needle at the session %, the percent under it and the reset time. |
+| Small widget style | small | **Progress bar** (default): big percent, a bar and the reset time. **Gauge**: a half-circle gauge like the app icon, colored green/yellow/red by the same thresholds, with its needle at the session %, the percent under it and the reset time; everything, including the profile name and the weekly line, is centered. |
 | Show weekly | medium, large | Weekly row on or off |
 | Show model limits | medium, large | Fable (or other model) rows on or off |
 | Show extra usage | medium, large | Extra-usage row on or off |
