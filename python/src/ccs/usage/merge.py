@@ -27,11 +27,12 @@ from ccs.usage.model import (
     round_percent,
     to_utc_seconds,
 )
-from ccs.usage.normalize import window_key_time
 
 LIVE_REPORT_SCHEMA = 1
 LIVE_MAX_AGE = timedelta(minutes=10)
 STALE_AFTER = timedelta(minutes=10)
+# `resets_at` jitters by sub-seconds between sources; windows are hours apart (as policy.py)
+INSTANCE_TOLERANCE = timedelta(seconds=60)
 
 
 @dataclass(frozen=True)
@@ -97,8 +98,12 @@ def parse_live_report(d: Any) -> LiveReport | None:
 
 
 def same_instance(a: datetime | None, b: datetime | None) -> bool:
-    """Whether two `resets_at` values name the same window instance (minute-rounded)."""
-    return a is not None and b is not None and window_key_time(a) == window_key_time(b)
+    """Whether two `resets_at` values name the same window instance.
+
+    A tolerance, not equal minute-rounded keys: 20:00:29.8 and 20:00:30.2 round to
+    different minutes but are the same window.
+    """
+    return a is not None and b is not None and abs(a - b) < INSTANCE_TOLERANCE
 
 
 def _candidate(

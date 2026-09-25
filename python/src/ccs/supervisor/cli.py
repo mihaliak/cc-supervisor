@@ -58,18 +58,32 @@ def _status(client: DaemonClient, profile_id: str | None = None) -> dict[str, An
     return reply if reply.get("ok") else None
 
 
-def resolve_session(status: dict[str, Any] | None, wanted: str) -> str | None:
-    """A full wrapper id from an exact id or a unique prefix (`None` if unknown/ambiguous)."""
+def match_sessions(status: dict[str, Any] | None, wanted: str) -> list[str]:
+    """Wrapper ids matching `wanted`: the exact id alone, else every id it prefixes."""
     ids: list[str] = []
     for entry in (status or {}).get("profiles") or []:
         for rec in entry.get("sessions") or [] if isinstance(entry, dict) else []:
             wid = rec.get("wrapper_id") if isinstance(rec, dict) else None
-            if isinstance(wid, str):
+            if isinstance(wid, str) and wid not in ids:
                 ids.append(wid)
     if wanted in ids:
-        return wanted
-    matches = [w for w in ids if w.startswith(wanted)]
+        return [wanted]
+    return [w for w in ids if w.startswith(wanted)]
+
+
+def resolve_session(status: dict[str, Any] | None, wanted: str) -> str | None:
+    """A full wrapper id from an exact id or a unique prefix (`None` if unknown/ambiguous)."""
+    matches = match_sessions(status, wanted)
     return matches[0] if len(matches) == 1 else None
+
+
+def ambiguous_message(wanted: str, matches: list[str]) -> str:
+    """`--session` prefix that names several sessions: list their ids, as short as unique."""
+    n = SHORT_ID
+    while n < max(len(w) for w in matches) and len({w[:n] for w in matches}) < len(matches):
+        n += 1
+    short = ", ".join(w[:n] for w in matches)
+    return f"session id '{wanted}' is ambiguous; it matches {short} (use more characters)"
 
 
 def describe_control(cfg: Config, op: str, reply: dict[str, Any]) -> str:
@@ -108,10 +122,13 @@ def cmd_control(args: argparse.Namespace) -> int:
                 return fail(as_json, NOT_RUNNING)
             fields: dict[str, Any]
             if args.session:
-                wid = resolve_session(_status(client), str(args.session))
-                if wid is None:
+                wanted = str(args.session)
+                matches = match_sessions(_status(client), wanted)
+                if len(matches) > 1:
+                    return fail(as_json, ambiguous_message(wanted, matches), code=EXIT_USAGE)
+                if not matches:
                     return fail(as_json, ERRORS["unknown_session"], code=EXIT_USAGE)
-                fields = {"wrapper_id": wid}
+                fields = {"wrapper_id": matches[0]}
             else:
                 fields = {"profile_id": args.profile}
             reply = client.request(op, **fields)

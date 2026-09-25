@@ -519,3 +519,45 @@ def test_evaluate_is_pure() -> None:
     d1 = run(prof(), snap(session=(95, RESET)), state=st)
     d2 = run(prof(), snap(session=(95, RESET)), state=st)
     assert d1 == d2 and st == ProfileSupervisorState()
+
+
+# ---------------------------------------------------------------- jitter across a rounding edge
+
+EDGE = datetime(2026, 9, 24, 20, 0, 29, 800000, tzinfo=UTC)  # rounds to 20:00
+PAST_EDGE = EDGE + timedelta(seconds=0.4)  # 20:00:30.2 rounds to 20:01
+
+
+def test_jitter_across_the_rounding_edge_is_the_same_instance() -> None:
+    assert policy.instance_key("session", EDGE) != policy.instance_key("session", PAST_EDGE)
+    d1 = run(prof(), snap(session=(95, EDGE)))
+    (hold,) = d1.state.holds
+    over = sess(state="overridden", overridden=(hold.instance,))
+    d2 = run(prof(), snap(session=(96, PAST_EDGE)), (over,), state=d1.state)
+    assert not d2.events  # no second warn / pause
+    assert not pauses(d2) and d2.state.holds == d1.state.holds
+    assert not any(isinstance(a, MarkRunning) for a in d2.actions)
+    # also when only the dedupe memory knows the instance (hold already released)
+    st = dataclasses.replace(d1.state, holds=())
+    d3 = run(prof(), snap(session=(97, PAST_EDGE)), state=st)
+    assert not d3.events and not pauses(d3) and not d3.state.holds
+
+
+def test_overridden_instance_matched_within_tolerance() -> None:
+    inst = policy.instance_key("session", EDGE)
+    over = sess(state="overridden", overridden=(inst,))
+    d = run(prof(), snap(session=(95, PAST_EDGE)), (over,))
+    assert not pauses(d)
+    assert [h.instance for h in d.state.holds] == [inst]  # the known key, format unchanged
+
+
+def test_match_instance() -> None:
+    known = ["warn:session:2026-09-24T20:00Z", "model_scoped:Fable:2026-09-26T06:00Z"]
+    assert policy.match_instance("session", PAST_EDGE, None, known) == "session:2026-09-24T20:00Z"
+    later = RESET + timedelta(hours=5)
+    assert policy.match_instance("session", later, None, known) == "session:2026-09-25T01:00Z"
+    fable = WEEK + timedelta(seconds=40)
+    assert policy.match_instance("model_scoped", fable, "Fable", known) == known[1]
+    assert policy.match_instance("model_scoped", fable, "Opus", known).startswith(
+        "model_scoped:Opus:"
+    )
+    assert policy.match_instance("weekly", PAST_EDGE, None, known) == "weekly:2026-09-24T20:01Z"

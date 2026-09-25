@@ -7,6 +7,10 @@
   the launcher's own connection (P05: that would deadlock until the ack timeout).
 - At most one command is in flight per wrapper; that wrapper is left out of evaluations
   until its ack (or timeout) arrives, then the profile is re-evaluated.
+- Every pause has a `pause_id`. Until the launcher acks it, the record keeps
+  `pause_pending: true`; a pause that never reached the launcher (link down: `not_connected`,
+  or `timeout`) is resent when that launcher re-registers. The launcher answers a resend of a
+  pause it already carried out with the first ack, so ESC is never injected twice.
 """
 
 from __future__ import annotations
@@ -15,6 +19,7 @@ import asyncio
 import contextlib
 import dataclasses
 import logging
+import uuid
 from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -42,6 +47,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 ACK_TIMEOUT_S = 75.0  # a pause can take lookup + typing guard (30 s) + verify (P05 notes)
+DELIVERED = ("injected", "skipped", "failed")  # acks from the launcher itself
 
 
 def _str(value: Any) -> str | None:
@@ -198,6 +204,7 @@ class SupervisorEngine:
         raw = rec.get("supervision")
         sup: dict[str, Any] = raw if isinstance(raw, dict) else {}
         was_paused = sup.get("state") == PAUSED
+        pause_id = (_str(sup.get("pause_id")) if was_paused else None) or uuid.uuid4().hex[:12]
         self._set_supervision(
             action.wrapper_id,
             state=PAUSED,
@@ -205,33 +212,75 @@ class SupervisorEngine:
             paused_at=sup.get("paused_at") if was_paused else format_iso(now),
             resume_at=format_iso(action.resume_at),
             was_busy_at_pause=None,  # unknown until the launcher acks
+            pause_id=pause_id,
+            pause_pending=True,
         )
-        payload = {"holds": list(action.hold_ids), "resume_at": format_iso(action.resume_at)}
+        self._send_pause(
+            pid, action.wrapper_id, pause_id, list(action.hold_ids), format_iso(action.resume_at)
+        )
+
+    def _pending_pause(self, wrapper_id: str) -> dict[str, Any] | None:
+        """The record's `supervision` block while its pause awaits the launcher's ack."""
+        rec = self.daemon.sessions.get(wrapper_id)
+        sup = rec.get("supervision") if rec is not None else None
+        if not isinstance(sup, dict) or sup.get("state") != PAUSED:
+            return None
+        return sup if sup.get("pause_pending") is True and _str(sup.get("pause_id")) else None
+
+    def _send_pause(
+        self, pid: str, wrapper_id: str, pause_id: str, holds: list[Any], resume_at: Any
+    ) -> None:
+        payload = {"holds": holds, "resume_at": resume_at, "pause_id": pause_id}
+
+        def still_pending() -> bool:
+            sup = self._pending_pause(wrapper_id)
+            return sup is not None and sup.get("pause_id") == pause_id
 
         def on_ack(ack: dict[str, Any]) -> None:
             result = ack.get("result")
             detail = ack.get("detail") if isinstance(ack.get("detail"), dict) else {}
             busy = detail.get("was_busy") if isinstance(detail, dict) else None
             fields: dict[str, Any] = {}
+            if result in DELIVERED:
+                fields["pause_pending"] = False
             if result in ("injected", "skipped") and isinstance(busy, bool):
                 fields["was_busy_at_pause"] = busy
             elif result in ("injected", "skipped"):
                 # unknown status or an override during the pause: stays unknown (ADR-0022)
-                log.debug("pause of %s: %s without was_busy", action.wrapper_id, result)
+                log.debug("pause of %s: %s without was_busy", wrapper_id, result)
+            elif result not in DELIVERED:
+                log.warning(
+                    "pause of %s not delivered (%s); resent when it re-registers",
+                    wrapper_id,
+                    result,
+                )
             else:
-                log.warning("pause of %s: no usable ack (%s)", action.wrapper_id, result)
+                log.warning("pause of %s: no usable ack (%s)", wrapper_id, result)
             session_id = _str(detail.get("session_id")) if isinstance(detail, dict) else None
 
             def mutate(rec: dict[str, Any]) -> None:
                 sup = rec.get("supervision")
-                if isinstance(sup, dict) and sup.get("state") == PAUSED:
+                if (
+                    isinstance(sup, dict)
+                    and sup.get("state") == PAUSED
+                    and sup.get("pause_id") == pause_id
+                ):
                     sup.update(fields)
                 if session_id:
                     rec["session_id"] = session_id
 
-            self.daemon.update_session(action.wrapper_id, mutate)
+            self.daemon.update_session(wrapper_id, mutate)
 
-        self._spawn_cmd(pid, action.wrapper_id, "pause", payload, on_ack)
+        self._spawn_cmd(pid, wrapper_id, "pause", payload, on_ack, still_pending)
+
+    def _resend_pause(self, pid: str, wrapper_id: str) -> None:
+        """Re-register: a pause the launcher never acked goes out again (same `pause_id`)."""
+        sup = self._pending_pause(wrapper_id)
+        if sup is None:
+            return
+        holds = [h for h in sup.get("holds") or [] if isinstance(h, str)]
+        log.info("resending pause %s to %s", sup.get("pause_id"), wrapper_id)
+        self._send_pause(pid, wrapper_id, str(sup["pause_id"]), holds, sup.get("resume_at"))
 
     def _adopt_override(self, pid: str, action: policy.AdoptOverride) -> None:
         """Pending start-anyway instances now match the session's model → overridden."""
@@ -263,6 +312,7 @@ class SupervisorEngine:
             paused_at=None,
             resume_at=None,
             was_busy_at_pause=False,
+            pause_pending=False,
         )
 
         def on_ack(ack: dict[str, Any]) -> None:
@@ -277,14 +327,21 @@ class SupervisorEngine:
         cmd_type: str,
         payload: dict[str, Any],
         on_ack: Callable[[dict[str, Any]], None],
+        wanted: Callable[[], bool] | None = None,
     ) -> None:
-        """Send one command in the background (serialized per wrapper), then re-evaluate."""
+        """Send one command in the background (serialized per wrapper), then re-evaluate.
+
+        `wanted` is checked once the command's turn comes: False skips it (e.g. a resent
+        pause that was acked or ended meanwhile).
+        """
         self._pending[wrapper_id] = self._pending.get(wrapper_id, 0) + 1
 
         async def run() -> None:
             lock = self._locks.setdefault(wrapper_id, asyncio.Lock())
             try:
                 async with lock:
+                    if wanted is not None and not wanted():
+                        return
                     ack = await self.daemon.send_cmd(
                         wrapper_id, cmd_type, payload, timeout=self.ack_timeout
                     )
@@ -348,6 +405,7 @@ class SupervisorEngine:
             if inst:
                 self._record_override(pid, info.wrapper_id, inst, "started_overridden")
         self.evaluate(pid)
+        self._resend_pause(pid, info.wrapper_id)
         sup = rec.get("supervision")
         return {"supervision": sup} if isinstance(sup, dict) else {}
 
@@ -377,6 +435,7 @@ class SupervisorEngine:
             holds=[],
             paused_at=None,
             resume_at=None,
+            pause_pending=False,
         )
         self._record_override(info.profile_id, info.wrapper_id, current, "input_submitted")
         self.evaluate(info.profile_id)
@@ -563,6 +622,7 @@ class SupervisorEngine:
                     paused_at=None,
                     resume_at=None,
                     was_busy_at_pause=False,
+                    pause_pending=False,
                 )
                 entry = ledger.entry(
                     now,

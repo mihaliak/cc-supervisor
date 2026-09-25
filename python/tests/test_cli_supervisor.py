@@ -16,7 +16,7 @@ from supervisor_helpers import set_usage, usage_payload
 from ccs.cli import main
 from ccs.daemon.client import DaemonClient
 from ccs.supervisor import engine as engine_mod
-from ccs.supervisor.cli import collect_sessions, resolve_session
+from ccs.supervisor.cli import collect_sessions, match_sessions, resolve_session
 
 WID = "abcdef12-3456-7890-abcd-ef1234567890"
 
@@ -38,13 +38,13 @@ def run_json(capsys: pytest.CaptureFixture[str], *argv: str) -> tuple[int, dict[
     return code, json.loads(out)
 
 
-def register_and_leave() -> None:
+def register_and_leave(wid: str = WID) -> None:
     """A launcher that registers and disconnects (its record stays; commands can't reach it)."""
     with DaemonClient(timeout=5) as c:
         assert c.hello("launcher")["ok"]
         reply = c.request(
             "register_wrapper",
-            wrapper_id=WID,
+            wrapper_id=wid,
             profile_id="work",
             wrapper_pid=os.getpid(),
             claude_pid=os.getpid(),
@@ -114,3 +114,39 @@ def test_resolve_session_and_collect() -> None:
     data = collect_sessions(status, "work")
     assert [r["state"] for r in data["sessions"]] == ["paused", "running"]
     assert data["other_sessions"] == {"work": {"interactive": 1, "background": 2}}
+
+
+def test_ambiguous_session_prefix_lists_candidates(
+    env: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    other = "abcdef99-0000-0000-0000-000000000000"
+    with ThreadedDaemon(extensions=[engine_mod.install]):
+        register_and_leave()
+        register_and_leave(other)
+        code, out = run_json(capsys, "pause", "--session", "abcdef")
+        assert code == 2 and "ambiguous" in out["error"]
+        assert WID[:8] in out["error"] and other[:8] in out["error"]
+        assert "no supervised session" not in out["error"]
+        assert main(["resume", "--session", "abcdef"]) == 2
+        err = capsys.readouterr().err
+        assert "ambiguous" in err and "abcdef12" in err and "abcdef99" in err
+        # a longer prefix still resolves
+        code, out = run_json(capsys, "pause", "--session", "abcdef1")
+        assert code == 0 and out["wrapper_id"] == WID
+
+
+def test_match_sessions() -> None:
+    status = {
+        "profiles": [{"id": "work", "sessions": [{"wrapper_id": "ab1"}, {"wrapper_id": "ab2"}]}]
+    }
+    assert match_sessions(status, "ab") == ["ab1", "ab2"]
+    assert match_sessions(status, "ab1") == ["ab1"]
+    assert match_sessions(status, "zz") == []
+    assert match_sessions(None, "ab") == []
+
+
+def test_ambiguous_message_ids_are_distinct() -> None:
+    from ccs.supervisor.cli import ambiguous_message
+
+    msg = ambiguous_message("abc", ["abcdefgh-1", "abcdefgh-2"])
+    assert "abcdefgh-1, abcdefgh-2" in msg

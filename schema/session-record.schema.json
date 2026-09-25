@@ -45,6 +45,14 @@
           "description": "Model-scoped hold instances present when a started-anyway session registered with an unknown model; adopted as overridden once the model is known and matches (ADR-0022).",
           "type": "array",
           "items": { "type": "string" }
+        },
+        "pause_id": {
+          "description": "Id of the current pause, sent with the `pause` command. A resend with the same id is answered from the launcher's first ack (no second ESC).",
+          "type": ["string", "null"]
+        },
+        "pause_pending": {
+          "description": "True from the pause until the launcher acks it. A pause still pending when the launcher re-registers (it never arrived: link down or no ack) is resent. Missing means false.",
+          "type": "boolean"
         }
       }
     }

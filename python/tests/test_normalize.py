@@ -17,14 +17,17 @@ from ccs.usage.model import (
 from ccs.usage.normalize import (
     MalformedPayload,
     normalize,
+    parse_window_key_time,
     session_window_active,
     snapshot_from_error,
     window_key_time,
 )
 
 
-def utc(*args: int) -> datetime:
-    return datetime(*args, tzinfo=UTC)
+def utc(
+    year: int, month: int, day: int, hour: int = 0, minute: int = 0, second: int = 0
+) -> datetime:
+    return datetime(year, month, day, hour, minute, second, tzinfo=UTC)
 
 
 def test_ok_max_fixture() -> None:
@@ -179,6 +182,13 @@ def test_window_key_time_absorbs_jitter() -> None:
     assert window_key_time(a) == window_key_time(b) == window_key_time(c) == "2026-09-24T20:00Z"
     assert window_key_time(utc(2026, 9, 24, 20, 0, 31)) == "2026-09-24T20:01Z"
     assert window_key_time(utc(2026, 9, 24, 23, 59, 45)) == "2026-09-25T00:00Z"
+
+
+def test_parse_window_key_time_round_trips() -> None:
+    key = window_key_time(utc(2026, 9, 24, 20, 0, 29))
+    assert parse_window_key_time(key) == utc(2026, 9, 24, 20, 0)
+    assert parse_window_key_time("2026-09-24T20:00") is None
+    assert parse_window_key_time("manual:x") is None
 
 
 def test_parse_time_variants() -> None:

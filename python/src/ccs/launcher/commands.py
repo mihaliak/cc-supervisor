@@ -8,6 +8,11 @@ after a re-register until the daemon accepted it.
 ADR-0022: a pause on `unknown` status still injects ESC but acks `was_busy: None` (no resume
 prompt on a guess); no ESC once the user submitted during the pause; no resume prompt when the
 user typed anything since the pause (it would merge with a draft).
+
+Pauses carry a `pause_id`. The daemon resends a pause whose ack it never got when the launcher
+re-registers: a pause already carried out answers with its first ack (no second ESC), and a
+pause first learned from the `register_wrapper` reply keeps the typing and submits made since
+its `paused_at`, so a re-register never forgets a draft or an override.
 """
 
 from __future__ import annotations
@@ -22,10 +27,12 @@ from typing import Any
 
 from ccs.launcher import inject
 from ccs.launcher.session_map import SessionInfo, is_busy, is_known_busy
+from ccs.usage.model import parse_time
 
 log = logging.getLogger(__name__)
 
 Lookup = Callable[[], Awaitable[SessionInfo]]
+Ack = tuple[str, dict[str, Any]]
 # `wrapper_event` sender; True once the daemon accepted the event
 Report = Callable[[str, dict[str, Any]], Awaitable[bool | None]]
 
@@ -57,12 +64,14 @@ class CommandHandler:
         *,
         timings: Timings | None = None,
         monotonic: Callable[[], float] = time.monotonic,
+        wallclock: Callable[[], float] = time.time,
     ) -> None:
         self.io = io
         self.lookup = lookup
         self.report: Report = report or _no_report
         self.t = timings or Timings()
         self.monotonic = monotonic
+        self.wallclock = wallclock
         self.paused = False
         # per pause: the user submitted (override) / typed anything since the pause began
         self.submitted = False
@@ -70,6 +79,10 @@ class CommandHandler:
         self.override_reported = False  # the daemon accepted the override report
         self._override_sending = False
         self._pause_no = 0
+        self._pause_id: str | None = None  # the daemon's id of the current pause
+        self._done: tuple[str, Ack] | None = None  # the last pause carried out, and its ack
+        self._typed_at: float | None = None  # wall-clock time of the last typing / submit
+        self._submitted_at: float | None = None
         self._tasks: set[asyncio.Task[None]] = set()
 
     # ---------------------------------------------------------------- supervision state
@@ -78,32 +91,58 @@ class CommandHandler:
         """Sync the local paused flag from a `register_wrapper` reply.
 
         Still paused after a re-register: an override the daemon did not get yet is resent.
+        The same pause keeps its draft / override memory; a pause the launcher never got
+        (its command was lost) starts with what the user did since its `paused_at`.
         """
         sup = reply.get("supervision")
         if not isinstance(sup, dict):
             return
         state = sup.get("state")
         if state == "paused":
-            if not self.paused:
-                self._new_pause()
+            raw_id = sup.get("pause_id")
+            pause_id = raw_id if isinstance(raw_id, str) and raw_id else None
+            if not self._is_current(pause_id):
+                self._missed_pause(pause_id, sup.get("paused_at"))
             self.paused = True
             self._send_override()
         elif state in ("running", "overridden"):
             self.paused = False
             self.override_reported = state == "overridden"
 
-    def _new_pause(self) -> None:
+    def _is_current(self, pause_id: str | None) -> bool:
+        """Whether `pause_id` names the pause this launcher is already in."""
+        return self.paused and (pause_id is None or pause_id == self._pause_id)
+
+    def _new_pause(self, pause_id: str | None = None) -> None:
         self._pause_no += 1
+        self._pause_id = pause_id
         self.submitted = False
         self.typed = False
         self.override_reported = False
 
+    def _missed_pause(self, pause_id: str | None, paused_at: Any) -> None:
+        """A pause that began before this launcher heard of it (same wall clock as the daemon).
+
+        Without a `paused_at` the draft memory is kept (never merge a prompt with a draft).
+        """
+        typed = self.typed
+        self._new_pause(pause_id)
+        since = parse_time(paused_at)
+        if since is None:
+            self.typed = typed
+            return
+        t = since.timestamp()
+        self.typed = self._typed_at is not None and self._typed_at >= t
+        self.submitted = self._submitted_at is not None and self._submitted_at >= t
+
     def on_user_input(self) -> None:
         """Proxy callback: the user typed something (not only terminal reports)."""
         self.typed = True
+        self._typed_at = self.wallclock()
 
     def on_user_submit(self) -> None:
         """Proxy callback: the user submitted input (Enter) — report an override once."""
+        self._submitted_at = self.wallclock()
         if not self.paused:
             return
         self.submitted = True
@@ -143,7 +182,8 @@ class CommandHandler:
         cmd_id = cmd.get("cmd_id")
         try:
             if ctype == "pause":
-                return await self._pause(cmd_id)
+                raw_id = cmd.get("pause_id")
+                return await self._pause(cmd_id, raw_id if isinstance(raw_id, str) else None)
             if ctype == "resume":
                 prompt = cmd.get("prompt")
                 return await self._resume(cmd_id, prompt if isinstance(prompt, str) else None)
@@ -162,9 +202,18 @@ class CommandHandler:
             monotonic=self.monotonic,
         )
 
-    async def _pause(self, cmd_id: Any) -> tuple[str, dict[str, Any]]:
-        self._new_pause()
+    async def _pause(self, cmd_id: Any, pause_id: str | None = None) -> Ack:
+        if pause_id and self._done is not None and self._done[0] == pause_id:
+            return self._done[1]  # a resend: carried out already, only the ack got lost
+        if not (pause_id and self._is_current(pause_id)):
+            self._new_pause(pause_id)
         self.paused = True
+        ack = await self._pause_steps(cmd_id)
+        if pause_id:
+            self._done = (pause_id, ack)
+        return ack
+
+    async def _pause_steps(self, cmd_id: Any) -> Ack:
         info = await self.lookup()
         if not is_busy(info.status):
             return "skipped", {"was_busy": False, "session_id": info.session_id}

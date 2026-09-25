@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import dataclasses
 from collections import Counter
-from collections.abc import Container, Sequence
+from collections.abc import Container, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -41,12 +41,13 @@ from ccs.supervisor.model import (
     extra_instance,
 )
 from ccs.usage.model import STATUS_OK, UsageSnapshot, format_iso
-from ccs.usage.normalize import window_key_time
+from ccs.usage.normalize import parse_window_key_time, window_key_time
 
 CONFIRM_DELAY = timedelta(seconds=15)
 CONFIRM_REPOLL = timedelta(seconds=30)
 CONFIRM_GIVE_UP = timedelta(minutes=10)
 RESET_TOLERANCE = timedelta(seconds=60)  # get_usage `resets_at` jitters by sub-seconds
+_WARN_PREFIXES = ("warn:", "warnp:")  # dedupe keys wrap an instance key
 
 
 # ---------------------------------------------------------------- actions
@@ -132,10 +133,45 @@ class _Window:
 # ---------------------------------------------------------------- helpers
 
 
+def _key_prefix(kind: str, name: str | None) -> str:
+    return f"{kind}:{name}:" if kind == MODEL_SCOPED and name else f"{kind}:"
+
+
 def instance_key(kind: str, resets_at: datetime, name: str | None = None) -> str:
     """Window-instance key: `session:<K>`, `weekly:<K>`, `model_scoped:<name>:<K>`."""
-    k = window_key_time(resets_at)
-    return f"{kind}:{name}:{k}" if kind == MODEL_SCOPED and name else f"{kind}:{k}"
+    return _key_prefix(kind, name) + window_key_time(resets_at)
+
+
+def match_instance(kind: str, resets_at: datetime, name: str | None, known: Iterable[str]) -> str:
+    """The instance key for a window, reusing a known key of the same window within
+    `RESET_TOLERANCE`.
+
+    Minute rounding splits jitter around `:30` into two keys; matching keeps a jittered
+    `resets_at` from re-warning, re-pausing or undoing an override. `known` may hold dedupe
+    keys (`warn:<instance>`); the closest match wins, else a fresh key.
+    """
+    fresh = instance_key(kind, resets_at, name)
+    prefix = _key_prefix(kind, name)
+    best, best_gap = fresh, RESET_TOLERANCE
+    for raw in known:
+        key = raw.split(":", 1)[1] if raw.startswith(_WARN_PREFIXES) else raw
+        if key == fresh:
+            return fresh
+        if not key.startswith(prefix):
+            continue
+        at = parse_window_key_time(key[len(prefix) :])
+        if at is not None and abs(at - resets_at) <= best_gap:
+            best, best_gap = key, abs(at - resets_at)
+    return best
+
+
+def known_instances(state: ProfileSupervisorState, sessions: Sequence[SessionView]) -> list[str]:
+    """Every window-instance key the policy remembers (holds, dedupe, overrides)."""
+    keys = [h.instance for h in state.holds]
+    keys += [*state.warned, *state.paused_instances, *state.released_instances]
+    for s in sessions:
+        keys += [*s.supervision.overridden_instances, *s.supervision.pending_override_instances]
+    return keys
 
 
 def model_matches(scope: str | None, model_id: str | None) -> bool:
@@ -291,6 +327,7 @@ def evaluate(
         holds = keep
 
     active_instances = {h.instance for h in holds}
+    known = known_instances(state, sessions)
 
     # 3. windows (fresh data only)
     if fresh and snapshot is not None:
@@ -298,7 +335,7 @@ def evaluate(
             if w.resets_at is None or w.resets_at <= now:
                 continue  # inactive / already ended window
             warn, pause = _thresholds(profile, w.kind)
-            instance = instance_key(w.kind, w.resets_at, w.name)
+            instance = match_instance(w.kind, w.resets_at, w.name, known)
             percents[instance] = w.percent
             base = {
                 "window": w.kind,

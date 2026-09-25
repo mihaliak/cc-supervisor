@@ -6,7 +6,7 @@ All knowledge of Claude Code's experimental payload lives here, with fixture tes
 from __future__ import annotations
 
 import dataclasses
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from ccs.usage.model import (
@@ -26,14 +26,27 @@ class MalformedPayload(ValueError):
     """The payload lacks or mistypes a field the normalizer needs."""
 
 
+WINDOW_KEY_FORMAT = "%Y-%m-%dT%H:%MZ"
+
+
 def window_key_time(dt: datetime) -> str:
     """`dt` rounded to the nearest minute as `YYYY-MM-DDTHH:MMZ`.
 
-    P06 builds every window-instance key from this, so sub-second / few-second
-    `resets_at` jitter can never look like a new window.
+    P06 builds every window-instance key from this. Rounding absorbs jitter only away from
+    the `:30` edge (`12:00:29.8` → `12:00`, `12:00:30.2` → `12:01`), so the policy matches a
+    new `resets_at` against the keys it already knows within a tolerance
+    (`policy.match_instance`) before it treats the window as new.
     """
     rounded = to_utc_seconds(dt + timedelta(seconds=30)).replace(second=0)
-    return rounded.strftime("%Y-%m-%dT%H:%MZ")
+    return rounded.strftime(WINDOW_KEY_FORMAT)
+
+
+def parse_window_key_time(text: str) -> datetime | None:
+    """The UTC minute a `window_key_time` string names (None if it isn't one)."""
+    try:
+        return datetime.strptime(text, WINDOW_KEY_FORMAT).replace(tzinfo=UTC)
+    except ValueError:
+        return None
 
 
 def _window(raw: Any, key: str, observed_at: datetime) -> Window | None:

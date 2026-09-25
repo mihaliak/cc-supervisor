@@ -6,7 +6,13 @@ from typing import Any
 
 from usage_helpers import T0, payload
 
-from ccs.usage.merge import LiveReport, apply_staleness, merge, parse_live_report
+from ccs.usage.merge import (
+    LiveReport,
+    apply_staleness,
+    merge,
+    parse_live_report,
+    same_instance,
+)
 from ccs.usage.model import STATUS_OK, STATUS_SOURCE_ERROR, STATUS_STALE, UsageSnapshot
 from ccs.usage.normalize import normalize
 
@@ -105,6 +111,29 @@ def test_same_window_stale_redraw_cannot_lower_the_poll() -> None:
     )
     merged = merge(polled, [jitter], now=T0 + timedelta(minutes=4))
     assert merged is not None and merged.session == polled.session
+
+
+def test_jitter_across_the_minute_rounding_edge_is_the_same_window() -> None:
+    # 20:00:00 and 20:00:30.2 round to different minutes but are the same window instance
+    polled = merge(base(), [report(1, five=40)], now=T0 + timedelta(minutes=2))
+    assert polled is not None and polled.session is not None
+    lower = report(3, five=20)
+    assert lower.five_hour is not None
+    jitter = dataclasses.replace(
+        lower,
+        five_hour=dataclasses.replace(
+            lower.five_hour, resets_at=RESET + timedelta(seconds=30, milliseconds=200)
+        ),
+    )
+    merged = merge(polled, [jitter], now=T0 + timedelta(minutes=4))
+    assert merged is not None and merged.session == polled.session
+
+
+def test_same_instance_tolerance() -> None:
+    assert same_instance(RESET, RESET + timedelta(seconds=59))
+    assert same_instance(RESET + timedelta(seconds=29.8), RESET + timedelta(seconds=30.2))
+    assert not same_instance(RESET, RESET + timedelta(minutes=5))
+    assert not same_instance(RESET, None)
 
 
 def test_same_window_equal_percent_keeps_newest_observation() -> None:

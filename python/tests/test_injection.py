@@ -201,3 +201,104 @@ def test_apply_supervision() -> None:
     assert h.paused is False and h.override_reported is True
     h.apply_supervision({"supervision": None})
     assert h.paused is False
+
+
+# ---------------------------------------------------------------- pause ids (resent pauses)
+
+
+class Wall:
+    """A settable wall clock (`time.time()` stand-in)."""
+
+    def __init__(self, t: float = 1_000_000.0) -> None:
+        self.t = t
+
+    def __call__(self) -> float:
+        return self.t
+
+
+def iso(ts: float) -> str:
+    from datetime import UTC, datetime
+
+    return datetime.fromtimestamp(ts, UTC).isoformat().replace("+00:00", "Z")
+
+
+def test_resent_pause_is_not_injected_twice() -> None:
+    io = IO()
+    h = CommandHandler(io, Script("busy", "idle"), timings=FAST)
+
+    async def body() -> tuple[tuple[str, dict[str, Any]], tuple[str, dict[str, Any]]]:
+        first = await h.handle({"cmd_id": "c1", "type": "pause", "pause_id": "p1"})
+        # the ack got lost with the connection; the daemon resends the same pause
+        again = await h.handle({"cmd_id": "c2", "type": "pause", "pause_id": "p1"})
+        return first, again
+
+    first, again = asyncio.run(body())
+    assert first == again and first[1]["was_busy"] is True
+    assert io.written == [inject.ESC]  # one ESC, not two
+
+
+def test_new_pause_id_is_a_new_pause() -> None:
+    io = IO()
+    h = CommandHandler(io, Script("busy", "idle", "busy", "idle"), timings=FAST)
+
+    async def body() -> None:
+        await h.handle({"cmd_id": "c1", "type": "pause", "pause_id": "p1"})
+        await h.handle({"cmd_id": "c2", "type": "pause", "pause_id": "p2"})
+
+    asyncio.run(body())
+    assert io.written == [inject.ESC, inject.ESC]
+
+
+def test_reregister_keeps_the_draft_of_a_pause_it_never_got() -> None:
+    """The pause command was lost (link down); the user typed a draft after the pause began.
+    Learning the pause from the register reply (then getting it resent) must not forget it."""
+    io = IO()
+    h = CommandHandler(io, Script("idle"), timings=FAST)
+    paused_at = time.time() - 10
+    h.on_user_input()  # a draft, typed while the daemon already had the session paused
+    reply = {"supervision": {"state": "paused", "pause_id": "p1", "paused_at": iso(paused_at)}}
+
+    async def body() -> tuple[str, dict[str, Any]]:
+        h.apply_supervision(reply)
+        await h.handle({"cmd_id": "c1", "type": "pause", "pause_id": "p1"})
+        h.apply_supervision(reply)  # another re-register confirming the same pause
+        return await h.handle({"cmd_id": "r", "type": "resume", "prompt": "Continue."})
+
+    assert asyncio.run(body()) == ("skipped", {"reason": "user_input"})
+    assert io.written == []
+
+
+def test_typing_before_a_missed_pause_does_not_block_the_prompt() -> None:
+    io, wall = IO(), Wall()
+    h = CommandHandler(io, Script("idle"), timings=FAST, wallclock=wall)
+    h.on_user_input()  # before the pause began
+    wall.t += 60
+    reply = {"supervision": {"state": "paused", "pause_id": "p1", "paused_at": iso(wall.t - 1)}}
+
+    async def body() -> str:
+        h.apply_supervision(reply)
+        await h.handle({"cmd_id": "c1", "type": "pause", "pause_id": "p1"})
+        return (await h.handle({"cmd_id": "r", "type": "resume", "prompt": "go"}))[0]
+
+    assert asyncio.run(body()) == "injected"
+    assert io.written == [inject.paste("go"), inject.SUBMIT]
+
+
+def test_submit_during_a_missed_pause_is_an_override() -> None:
+    io, wall, reports = IO(), Wall(), Reports()
+    h = CommandHandler(io, Script("busy"), reports, timings=FAST, wallclock=wall)
+    paused_at = wall.t
+    wall.t += 2
+    h.on_user_submit()  # the user started a turn after the pause began
+    reply = {"supervision": {"state": "paused", "pause_id": "p1", "paused_at": iso(paused_at)}}
+
+    async def body() -> tuple[str, dict[str, Any]]:
+        h.apply_supervision(reply)
+        result = await h.handle({"cmd_id": "c1", "type": "pause", "pause_id": "p1"})
+        await asyncio.sleep(0.02)
+        return result
+
+    result, detail = asyncio.run(body())
+    assert result == "skipped" and detail["reason"] == "overridden"
+    assert io.written == []  # the user's own turn is not interrupted
+    assert ("input_submitted_while_paused", {}) in reports.items

@@ -2,14 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
-from daemon_helpers import run_with_daemon, scenario, short_state_dir, wait_until, write_config
+from daemon_helpers import (
+    make_daemon,
+    run_with_daemon,
+    scenario,
+    short_state_dir,
+    wait_until,
+    write_config,
+)
 from schema_check import validate
 from supervisor_helpers import FakeLauncher, set_usage, usage_payload
 
@@ -302,3 +311,104 @@ def test_disabling_supervision_resumes(scen: Path, tmp_path: Path) -> None:
         await w1.close()
 
     h.run(body)
+
+
+def test_undelivered_pause_is_resent_after_reregister(scen: Path) -> None:
+    """A pause decided while the launcher's link is down (daemon restart, backoff) reaches the
+    launcher when it re-registers; a delivered one is never sent twice."""
+    h = Harness()
+
+    async def body(daemon: Daemon) -> None:
+        await wait_until(lambda: "work" in daemon.snapshots)
+        gone = FakeLauncher("w1", busy=True)
+        await gone.start()
+        await gone.close()  # link down: the record stays until it reconnects (or is reaped)
+        await wait_until(lambda: "w1" not in daemon.wrapper_conns)
+        set_usage(scen, usage_payload((95, RESET), (10, WEEK)))
+        await daemon.request_poll("work")
+        await wait_until(lambda: sup(daemon, "w1")["state"] == "paused")
+        await h.eng.idle()
+        assert sup(daemon, "w1")["was_busy_at_pause"] is None
+        pending = dict(sup(daemon, "w1"))
+
+        back = FakeLauncher("w1", busy=True)
+        reply = await back.start()  # re-register after the backoff
+        assert reply["supervision"]["state"] == "paused"
+        await wait_until(lambda: back.types() == ["pause"])
+        assert pending["pause_pending"] is True
+        pause_id = pending["pause_id"]
+        assert reply["supervision"]["pause_id"] == pause_id
+        assert back.cmds[0]["pause_id"] == pause_id and back.cmds[0]["holds"] == ["session"]
+        await wait_until(lambda: sup(daemon, "w1")["was_busy_at_pause"] is True)
+        await h.eng.idle()
+        assert sup(daemon, "w1")["pause_pending"] is False
+        disk = json.loads(paths.session_file("w1").read_text())
+        assert validate(disk, "session-record.schema.json") == []
+
+        # delivered: another re-register does not pause (and interrupt) again
+        await back.close()
+        await wait_until(lambda: "w1" not in daemon.wrapper_conns)
+        again = FakeLauncher("w1", busy=True)
+        await again.start()
+        await h.eng.idle()
+        assert again.types() == []
+
+        # the reset resumes it with the prompt: it was busy when the pause reached it
+        set_usage(scen, usage_payload((3, RESET + timedelta(hours=5)), (10, WEEK)))
+        h.clock.set(RESET + timedelta(seconds=20))
+        await wait_until(lambda: "resume" in again.types(), timeout=10)
+        await h.eng.idle()
+        assert again.cmds[-1]["prompt"] == PROMPT
+        await again.close()
+
+    h.run(body)
+
+
+def test_pause_decided_during_a_daemon_restart_reaches_the_launcher(scen: Path) -> None:
+    """End to end: the daemon restarts, the pause fires while the launcher is still backing
+    off, and the launcher gets it (one ESC) once it re-registers."""
+    from ccs.launcher import inject
+    from ccs.launcher.commands import CommandHandler, Timings
+    from ccs.launcher.daemon_link import DaemonLink, Registration
+    from ccs.launcher.session_map import SessionInfo
+
+    written: list[bytes] = []
+
+    class IO:
+        last_user_input_at = 0.0
+
+        def write_to_child(self, data: bytes) -> None:
+            written.append(data)
+
+    statuses = ["busy", "idle"]
+
+    async def lookup() -> SessionInfo:
+        return SessionInfo("sid-1", statuses.pop(0) if len(statuses) > 1 else statuses[0])
+
+    timings = Timings(esc_verify_s=0.01, typing_gap_s=0.0, typing_max_s=1.0)
+
+    async def main() -> None:
+        clock = FakeClock(NOW)
+        d1 = make_daemon(clock=clock, extensions=[engine_mod.install])
+        await d1.start()
+        link = DaemonLink("work", "w-e2e", connect_timeout=0.5, backoff_s=(2.0,))
+        assert await link.connect()
+        h = CommandHandler(IO(), lookup, link.wrapper_event, timings=timings)
+        reg = Registration("w-e2e", "work", os.getpid(), os.getpid(), "/tmp", False)
+        link.start(reg, h.handle, h.apply_supervision)
+        await wait_until(lambda: link.registered)
+        await d1.stop()  # the daemon restarts …
+        set_usage(scen, usage_payload((95, RESET), (10, WEEK)))
+        d2 = make_daemon(clock=clock, extensions=[engine_mod.install])
+        await d2.start()  # … and pauses before the launcher is back
+        try:
+            await wait_until(lambda: sup(d2, "w-e2e")["state"] == "paused")
+            assert not link.registered
+            await wait_until(lambda: link.registered, timeout=10)
+            await wait_until(lambda: sup(d2, "w-e2e").get("was_busy_at_pause") is True, 10)
+            assert written == [inject.ESC] and h.paused
+        finally:
+            await link.close(0)
+            await d2.stop()
+
+    asyncio.run(main())
