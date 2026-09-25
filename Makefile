@@ -14,7 +14,18 @@ APP_BUILT   := $(DERIVED)/Build/Products/Release/$(APP_NAME)
 BUILD_NUMBER := $(shell git rev-list --count HEAD 2>/dev/null || echo 1)
 APP_DEST    := $(HOME)/Applications/$(APP_NAME)
 
+# ruff runs from python/ so ../scripts (demo_env.py imports ccs internals) uses its config too.
+PY_SOURCES  := . ../scripts
+# mypy: `--strict` on ccs + scripts (pyproject). Tests are top-level modules (no __init__.py),
+# so no per-module override can select them: a second run relaxes typing precision there but
+# still fails on names that don't exist in ccs (attr-defined, name-defined, call-arg, imports).
+MYPY_TESTS  := --allow-untyped-defs --allow-incomplete-defs --allow-untyped-calls \
+               --check-untyped-defs --implicit-reexport --no-warn-unused-ignores \
+               --disable-error-code arg-type --disable-error-code union-attr \
+               --disable-error-code var-annotated
+
 .PHONY: help icon screenshots venv install-dev test test-python test-swift test-live lint fmt \
+        coverage coverage-swift \
         xcodegen-check xcodebuild-check project app-build app clean \
         prereqs install uninstall upgrade
 
@@ -46,17 +57,31 @@ test-swift: ## run Swift unit tests (skip with SKIP_SWIFT=1)
 	  xcodebuild -project $(XCODEPROJ) -scheme CCSupervisor -configuration Debug \
 	    -derivedDataPath $(DERIVED) -destination 'platform=macOS,arch=arm64' -quiet test; fi
 
+coverage: venv ## python test coverage (ccs incl. subprocesses; perf timing tests skipped)
+	cd python && ../$(VENV_BIN)/coverage erase
+	cd python && ../$(VENV_BIN)/coverage run -m pytest tests -m "not perf"
+	cd python && ../$(VENV_BIN)/coverage combine --quiet
+	cd python && ../$(VENV_BIN)/coverage report
+
+coverage-swift: project ## Swift unit test coverage per target
+	rm -rf $(DERIVED)/coverage.xcresult
+	xcodebuild -project $(XCODEPROJ) -scheme CCSupervisor -configuration Debug \
+	  -derivedDataPath $(DERIVED) -destination 'platform=macOS,arch=arm64' -quiet \
+	  -enableCodeCoverage YES -resultBundlePath $(DERIVED)/coverage.xcresult test
+	xcrun xccov view --report --only-targets $(DERIVED)/coverage.xcresult
+
 test-live: venv ## run tests against the real claude (CCS_TEST_LIVE=1)
 	CCS_TEST_LIVE=1 $(VENV_BIN)/pytest python/tests -m live
 
-lint: venv ## ruff check + format check + mypy
-	$(VENV_BIN)/ruff check python
-	$(VENV_BIN)/ruff format --check python
+lint: venv ## ruff check + format check + mypy (ccs, scripts, tests)
+	cd python && ../$(VENV_BIN)/ruff check $(PY_SOURCES)
+	cd python && ../$(VENV_BIN)/ruff format --check $(PY_SOURCES)
 	cd python && ../$(VENV_BIN)/mypy
+	cd python && ../$(VENV_BIN)/mypy $(MYPY_TESTS) --cache-dir .mypy_cache/tests tests
 
 fmt: venv ## ruff format + autofix
-	$(VENV_BIN)/ruff format python
-	$(VENV_BIN)/ruff check --fix python
+	cd python && ../$(VENV_BIN)/ruff format $(PY_SOURCES)
+	cd python && ../$(VENV_BIN)/ruff check --fix $(PY_SOURCES)
 
 xcodegen-check:
 	@command -v xcodegen >/dev/null || { echo "xcodegen missing: brew install xcodegen"; exit 1; }
@@ -92,18 +117,28 @@ prereqs: ## check install prerequisites (macOS/Xcode 26, xcodegen, python >= 3.1
 	@PY="$(PY)" sh scripts/check-prereqs.sh
 
 install: prereqs ## install ccs + app + daemon (never touches ~/.claude* dirs)
-	$(MAKE) --no-print-directory install-dev
+	@# re-install over a running daemon: stop it while pipx replaces its venv (see upgrade);
+	@# install.sh starts it again
+	@bash scripts/upgrade.sh --stop-daemon
+	@$(MAKE) --no-print-directory install-dev || { \
+	  echo "ccs install failed; the daemon (if any) stays stopped. Fix it, then: make install"; exit 1; }
 	$(MAKE) --no-print-directory app
 	@PY="$(PY)" bash scripts/install.sh
 
 upgrade: ## reinstall ccs + app, restart daemon and app, refresh statusline scripts
-	$(MAKE) --no-print-directory install-dev
+	@# app first: a failed build leaves the running daemon alone. The daemon is stopped while
+	@# pipx replaces the venv it runs from (KeepAlive would respawn-loop a crashed daemon);
+	@# upgrade.sh reinstalls and starts it again.
 	$(MAKE) --no-print-directory app
+	@bash scripts/upgrade.sh --stop-daemon
+	@$(MAKE) --no-print-directory install-dev || { \
+	  echo "ccs reinstall failed; the daemon stays stopped. Fix it, then: make upgrade"; exit 1; }
 	@PY="$(PY)" bash scripts/upgrade.sh
 
 uninstall: ## remove daemon, app, login item, ccs (YES=1 no prompts; PURGE=1 also config/state)
 	@PY="$(PY)" YES="$(YES)" PURGE="$(PURGE)" bash scripts/uninstall.sh
 
 clean: ## remove build outputs and caches
-	rm -rf build $(XCODEPROJ) python/.pytest_cache python/.mypy_cache python/.ruff_cache
+	rm -rf build $(XCODEPROJ) python/.pytest_cache python/.mypy_cache python/.ruff_cache \
+	  python/.coverage python/.coverage.* python/htmlcov
 	find python -name __pycache__ -type d -prune -exec rm -rf {} +

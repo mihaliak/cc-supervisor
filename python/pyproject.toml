@@ -11,7 +11,7 @@ requires-python = ">=3.12"
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11"]
+dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11", "coverage>=7.10"]
 
 [project.scripts]
 ccs = "ccs.cli:main"
@@ -28,7 +28,21 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.mypy]
 strict = true
-files = ["src/ccs"]
+# ccs, and the scripts that import its internals (a rename in ccs must fail `make lint`).
+# `make lint` checks tests/ in a second, relaxed run (see MYPY_TESTS in the Makefile).
+files = ["src/ccs", "../scripts"]
+mypy_path = "src"
+
+[tool.coverage.run]
+source = ["ccs"]
+branch = true
+# tests drive the CLI, daemon and launcher as child processes: measure those too
+patch = ["subprocess"]
+sigterm = true
+
+[tool.coverage.report]
+skip_empty = true
+precision = 1
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

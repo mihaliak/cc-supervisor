@@ -116,12 +116,8 @@ class DemoSession:
 
 
 SESSIONS = (
-    DemoSession(
-        "work-1", "work", "code/billing-service", "claude-opus-5-5", "idle", True
-    ),
-    DemoSession(
-        "work-2", "work", "code/web-dashboard", "claude-fable-5-1", "idle", False
-    ),
+    DemoSession("work-1", "work", "code/billing-service", "claude-opus-5-5", "idle", True),
+    DemoSession("work-2", "work", "code/web-dashboard", "claude-fable-5-1", "idle", False),
     DemoSession("personal-1", "personal", "code/api", "claude-opus-5-5", "busy", None),
 )
 
@@ -170,11 +166,7 @@ class Layout:
     def env(self) -> dict[str, str]:
         """The variables that point ccs (and `claude`, `launchctl`) at the demo."""
         demo_path = [str(self.bin), str(self.home / ".local" / "bin"), str(VENV_BIN)]
-        rest = [
-            p
-            for p in os.environ.get("PATH", "").split(os.pathsep)
-            if p and p not in demo_path
-        ]
+        rest = [p for p in os.environ.get("PATH", "").split(os.pathsep) if p and p not in demo_path]
         return {
             "HOME": str(self.home),
             "XDG_CONFIG_HOME": str(self.config_home),
@@ -239,11 +231,7 @@ def reset_at(now: datetime, offset: timedelta, exact: bool, tz: tzinfo) -> datet
     t = now + offset
     if exact:
         return t + timedelta(seconds=30)
-    local = (
-        (t + timedelta(minutes=30))
-        .astimezone(tz)
-        .replace(minute=0, second=0, microsecond=0)
-    )
+    local = (t + timedelta(minutes=30)).astimezone(tz).replace(minute=0, second=0, microsecond=0)
     return local.astimezone(UTC)
 
 
@@ -264,9 +252,7 @@ class Resets:
     weekly: datetime
 
 
-def usage_payload(
-    p: DemoProfile, resets: Resets, session_percent: int
-) -> dict[str, Any]:
+def usage_payload(p: DemoProfile, resets: Resets, session_percent: int) -> dict[str, Any]:
     """A `get_usage` response (`response.response`) in Claude Code's shape (P00-S2)."""
     weekly_iso = resets.weekly.isoformat()
     rate_limits: dict[str, Any] = {
@@ -343,9 +329,7 @@ def write_tools(layout: Layout, cfg: Any, resets: dict[str, Resets]) -> None:
             "print": {"stdout": "ok"},
             "agents": {"sessions": []},
         }
-        (layout.scenarios / f"{p.id}.json").write_text(
-            json.dumps(scenario, indent=2) + "\n"
-        )
+        (layout.scenarios / f"{p.id}.json").write_text(json.dumps(scenario, indent=2) + "\n")
         patterns = [shlex.quote(env_dir)] + (
             ["''"] if is_default_claude_dir(prof.config_dir) else []
         )
@@ -460,21 +444,15 @@ def build(layout: Layout, *, exact: bool) -> None:
     plist = home / "Library" / "LaunchAgents" / f"{launchd.LABEL}.plist"
     plist.parent.mkdir(parents=True)
     plist.write_bytes(
-        launchd.render_plist(
-            str(VENV_BIN / "ccs"), launchd.install_env(), paths.state_dir()
-        )
+        launchd.render_plist(str(VENV_BIN / "ccs"), launchd.install_env(), paths.state_dir())
     )
     python = ccs_python()
     for prof in cfg.profiles:
         template.generate(prof, cfg, python=python)
 
     # usage: raw payloads through the real normalizer
-    def snap_at(
-        p: DemoProfile, when: datetime, session: int | None = None
-    ) -> UsageSnapshot:
-        payload = usage_payload(
-            p, resets[p.id], p.session if session is None else session
-        )
+    def snap_at(p: DemoProfile, when: datetime, session: int | None = None) -> UsageSnapshot:
+        payload = usage_payload(p, resets[p.id], p.session if session is None else session)
         return normalize(payload, profile_id=p.id, fetched_at=when)
 
     snapshots = {p.id: snap_at(p, now - LAST_POLL_AGO) for p in PROFILES}
@@ -511,13 +489,13 @@ def build(layout: Layout, *, exact: bool) -> None:
             "cwd": rec["cwd"],
             "claude_pid": rec["claude_pid"],
         }
-        events.append(
-            (started[key], Event("session.started", rec["profile_id"], None, data))
-        )
+        events.append((started[key], Event("session.started", rec["profile_id"], None, data)))
 
     # the work limit story, through the real policy: warn at 84%, pause at 91%
     profiles = {p.id: p for p in PROFILES}
     work = cfg.profile("work")
+    if work is None:
+        raise DemoError("the demo config has no work profile")
     work_recs = [r for r in records.values() if r["profile_id"] == "work"]
     views = [SessionView.from_record(r) for r in work_recs]
     warn_at, pause_at = now - WARN_AGO, now - PAUSE_AGO
@@ -560,9 +538,7 @@ def build(layout: Layout, *, exact: bool) -> None:
     states = {p.id: ProfileSupervisorState() for p in PROFILES} | {"work": work_state}
     for prof in cfg.profiles:
         pviews = [
-            SessionView.from_record(r)
-            for r in records.values()
-            if r["profile_id"] == prof.id
+            SessionView.from_record(r) for r in records.values() if r["profile_id"] == prof.id
         ]
         check = policy.evaluate(
             prof, snapshots[prof.id], states[prof.id], [v for v in pviews if v], now
@@ -590,7 +566,10 @@ def build(layout: Layout, *, exact: bool) -> None:
             finished_at=done,
         )
         if logged:
-            model = cfg.profile(pid).warmup.model
+            wprof = cfg.profile(pid)
+            if wprof is None:
+                raise DemoError(f"the demo config has no {pid} profile")
+            model = wprof.warmup.model
             events.append(
                 (
                     begun,
@@ -614,12 +593,13 @@ def build(layout: Layout, *, exact: bool) -> None:
             if occ is not None:
                 candidates.append((occ, rules.SCHEDULE))
         fire = resets[prof.id].session + CHAIN_DELAY
-        if triggers.auto_chain and rules.in_active_hours(
-            fire, hours.start, hours.end, tz
-        ):
+        if triggers.auto_chain and rules.in_active_hours(fire, hours.start, hours.end, tz):
             candidates.append((fire, rules.AUTO_CHAIN))
-        when, trigger = min(candidates) if candidates else (None, None)
-        store_w.set_next(prof.id, when, trigger)
+        when: datetime | None = None
+        next_trigger: str | None = None
+        if candidates:
+            when, next_trigger = min(candidates)
+        store_w.set_next(prof.id, when, next_trigger)
         next_warmups[prof.id] = when
 
     # events.jsonl through the real bus (titles, bodies, notify flags, dedupe keys)
@@ -685,15 +665,10 @@ def check_schemas(layout: Layout) -> None:
         ("sessions", "session-record.schema.json"),
         ("supervisor", "supervisor-state.schema.json"),
     ):
-        docs += [
-            (schema, json.loads(f.read_text()))
-            for f in sorted((state / sub).glob("*.json"))
-        ]
+        docs += [(schema, json.loads(f.read_text())) for f in sorted((state / sub).glob("*.json"))]
     for line in (state / "events.jsonl").read_text().splitlines():
         docs.append(("event.schema.json", json.loads(line)))
-    problems = [
-        f"{name}: {err}" for name, doc in docs for err in checker.validate(doc, name)
-    ]
+    problems = [f"{name}: {err}" for name, doc in docs for err in checker.validate(doc, name)]
     if problems:
         raise DemoError("state does not match the schemas:\n  " + "\n  ".join(problems))
 
@@ -706,9 +681,7 @@ def serve(layout: Layout) -> int:
     minus what would rewrite the demo story: no sampler or reaper, fake launcher pids kept,
     its own events logged under run/, and demo_env's widget snapshot left as built."""
     if not (layout.root / MARKER).is_file():
-        raise DemoError(
-            f"{layout.root} is not a demo root: run demo_env.py --root first"
-        )
+        raise DemoError(f"{layout.root} is not a demo root: run demo_env.py --root first")
     activate(layout)
     from ccs import fsio, paths
     from ccs.daemon.client import AsyncDaemonClient, DaemonUnavailable
@@ -719,9 +692,7 @@ def serve(layout: Layout) -> int:
 
     sock = paths.daemon_sock()
     if len(str(sock).encode()) > 100:
-        raise DemoError(
-            f"socket path too long for macOS ({sock}): use a shorter --root"
-        )
+        raise DemoError(f"socket path too long for macOS ({sock}): use a shorter --root")
     logging.basicConfig(
         filename=layout.run / "daemon.log",
         level=logging.INFO,
@@ -730,9 +701,7 @@ def serve(layout: Layout) -> int:
 
     class DemoDaemon(Daemon):
         def _load_session(self, path: Path) -> None:
-            rec = fsio.read_json(
-                path
-            )  # the demo launchers' pids are made up: keep them
+            rec = fsio.read_json(path)  # the demo launchers' pids are made up: keep them
             if rec is not None and paths.is_valid_id(rec.get("wrapper_id")):
                 self.sessions[rec["wrapper_id"]] = rec
 
@@ -754,9 +723,7 @@ def serve(layout: Layout) -> int:
     async def ready(daemon: Daemon) -> None:
         while daemon.config is None:  # installed before the config is set
             await asyncio.sleep(0.05)
-        await asyncio.gather(
-            *(daemon.request_poll(pid) for pid in daemon.profile_ids())
-        )
+        await asyncio.gather(*(daemon.request_poll(pid) for pid in daemon.profile_ids()))
         layout.pid_file.write_text(f"{os.getpid()}\n")
 
     def install(daemon: Daemon) -> None:
@@ -819,9 +786,7 @@ def launcher_prompt(layout: Layout, profile_id: str) -> int:
     except DaemonUnavailable:
         reply = None
     if not reply or not reply.get("ok"):
-        state = ProfileSupervisorState.from_dict(
-            fsio.read_json(paths.supervisor_file(profile_id))
-        )
+        state = ProfileSupervisorState.from_dict(fsio.read_json(paths.supervisor_file(profile_id)))
         sup = {
             "holds": [h.public() for h in state.holds],
             "resume_at": format_iso(policy.profile_resume_at(state.holds)),
@@ -830,9 +795,7 @@ def launcher_prompt(layout: Layout, profile_id: str) -> int:
     info = prompt.held_info(reply, profile_id)
     if info is None:
         raise DemoError(f"profile {profile_id} is not paused")
-    sys.stdout.write(
-        prompt.held_prompt(profile.name, info, SystemClock().now(), local_tz())
-    )
+    sys.stdout.write(prompt.held_prompt(profile.name, info, SystemClock().now(), local_tz()))
     return 0
 
 
@@ -900,12 +863,8 @@ def sanitize(layout: Layout, out_dir: Path) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        description=__doc__.split("\n\n")[0] if __doc__ else None
-    )
-    parser.add_argument(
-        "--root", required=True, metavar="DIR", help="the demo root (wiped)"
-    )
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0] if __doc__ else None)
+    parser.add_argument("--root", required=True, metavar="DIR", help="the demo root (wiped)")
     parser.add_argument(
         "--exact",
         action="store_true",
@@ -913,12 +872,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--serve", action="store_true", help="run the demo daemon")
-    mode.add_argument(
-        "--launcher-prompt", metavar="ID", help="print the paused-start question"
-    )
-    mode.add_argument(
-        "--sanitize", metavar="OUT", help="anonymize and leak-check OUT/*"
-    )
+    mode.add_argument("--launcher-prompt", metavar="ID", help="print the paused-start question")
+    mode.add_argument("--sanitize", metavar="OUT", help="anonymize and leak-check OUT/*")
     args = parser.parse_args(argv)
     try:
         layout = Layout(resolve_root(args.root))
