@@ -32,7 +32,7 @@ ccs config validate   # check for errors
 |-----|------|---------|-------------|
 | `version` | int | `1` | File format version. Don't edit. |
 | `revision` | int | `0` | Change counter, managed automatically so edits from the app and the CLI never overwrite each other. Don't edit. |
-| `default_profile` | string | `"personal"` | Profile `id` used by `ccs` with no profile flag |
+| `default_profile` | string \| null | `"personal"` | Profile `id` used by `ccs` with no profile flag. `null` means no default. When the key is missing, `personal` is the default only if that profile exists. Without a default, plain `ccs` uses the only profile, or asks for a profile flag. |
 | `ccs_path` | string \| null | `null` | Path the app uses to run `ccs`. `null` means `~/.local/bin/ccs`. |
 | `claude_path` | string \| null | `null` | Path to `claude`. `null` means find it on the `PATH` captured at `ccs daemon install`. |
 
@@ -127,7 +127,8 @@ Thresholds in percent ([Limits & supervisor](07-limits-and-supervisor.md)).
 ## Validation rules
 - `version` and `profiles` must be present.
 - `version` is `1`. A file with a higher version is rejected with a message to upgrade `ccs`. `revision` is a whole number ≥ 0.
-- `default_profile` must be the `id` of an existing profile (checked only while at least one profile exists).
+- `default_profile` is `null` or the `id` of an existing profile (checked only while at least one profile exists). Only the value in the file is checked: a missing key is fine.
+- Numbers must be finite everywhere in the file, unknown keys included: `Infinity`, `NaN` or an overflowing `1e999` is an error (they aren't JSON, and the app can't read such a file).
 - `ccs_path` and `claude_path` are `null` or an absolute path (or one starting with `~`). A relative path would depend on the folder you run `ccs` in.
 - Profile `id` and `flag`:
   - each must be unique

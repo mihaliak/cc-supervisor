@@ -93,8 +93,9 @@ What `apply` does:
 3. Sets `statusLine` in `<config dir>/settings.json` to run that script with CC Supervisor's Python. All your other settings stay untouched.
 
 - Running `apply` again when it's already applied changes nothing and makes no new backup. Extra keys you added to `statusLine` (such as `padding`) are kept, also when `apply` replaces an older command.
-- If the profile's config dir changed since the last `apply`, `apply` first restores the old dir's `statusLine`, then applies to the new one. It refuses if the old `settings.json` can't be read, and the error says where the old value is kept.
+- If the profile's config dir changed since the last `apply`, `apply` first restores the old dir's `statusLine`, then applies to the new one. It refuses if the old `settings.json` can't be read, and the error says where the old value is kept. It also refuses (`conflict`) if you changed the old dir's `statusLine` yourself, so the record of your original value isn't overwritten: restore it by hand if you want it back, delete the record file the error names, then apply again. If you moved the config dir itself (its `settings.json` still runs the old script), the record simply carries over.
 - `settings.json` is written before the bookkeeping, and a failed bookkeeping write rolls it back, so the two never disagree.
+- Claude Code writes `settings.json` too. `apply` and `revert` check, right before replacing the file, that it still holds what they read; if Claude Code changed it meanwhile, they redo the change on the new content, so its write is never lost. If it keeps changing, they give up (`settings_busy`) without writing anything; just run them again.
 - If `settings.json` isn't valid JSON, or can't be written back as UTF-8, `apply` refuses (`invalid_settings`) and leaves it untouched.
 - If `settings.json` is a symlink (for example into a dotfiles repo), the link stays and its target is updated.
 - If the profile's statusline is disabled (`statusline.enabled: false`), `apply` refuses and `ccs` doesn't add it to sessions.
@@ -105,7 +106,7 @@ In plain `claude` sessions, the statusline shows usage but never shows ⏸: only
 - **App:** Settings → Profiles → *profile* → Statusline → **Revert** (enabled only while it's applied)
 - **Terminal:** `ccs statusline revert --profile work`
 
-This restores the `statusLine` you had before `apply`, or removes it if there was none. It works on the `settings.json` it was applied to, even if the profile's config dir changed since. The script file stays, because `ccs` sessions still use it. If the bookkeeping file was lost, the previous value counts as "no statusLine". `ccs profile remove` runs the same revert first.
+This backs up `settings.json` (like `apply`, to `settings.json.ccs-backup-<YYYYmmddHHMMSS>`), then restores the `statusLine` you had before `apply`, or removes it if there was none. It works on the `settings.json` it was applied to, even if the profile's config dir changed since. The script file stays, because `ccs` sessions still use it. If the bookkeeping file was lost, the previous value counts as "no statusLine". `ccs profile remove` runs the same revert first.
 
 If you changed `statusLine` yourself after applying, revert refuses (a conflict) and changes nothing. Edit `settings.json` by hand in that case; the previous value is kept in `~/.local/state/ccs/statusline/<profile>.json`.
 

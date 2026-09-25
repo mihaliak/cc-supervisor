@@ -48,6 +48,7 @@ A limit counts as reached when the percent is **at or above** the threshold.
 ```
 - The reset counts as confirmed when fresh usage shows a new window (a later reset time) or the percent has dropped below the warn threshold.
 - The pause is decided and saved first (`~/.local/state/ccs/supervisor/<profile>.json`), then the sessions are told. Pauses survive a restart of the supervisor; reconnecting `ccs` sessions stay paused and are resumed once, as usual.
+- A pause that couldn't reach a session (for example, the supervisor had just restarted and the session was still reconnecting) is sent again when the session reconnects. A session that already got it is never interrupted twice.
 
 ## What "pause" does in a `ccs` session
 - **Busy session** (Claude is working, running a tool, or waiting on a permission prompt): the supervisor sends **Esc**, the same as pressing it yourself. Claude stops the current turn. The TUI stays open.
@@ -61,9 +62,9 @@ A limit counts as reached when the percent is **at or above** the threshold.
 
   Change it in Settings → Profiles → *profile* → Limits → Supervisor, or with `ccs profile set <id> supervisor.resume_prompt="…"`.
 - Sessions that were idle when paused get no prompt. They are just un-paused.
-- If you typed anything in the session while it was paused, even without submitting, no prompt is typed, so it can't mix with your draft. Switching windows or clicking doesn't count as typing.
+- If you typed anything in the session while it was paused, even without submitting, no prompt is typed, so it can't mix with your draft. Switching windows, clicking, or scrolling doesn't count as typing. This holds even if the session only learned of the pause after reconnecting: typing since the pause began counts.
 - The resume prompt is typed only once Claude is idle. If Claude is still working 30 s after the reset, the prompt is skipped.
-- The supervisor never types while you're typing. It waits until you've stopped typing for 1.5 s (at most 30 s).
+- The supervisor never types while you're typing. It waits until you've stopped typing for 1.5 s (at most 30 s). Mouse and focus events don't count as typing, so they don't delay it.
 
 ## Typing while paused (manual override)
 You can always type in a paused session. If you **submit** a prompt (Enter; pasted text and newlines typed with Option/Shift+Enter or Ctrl-J don't count), that session becomes **overridden**:
@@ -114,7 +115,7 @@ They're counted and shown as "other sessions" in the menu bar, the large widget,
 ## Each window pauses once
 - A limit warns once and pauses once per window. After a resume or an override, the same window won't pause you again.
 - A fresh window (new reset time) starts clean.
-- Reset times are compared to the minute, so the small jitter in what Claude Code reports never looks like a new window.
+- Reset times within a minute of a window the supervisor already knows count as that window, so the small jitter in what Claude Code reports never looks like a new window (no second warning, no second pause, an override still holds).
 
 ## Where the numbers come from
 - **Claude Code itself.** The supervisor asks each profile's Claude Code for its usage, the same numbers `/usage` shows, using that profile's own sign-in. It takes about a second, uses no tokens, and never runs your hooks. CC Supervisor stores no passwords or tokens.

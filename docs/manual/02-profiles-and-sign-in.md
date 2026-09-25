@@ -30,7 +30,7 @@ How saving works:
 - Changes are written to `~/.config/ccs/config.json` about half a second after you stop typing (and when you close the window), in exactly the format `ccs` writes. Keys the app doesn't know are kept.
 - After each save the app runs `ccs config validate`. Problems show in red under the field, and a banner says the config is invalid. Invalid values stay in the file until you fix them; the supervisor keeps using the last valid config meanwhile.
 - The supervisor picks up valid changes within about 2 seconds.
-- If `ccs` (or another window) changes the same setting while you're editing, the app asks: **Keep mine** or **Take theirs**. Changes to other settings are merged automatically.
+- If `ccs` (or another window) changes the same setting while you're editing, the app asks: **Keep mine** or **Take theirs** (Esc keeps yours). Changes to other settings are merged automatically.
 - If there's no config file yet, a banner offers **Create config** (the same as running `ccs profile list`, which creates the default profiles).
 
 **Add** (the **+** under the list): enter ID, launcher flag (defaults to the ID), name, emoji, config dir, and optionally make it the default. The app runs `ccs profile add`, so every other setting starts from the defaults.
@@ -80,7 +80,7 @@ What happens:
 4. If the supervisor is running, it refreshes usage right away, and widgets show data within about a minute.
 
 Where the sign-in runs:
-- **From a terminal** (`ccs auth login` typed by you): in that terminal. You see Claude Code's own messages, and Ctrl-C cancels.
+- **From a terminal** (`ccs auth login` typed by you): in that terminal. You see Claude Code's own messages, and Ctrl-C cancels. With `--json`, those messages go to stderr so stdout stays clean JSON.
 - **From the app:** in the background. Only your browser opens; the app waits up to 10 minutes for you to finish.
 - **`ccs auth login --terminal`:** opens a new Terminal window that runs `ccs auth login --profile <id>`. Use it if the browser sign-in from the app doesn't work for you. The window's small script lives in `~/.local/state/ccs/tmp/` only while you sign in and is deleted afterwards; it holds no secrets.
 

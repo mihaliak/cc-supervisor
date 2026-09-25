@@ -29,6 +29,7 @@ ccs                                # default profile (default_profile in config)
 - Terminal modes Claude turned on (kitty keyboard keys, modifyOtherKeys, focus and mouse reporting, bracketed paste, the alternate screen, a hidden cursor) are switched off while suspended and when Claude exits or crashes, so your shell gets normal keys. `fg` switches them back on.
 - Keys you type while `ccs` is still starting reach Claude.
 - `ccs` never writes its own diagnostics into the session. They go to `~/.local/state/ccs/logs/launcher.log`.
+- If the terminal stops reading output (a frozen window, a stuck tmux pane), Claude's output simply waits. `ccs` stays responsive: `kill` (TERM, HUP, INT are passed on to Claude), Ctrl-Z and window resizes still work, and on exit the terminal is restored without waiting for it forever.
 - **Print mode and pipes:** with `-p`/`--print`, or when stdin or stdout isn't a terminal, `ccs` simply runs `claude` with the profile's config dir. There is no supervision, so scripts and pipes behave exactly like `claude`.
 - **Typos:** a flag that is close to a profile flag but isn't a Claude option is an error, e.g. `ccs --wrok` → `unknown profile '--wrok'. Did you mean --work?`. Other unknown flags go to `claude`.
 - Two profile flags (`ccs --work --personal`) is an error.
@@ -51,6 +52,7 @@ If the profile is paused only by a manual `ccs pause`, the question reads `Profi
 - Installed but not answering after that: `ccs` prints `ccs: supervisor not responding — running unsupervised`, starts Claude, and keeps trying in the background. The session registers as soon as the supervisor answers.
 - Not installed: `ccs` prints `ccs: supervisor not installed — running unsupervised (ccs daemon install)` and starts Claude **unsupervised**. The statusline then shows `⚠ supervisor offline`.
 - If the supervisor restarts mid-session, `ccs` reconnects on its own (backing off from 0.5 s to 10 s), and paused state is kept.
+- If the supervisor refuses to register the session (for example, the profile was just removed from the config), `ccs` keeps retrying with the same backoff. Only a malformed registration gives up and runs unsupervised. Either way the reason is logged in `~/.local/state/ccs/logs/launcher.log`.
 
 ## Observe
 ### `ccs status [--profile <id>] [--json]`
@@ -74,7 +76,8 @@ daemon: running (pid 4242, up 2h 13m)
 ### `ccs usage [--profile <id>] [--refresh] [--json]`
 Only the usage numbers, for every profile or just `--profile <id>`.
 - **Without `--refresh`:** shows the supervisor's last snapshot, plus any newer numbers your running sessions' statuslines reported.
-- **With `--refresh`:** fetches fresh data. When the supervisor is running, it asks it to poll now and waits up to 20 s. Otherwise it asks Claude Code directly (about 1–2 s per profile, all profiles in parallel) and **just prints** the result; it doesn't update the supervisor's files.
+- **With `--refresh`:** fetches fresh data. When the supervisor is running, it asks it to poll now and waits up to 20 s for that poll to finish. If it doesn't finish in time, the last saved data is shown with a `⚠ refresh not finished` line. Otherwise it asks Claude Code directly (about 1–2 s per profile, all profiles in parallel) and **just prints** the result; it doesn't update the supervisor's files.
+- A window whose reset time has passed shows as `?%  reset`: its numbers no longer apply, and the new window's arrive with the next poll.
 ```
 💼 Work       Session  45%  20:00 (in 2h 13m)
               Weekly   50%  Sat 08:00 (in 1d 13h)
@@ -92,8 +95,9 @@ A last line explains any problem:
 | `⚠ sign in required · run: ccs auth login --profile work` | The profile's Claude Code login is missing or expired |
 | `no plan limits (API key or no Claude subscription)` | The account has no plan limits to track |
 | `⚠ usage unavailable: …` | Claude Code couldn't report usage (see [Troubleshooting](11-troubleshooting.md)) |
+| `⚠ refresh not finished after 20 s · showing the last saved data` | `--refresh` asked the supervisor to poll, but the poll didn't finish in time |
 
-`--json` prints `{"ok": true, "profiles": [ … ]}`. Each entry is the profile's usage snapshot (the `usage/<profile>.json` format, `schema/usage-snapshot.schema.json`) plus `"source"`: `file`, `daemon`, or `direct_probe`. A profile without data is `{"profile_id": "work", "status": "no_data", "hint": "…"}`.
+`--json` prints `{"ok": true, "profiles": [ … ]}`. Each entry is the profile's usage snapshot (the `usage/<profile>.json` format, `schema/usage-snapshot.schema.json`) plus `"source"`: `file`, `daemon`, `daemon_pending` (`--refresh` asked the supervisor, but its poll didn't finish within 20 s; this is the last saved data), or `direct_probe`. A profile without data is `{"profile_id": "work", "status": "no_data", "hint": "…"}`.
 
 ### `ccs sessions [--profile <id>] [--json]`
 Supervised `ccs` sessions (one line each), then how many other Claude Code sessions each profile has (background agents and plain `claude`), which are counted but never supervised.
@@ -110,19 +114,19 @@ work: other sessions 1 interactive, 2 background
 ### `ccs events [--follow] [--test] [--json]`
 The event history: warnings, pauses, resumes, warm-ups, sign-in problems, sessions starting and ending, and the supervisor starting and stopping. Without `--follow` it prints the last 50 events.
 
-`ccs events --test` sends a test notification through the supervisor, ignoring the notification toggles: `test notification sent via the menu bar app` (or via a script notification when the app isn't running). It needs the supervisor running.
+`ccs events --test` sends a test notification through the supervisor, ignoring the notification toggles: `test notification sent via the menu bar app` (or via a script notification when the app isn't running or isn't listening for events). The test itself shows up in the log as `notify.test`. It needs the supervisor running.
 ```
 19:18:04  limit.pause  work  💼 Work paused at 90% — 2 sessions paused. Resumes 20:00 (in 42m)
 20:00:16  limit.resume  work  💼 Work resumed — 2 sessions continued
 20:03:41  session.ended  work  💼 Work: session.ended
 ```
-- `--follow` keeps streaming new events live from the supervisor, or by watching the event log file when the supervisor isn't running. Stop it with Ctrl-C.
+- `--follow` keeps streaming new events live from the supervisor, or by watching the event log file when the supervisor isn't running (it follows the log across rotation). Stop it with Ctrl-C.
 - `--json` prints `{"ok": true, "events": [...]}`. With `--follow`, it prints one JSON event per line instead. The event format is `schema/event.schema.json`.
 
 ## Control
 ### `ccs pause (--profile <id> | --session <wrapper_id>) [--json]`
 Pause now, exactly like an automatic pause: a busy session is interrupted (Esc), an idle one is only marked paused.
-- `--profile` pauses every `ccs` session of the profile, and new `ccs` sessions ask before starting. `--session` pauses one session; the id can be the short id from `ccs sessions` (any unique prefix).
+- `--profile` pauses every `ccs` session of the profile, and new `ccs` sessions ask before starting. `--session` pauses one session; the id can be the short id from `ccs sessions` (any unique prefix). A prefix that matches several sessions is an error (exit 2) that lists them, e.g. `session id 'ab' is ambiguous; it matches abcdef12, ab99f0e1 (use more characters)`.
 - A manual pause has no end time: it lasts until `ccs resume`. A `--session` pause also ends when that session exits. Running it twice is harmless (`already paused manually`). The printed hint names the matching resume (`ccs resume --session <id>` for a session).
 - Needs the supervisor (`supervisor not running` otherwise, exit 1). Refused when the profile's supervision is off.
 - `--json` prints `{"ok", "profile_id", "wrapper_id", "created", "hold": {"id": "manual", "scope", …}, "sessions_paused"}`.
@@ -174,7 +178,7 @@ $ ccs auth status --profile work --json
   "subscription_type": "team"
 }
 ```
-`login --json` prints `{ok, profile_id, mode, logged_in, account, subscription_type, daemon_refreshed, error}`, where `mode` is `tty`, `headless` or `terminal`. `logout --json` prints `{ok, profile_id, logged_in, daemon_refreshed, error}`.
+`login --json` prints `{ok, profile_id, mode, logged_in, account, subscription_type, daemon_refreshed, error}`, where `mode` is `tty`, `headless` or `terminal`. Stdout then holds only that document: in a terminal, Claude Code's login messages go to stderr (`tty` needs stderr to be a terminal, otherwise it signs in `headless`). `logout --json` prints `{ok, profile_id, logged_in, daemon_refreshed, error}`.
 
 ### `ccs statusline generate | apply | revert | preview --profile <id> [--json]`
 Details in [Statusline](06-statusline.md).
@@ -182,8 +186,8 @@ Details in [Statusline](06-statusline.md).
 | Subcommand | Does |
 |------------|------|
 | `generate` | Writes or refreshes `<config dir>/ccs-statusline.py`. `--json`: `{profile_id, script_path, generator_version, changed}` |
-| `apply` | Generates the script, backs up `settings.json`, and sets its `statusLine` to the script, so plain `claude` shows it too. It's idempotent (`already_applied`), and refuses an invalid `settings.json` or a profile with `statusline.enabled: false` (exit 1). `--json`: `{profile_id, settings_path, result, backup_path, command}` |
-| `revert` | Restores the `statusLine` recorded by `apply`, or removes it if there was none. The script is kept. Result `reverted`, `not_applied`, or `conflict` (you changed `statusLine` since; exit 1, nothing written) |
+| `apply` | Generates the script, backs up `settings.json`, and sets its `statusLine` to the script, so plain `claude` shows it too. It's idempotent (`already_applied`), and refuses an invalid `settings.json`, a profile with `statusline.enabled: false`, or a config dir change whose old `statusLine` you edited by hand (`conflict`) (exit 1). `apply` and `revert` fail with `settings_busy` (nothing written) if Claude Code keeps rewriting `settings.json` meanwhile. `--json`: `{profile_id, settings_path, result, backup_path, command}` |
+| `revert` | Backs up `settings.json`, then restores the `statusLine` recorded by `apply`, or removes it if there was none. The script is kept. Result `reverted`, `not_applied`, or `conflict` (you changed `statusLine` since; exit 1, nothing written). `--json`: `{profile_id, result, restored, backup_path, hint?}` |
 | `preview` | Prints sample lines for each state. `--json` adds `status: {applied, script_path, script_current}` and each sample's `plain`, `ansi`, and colored `segments` |
 
 `--profile` is required, and an unknown profile exits 2.
@@ -198,7 +202,7 @@ ccs profile remove <id> [--default <other>]
 ```
 - `add`: `--flag` defaults to the id and `--name` to the id in title case. `--default` also makes the new profile the default one (used by plain `ccs`); the first profile always becomes the default.
 - `remove` first restores the profile's previous `statusLine` if `ccs statusline apply` set it. If `settings.json` changed since, the profile is still removed and a hint (on stderr, or `statusline` in `--json`) tells you what to fix by hand. Otherwise your Claude config dir and its login stay untouched. To remove the default profile while others exist, name the new default with `--default <other>`.
-`set` values are parsed as JSON when valid, otherwise as strings:
+`set` values are parsed as JSON when valid, otherwise as strings. `NaN` and `Infinity` aren't JSON, so they are stored as text; a number too large to store (such as `1e999`) is refused (exit 2):
 ```sh
 ccs profile set work limits.weekly.pause=97 limits.model_scoped.warn_only=true
 ccs profile set work supervisor.resume_prompt="Limits reset. Continue the task."

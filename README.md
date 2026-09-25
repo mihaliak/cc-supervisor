@@ -84,7 +84,7 @@ make install
 It never touches your Claude config dirs.
 
 ### First steps
-1. **Profiles:** `personal` (`~/.claude`) and `work` (`~/.claude-work`) are created for you. Edit them or add more in menu bar → **Settings… → Profiles**.
+1. **Profiles:** `personal` (`~/.claude`) and `work` (`~/.claude-work`) are created for you, each only if its config dir already exists (`personal` if neither does). Edit them or add more in menu bar → **Settings… → Profiles**.
 2. **Sign in:** click **Sign in** for each profile. It's Claude Code's own claude.ai login for that config dir.
 3. **Widgets:**
    1. Right-click the desktop → **Edit Widgets…**

@@ -93,9 +93,9 @@ You can open these from scripts, a browser, or `open`:
 |------|------|
 | `ccsupervisor://profile/<id>` | Opens Settings on that profile (clicking a widget does this) |
 | `ccsupervisor://signin/<id>` | Asks for confirmation, then starts sign-in for that profile (Cancel does nothing) |
-| `ccsupervisor://refresh` | Fetches usage now |
+| `ccsupervisor://refresh` | Fetches usage now (at most once every 30 s; the menu's Refresh isn't limited) |
 
 ```sh
 open "ccsupervisor://profile/work"
 ```
-Profile ids are the lowercase slugs from your config (`work`, `personal`). Unknown links are ignored.
+Profile ids are the lowercase slugs from your config (`work`, `personal`). Unknown links are ignored; a profile link with an unknown id just opens Settings.

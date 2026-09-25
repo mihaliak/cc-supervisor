@@ -45,7 +45,7 @@ Widgets, the menu bar, notifications, Settings, the statusline and the CLI are s
    make install
    ```
    It checks the prerequisites, installs `ccs`, the app and the background supervisor, and ends with `ccs doctor`. It doesn't change anything in your Claude config dirs.
-2. **Profiles.** Two are created for you: `personal` (`~/.claude`, 🏠) and `work` (`~/.claude-work`, 💼). Adjust them in menu bar → **Settings… → Profiles**, or see [Profiles](02-profiles-and-sign-in.md).
+2. **Profiles.** `personal` (`~/.claude`, 🏠) and `work` (`~/.claude-work`, 💼) are created for you, each only if its config dir already exists (just `personal` if neither does). Adjust them or add more in menu bar → **Settings… → Profiles**, or see [Profiles](02-profiles-and-sign-in.md).
 3. **Sign in.** For each profile, click **Sign in**. That's a claude.ai sign-in in your browser; it is Claude Code's own login for that config dir.
 4. **Add widgets.** Right-click the desktop → **Edit Widgets** → search "CC Supervisor". Then right-click a widget → **Edit Widget** and pick a profile.
 5. **Work.**

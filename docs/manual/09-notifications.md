@@ -50,8 +50,8 @@ macOS asks the first time the app starts. If you declined, enable it in System S
 
 ## No duplicates
 - Each limit warns **once per window**, and pauses and resumes are announced once each.
-- Error notifications come at most **once per hour** per profile and type.
+- Error notifications come at most **once per hour** per profile and type. The hours are counted in UTC, so a daylight-saving change can't merge two hours into one.
 - Everything is also kept in the event log: `ccs events`.
 
 ## When the app isn't running
-The background supervisor still notifies you, through a basic macOS script notification (`osascript`), whenever no menu bar app is connected to it. It appears as coming from "Script Editor", shows the same title and body, and clicking it does nothing useful. Keep the app running at login for proper notifications. The toggles above apply to both kinds.
+The background supervisor still notifies you, through a basic macOS script notification (`osascript`), whenever no menu bar app is connected to it and listening for events. It appears as coming from "Script Editor", shows the same title and body, and clicking it does nothing useful. Keep the app running at login for proper notifications. The toggles above apply to both kinds.

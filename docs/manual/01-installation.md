@@ -12,7 +12,7 @@ CC Supervisor is built from source on your Mac for personal use. There is no App
 | Python ≥ 3.12 | `python3 --version` | pyenv / Homebrew |
 | pipx | `pipx --version` | `brew install pipx` |
 | XcodeGen | `xcodegen --version` | `brew install xcodegen` |
-| Claude Code, signed in or ready to sign in | `claude --version` | [claude.com/claude-code](https://claude.com/claude-code) |
+| Claude Code, signed in or ready to sign in (only a warning when missing) | `claude --version` | [claude.com/claude-code](https://claude.com/claude-code) |
 
 ## Install
 From the repo root:
@@ -20,7 +20,7 @@ From the repo root:
 make install
 ```
 This does the following:
-1. Checks the prerequisites (`make prereqs`). Anything missing is printed with the command that installs it, and the install stops.
+1. Checks the prerequisites (`make prereqs`). Anything missing is printed with the command that installs it, and the install stops. Claude Code is the exception: without `claude` on your `PATH` you only get a warning, and the install goes on (`ccs` can't supervise anything until you install it).
 2. Installs the `ccs` CLI with pipx (an editable install, so pulling the repo updates `ccs`).
 3. Generates the Xcode project with XcodeGen, builds the app and widgets with `xcodebuild`, and copies `CC Supervisor.app` to `~/Applications/`.
 4. Creates `~/.config/ccs/config.json` if it doesn't exist yet, with `personal` (`~/.claude`) and `work` (`~/.claude-work`) for the dirs that exist. An existing config is kept as is.
@@ -30,7 +30,7 @@ This does the following:
 
 `make install` **never touches your Claude config dirs** (`~/.claude*`): no statusline script is written and no `settings.json` is changed. `ccs --<flag>` creates the statusline script on first use; `ccs statusline apply` is a separate, explicit step (see [Statusline](06-statusline.md)).
 
-Running `make install` again is safe: it reinstalls the CLI and the app, keeps your config, and reinstalls the LaunchAgent.
+Running `make install` again is safe: it stops a running supervisor while it reinstalls the CLI, reinstalls the app, keeps your config, and reinstalls (and restarts) the LaunchAgent.
 
 After installing, review the new profiles in **Settings… → Profiles**: warm-ups are on by default (app start, unlock/wake, auto-chain), with Haiku and the prompt `Reply with just: ok`.
 
@@ -79,11 +79,13 @@ ccs status          # usage per profile, as the supervisor sees it
 make upgrade
 ```
 It:
-- reinstalls `ccs` (pipx)
-- rebuilds and reinstalls the app
-- reinstalls the supervisor's LaunchAgent (`ccs daemon install`, so it picks up new LaunchAgent settings) and restarts the menu bar app on the new code
+- rebuilds and reinstalls the app (a failed build leaves the running supervisor alone)
+- stops the supervisor, then reinstalls `ccs` (pipx), because the reinstall replaces the files the supervisor runs from
+- reinstalls the supervisor's LaunchAgent (`ccs daemon install`, so it picks up new LaunchAgent settings), which starts it again, and restarts the menu bar app on the new code
 - regenerates the statusline scripts that already exist (it doesn't create new ones)
 - runs `ccs doctor`
+
+If the `ccs` reinstall fails, the supervisor stays stopped: fix the error and run `make upgrade` again. If a statusline script can't be regenerated (or the profiles can't be listed), `make upgrade` says so and exits with an error after `ccs doctor`.
 
 `ccs --<profile>` also regenerates an outdated statusline script by itself. If `ccs doctor` still reports one, for example for a profile you only use with plain `claude`, run `ccs statusline generate --profile <id>`.
 
@@ -92,12 +94,13 @@ It:
 
 | Target | Does |
 |--------|------|
-| `make venv` | Creates `python/.venv` with the dev tools: pytest, ruff, mypy. |
+| `make venv` | Creates `python/.venv` with the dev tools: pytest, ruff, mypy, coverage. |
 | `make install-dev` | Editable pipx install of `ccs` into `~/.local/bin`. It uses the real interpreter behind any pyenv shim. |
 | `make test` | Python tests plus Swift unit tests. `SKIP_SWIFT=1` skips Swift. |
 | `make test-python` / `make test-swift` | One half only. |
 | `make test-live` | Tests marked `live`, which use the real `claude`. Opt-in only. |
-| `make lint` / `make fmt` | ruff check, format check, and mypy `--strict` / auto-format. |
+| `make coverage` / `make coverage-swift` | Python test coverage of `ccs` (child processes included; the `perf` timing tests are skipped) / Swift coverage per target. |
+| `make lint` / `make fmt` | ruff check and format check on `python/` and `scripts/`, mypy `--strict` on `ccs` and `scripts/`, and a relaxed mypy run on the tests (it still catches names that don't exist in `ccs`) / auto-format. |
 | `make project` | Generates `macos/CCSupervisor.xcodeproj` with XcodeGen. It is not committed. |
 | `make app-build` | Builds the app and widgets (Release, ad-hoc signed) into `build/xcode`. |
 | `make app` | `app-build`, then copies the app to `~/Applications/`. |
@@ -120,5 +123,7 @@ make uninstall
 - **Never** touches your Claude Code logins, conversations, or other settings in your config dirs.
 
 For scripted runs: `make uninstall YES=1` answers the first question with yes and keeps config and state; add `PURGE=1` to delete them too. A record of a `statusLine` that couldn't be restored is never deleted, even with `PURGE=1`; its path is printed so you can fix `settings.json` by hand.
+
+The config and state folders come from `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `CCS_STATE_DIR` when your shell sets them. Before deleting, the uninstaller checks them: it refuses `/`, your home folder or a folder that contains it, and a folder without the files `ccs` keeps there (`config.json` in the config folder; `statusline/`, `usage/`, `widget/`, `supervisor/` or `events.jsonl` in the state folder). Then it deletes nothing, says why, and exits with an error.
 
 If an old login item stays behind (for example after deleting the app by hand), remove it in **System Settings › General › Login Items**.
