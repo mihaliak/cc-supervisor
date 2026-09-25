@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
+import os
 import time
 import unicodedata
+from collections.abc import Collection
 from datetime import datetime, tzinfo
 from typing import Any
 
-from ccs.clock import SystemClock, local_tz
+from ccs import paths
+from ccs.clock import Clock, SystemClock, local_tz
 from ccs.config import store
 from ccs.config.models import Config, Profile
 from ccs.daemon.client import DaemonClient, DaemonUnavailable
@@ -31,10 +35,13 @@ from ccs.usage.source_claude import fetch_snapshot, read_live_reports, read_snap
 
 SOURCE_FILE = "file"
 SOURCE_DAEMON = "daemon"
+SOURCE_DAEMON_PENDING = "daemon_pending"  # asked the daemon, its poll didn't land in time
 SOURCE_DIRECT = "direct_probe"
 REFRESH_WAIT_S = 20.0
 NO_DATA_HINT = "run: ccs usage --refresh"
 NO_RESET = "\u2013"  # en dash: window without a reset time
+WINDOW_RESET = "reset"  # the window's reset time has passed
+PENDING_NOTE = "⚠ refresh not finished after {wait} s · showing the last saved data"
 
 
 def register(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -62,31 +69,63 @@ def _entry(profile_id: str, snap: UsageSnapshot | None, source: str) -> dict[str
     return {**snap.to_dict(), "source": source}
 
 
-def _refresh_via_daemon(profiles: list[Profile], target: str | None) -> bool:
-    """Ask a running daemon to poll, then wait (≤ 20 s) for each `polled_at` to move."""
-    before = {p.id: _polled_at(p.id) for p in profiles}
+# (file identity: dev, inode, mtime_ns, size; `polled_at`) of `usage/<id>.json`
+_PollMark = tuple[tuple[int, int, int, int] | None, datetime | None]
+
+
+def _refresh_via_daemon(
+    profiles: list[Profile], target: str | None, clock: Clock
+) -> set[str] | None:
+    """Ask a running daemon to poll, then wait (≤ 20 s) until each profile's poll has landed.
+
+    `None` when no daemon took the request (probe directly instead). Otherwise the ids whose
+    refresh didn't land in time: their usage file still holds older data.
+    """
+    before = {p.id: _poll_mark(p.id) for p in profiles}
+    requested = to_utc_seconds(clock.now())
     try:
         with DaemonClient(timeout=2.0) as client:
             if not client.hello().get("ok"):
-                return False
+                return None
             fields: dict[str, Any] = {"profile_id": target} if target else {}
             reply = client.request("refresh", **fields)
     except DaemonUnavailable:
-        return False
+        return None
     if not reply.get("ok"):
-        return False
+        return None
     deadline = time.monotonic() + REFRESH_WAIT_S
     pending = set(before)
-    while pending and time.monotonic() < deadline:
-        pending = {pid for pid in pending if _polled_at(pid) == before[pid]}
-        if pending:
-            time.sleep(0.25)
-    return True
+    while True:
+        pending = {pid for pid in pending if not _landed(before[pid], _poll_mark(pid), requested)}
+        if not pending or time.monotonic() >= deadline:
+            return pending
+        time.sleep(0.25)
 
 
-def _polled_at(profile_id: str) -> datetime | None:
+def _poll_mark(profile_id: str) -> _PollMark:
+    key: tuple[int, int, int, int] | None = None
+    with contextlib.suppress(OSError):
+        st = os.stat(paths.usage_file(profile_id))
+        key = (st.st_dev, st.st_ino, st.st_mtime_ns, st.st_size)
     snap = read_snapshot(profile_id)
-    return snap.polled_at if snap is not None else None
+    return key, snap.polled_at if snap is not None else None
+
+
+def _landed(before: _PollMark, now: _PollMark, requested: datetime) -> bool:
+    """A poll finished since the refresh request.
+
+    `polled_at` has whole seconds (the schema's format), so a poll ending in the same second
+    as the previous one only shows as a rewritten file whose `polled_at` isn't older than the
+    request's second. (A live-report rewrite in that second counts too; its poll data is
+    then less than a second older than the request.)
+    """
+    key, polled = now
+    old_key, old_polled = before
+    if polled is None:
+        return False
+    if old_polled is None or polled > old_polled:
+        return True
+    return key != old_key and polled >= requested
 
 
 async def _direct(cfg: Config, profiles: list[Profile]) -> list[UsageSnapshot]:
@@ -151,10 +190,27 @@ def status_line(snap: UsageSnapshot | None, profile: Profile, now: datetime) -> 
     return f"⚠ {snap.status}"
 
 
+def window_cell(pct: int, reset: datetime | None, now: datetime, tz: tzinfo) -> str:
+    """`45%  20:00 (in 2h 13m)`; a window whose reset has passed shows as `?%  reset`.
+
+    Like the statusline: an ended window's numbers no longer apply, and the new window's
+    arrive with the next poll.
+    """
+    if reset is None:
+        return f"{pct:>3}%  {NO_RESET}"
+    if reset <= now:
+        return f"{'?':>3}%  {WINDOW_RESET}"
+    return f"{pct:>3}%  {format_reset_combined(reset, now, tz)}"
+
+
 def render_human(
-    items: list[tuple[Profile, UsageSnapshot | None]], now: datetime, tz: tzinfo
+    items: list[tuple[Profile, UsageSnapshot | None]],
+    now: datetime,
+    tz: tzinfo,
+    *,
+    pending: Collection[str] = (),
 ) -> str:
-    """The `ccs usage` text block (manual 05)."""
+    """The `ccs usage` text block (manual 05). `pending`: ids whose refresh didn't land."""
     headers = [f"{p.emoji} {p.name}".strip() for p, _ in items]
     col = max((display_width(h) for h in headers), default=0) + 3
     blocks: list[str] = []
@@ -169,13 +225,14 @@ def render_human(
         label_w = max((len(r[0]) for r in rows), default=0)
         lines: list[str] = []
         for label, pct, reset in rows:
-            when = format_reset_combined(reset, now, tz) if reset is not None else NO_RESET
-            lines.append(f"{label:<{label_w}} {pct:>3}%  {when}")
+            lines.append(f"{label:<{label_w}} {window_cell(pct, reset, now, tz)}")
         if snap is not None and snap.extra_usage is not None:
             lines.append(extra_line(snap.extra_usage))
         note = status_line(snap, profile, now)
         if note:
             lines.append(note)
+        if profile.id in pending:
+            lines.append(PENDING_NOTE.format(wait=f"{REFRESH_WAIT_S:g}"))
         pad = " " * col
         first = header + " " * (col - display_width(header))
         out = [first + lines[0]] + [pad + line for line in lines[1:]] if lines else [header]
@@ -202,9 +259,12 @@ def cmd_usage(args: argparse.Namespace) -> int:
     clock = SystemClock()
     source = SOURCE_FILE
     direct: dict[str, UsageSnapshot] = {}
+    pending: set[str] = set()
     if args.refresh and profiles:
-        if _refresh_via_daemon(profiles, args.profile):
+        left = _refresh_via_daemon(profiles, args.profile, clock)
+        if left is not None:
             source = SOURCE_DAEMON
+            pending = left
         else:
             source = SOURCE_DIRECT
             direct = {s.profile_id: s for s in asyncio.run(_direct(cfg, profiles))}
@@ -214,10 +274,13 @@ def cmd_usage(args: argparse.Namespace) -> int:
         snap = direct[p.id] if p.id in direct else local_view(p.id, now)
         items.append((p, snap))
     if as_json:
-        emit_json({"ok": True, "profiles": [_entry(p.id, s, source) for p, s in items]})
+        entries = [
+            _entry(p.id, s, SOURCE_DAEMON_PENDING if p.id in pending else source) for p, s in items
+        ]
+        emit_json({"ok": True, "profiles": entries})
         return EXIT_OK
     if not items:
         print("no profiles configured · run: ccs profile add …")
         return EXIT_OK
-    print(render_human(items, now, local_tz()))
+    print(render_human(items, now, local_tz(), pending=pending))
     return EXIT_OK

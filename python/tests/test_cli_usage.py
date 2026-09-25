@@ -7,6 +7,7 @@ import os
 import socket
 import tempfile
 import threading
+import time
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -247,3 +248,93 @@ def test_render_human_status_lines(tmp_path: Path) -> None:
     assert lines[0] == "🏠 P   no data yet · run: ccs usage --refresh"
     assert lines[1] == "🏠 P   ⚠ sign in required · run: ccs auth login --profile p"
     assert lines[2] == "🏠 P   ⚠ usage unavailable: boom"
+
+
+def test_refresh_in_the_same_second_is_detected(
+    tmp_xdg: XdgDirs,
+    tmp_path: Path,
+    short_state: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # `polled_at` has whole seconds: a poll ending in the second of the previous one must
+    # still count (by the file being rewritten), not burn the whole wait
+    from ccs.clock import FakeClock
+    from ccs.usage import cli as usage_cli
+
+    second = datetime.now(UTC).replace(microsecond=0)
+    monkeypatch.setattr(usage_cli, "SystemClock", lambda: FakeClock(second))
+    monkeypatch.setattr(usage_cli, "REFRESH_WAIT_S", 3.0)
+    write_config(tmp_path)
+    write_snapshot(normalize(payload("ok_team.json"), profile_id="work", fetched_at=second))
+
+    def on_refresh(msg: dict[str, Any]) -> None:
+        later = second + timedelta(milliseconds=400)  # same whole second
+        write_snapshot(normalize(payload("ok_max.json"), profile_id="work", fetched_at=later))
+
+    srv = serve(paths.daemon_sock(), on_refresh)
+    started = time.monotonic()
+    try:
+        code, out = run_json(capsys, "--refresh", "--profile", "work")
+    finally:
+        srv.close()
+    assert time.monotonic() - started < 2.0
+    (entry,) = out["profiles"]
+    assert code == 0 and entry["source"] == "daemon"
+    assert entry["windows"]["session"]["percent"] == 15
+
+
+def test_refresh_that_does_not_land_is_reported(
+    tmp_xdg: XdgDirs,
+    tmp_path: Path,
+    short_state: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from ccs.usage import cli as usage_cli
+
+    monkeypatch.setattr(usage_cli, "REFRESH_WAIT_S", 0.5)
+    write_config(tmp_path)
+    old = datetime.now(UTC) - timedelta(minutes=2)
+    write_snapshot(normalize(payload("ok_team.json"), profile_id="work", fetched_at=old))
+    srv = serve(paths.daemon_sock(), lambda msg: None)  # answers, but never polls
+    try:
+        code, out = run_json(capsys, "--refresh", "--profile", "work")
+    finally:
+        srv.close()
+    (entry,) = out["profiles"]
+    assert code == 0 and entry["source"] == "daemon_pending"
+    assert entry["polled_at"] == old.strftime("%Y-%m-%dT%H:%M:%SZ")  # the saved data
+    paths.daemon_sock().unlink()
+    srv = serve(paths.daemon_sock(), lambda msg: None)
+    try:
+        assert main(["usage", "--refresh", "--profile", "work"]) == 0
+    finally:
+        srv.close()
+    assert "⚠ refresh not finished after 0.5 s · showing the last saved data" in (
+        capsys.readouterr().out
+    )
+
+
+def test_render_human_shows_ended_windows_as_reset() -> None:
+    # like the statusline: a window whose reset passed no longer applies (was "96% 23 Sep …")
+    from ccs.config.models import Profile
+    from ccs.usage.model import ScopedWindow, UsageSnapshot, Window
+
+    prof = Profile.from_dict(
+        {"id": "p", "flag": "p", "name": "P", "emoji": "🏠", "config_dir": "~/.p"}
+    )
+    now = datetime(2026, 9, 24, 12, 0, tzinfo=UTC)
+    snap = UsageSnapshot(
+        profile_id="p",
+        status="ok",
+        session=Window(40, now - timedelta(minutes=5), now - timedelta(hours=1)),
+        weekly=Window(96, now - timedelta(days=1), now - timedelta(hours=1)),
+        model_scoped=(ScopedWindow("Fable", 50, now + timedelta(hours=2), now),),
+    )
+    lines = render_human([(prof, snap)], now, UTC).splitlines()
+    assert lines == [
+        "🏠 P   Session   ?%  reset",
+        "       Weekly    ?%  reset",
+        "       Fable    50%  14:00 (in 2h)",
+    ]
