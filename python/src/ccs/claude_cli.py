@@ -424,6 +424,7 @@ async def auth_status(
 
 
 LOGIN_TIMEOUT_S = 600.0
+STDERR_FD = 2  # the real fd, not `sys.stderr` (which may be replaced by a wrapper)
 LOGOUT_TIMEOUT_S = 30.0
 
 
@@ -433,11 +434,14 @@ async def auth_login(
     *,
     mode: str,
     timeout: float = LOGIN_TIMEOUT_S,
+    stdout_to_stderr: bool = False,
 ) -> Completed:
     """`claude auth login --claudeai` for the profile (ADR-0003, P00-S4).
 
     - `tty`: inherits this process's stdio and foreground process group, no timeout, so the
       user sees the URL and Ctrl-C works. `stdout`/`stderr` of the result are empty.
+      `stdout_to_stderr` sends the child's stdout to our stderr (fd 2) instead, so a `--json`
+      caller's stdout stays one clean document.
     - `headless`: stdin closed, output captured. Claude opens the browser itself and waits
       for the OAuth callback on localhost, so it completes without a terminal.
       Raises `ClaudeTimeout` after `timeout` seconds.
@@ -452,7 +456,9 @@ async def auth_login(
         raise ValueError(f"unknown login mode: {mode}")
     started = time.monotonic()
     try:
-        proc = await asyncio.create_subprocess_exec(*argv, env=env)
+        proc = await asyncio.create_subprocess_exec(
+            *argv, env=env, stdout=STDERR_FD if stdout_to_stderr else None
+        )
     except OSError as exc:
         raise ClaudeNotFound(f"cannot execute {claude}: {exc}") from exc
     _track_spawn(proc.pid)

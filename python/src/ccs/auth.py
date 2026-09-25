@@ -313,8 +313,12 @@ async def login(
     ccs_cmd: Sequence[str] | None = None,
     timeout: float = LOGIN_TIMEOUT_S,
     poll_interval: float = TERMINAL_POLL_S,
+    ui_to_stderr: bool = False,
 ) -> LoginOutcome:
-    """Sign `profile` in with the given mode and report the resulting auth status."""
+    """Sign `profile` in with the given mode and report the resulting auth status.
+
+    `ui_to_stderr`: in `tty` mode, claude's login UI goes to stderr (for `--json`).
+    """
     if mode == "terminal":
         before = await fetch_status(claude, profile)
         files = signin_files(profile.id)
@@ -339,7 +343,9 @@ async def login(
         finally:
             remove_signin_files(files)
     try:
-        done = await auth_login(claude, profile, mode=mode, timeout=timeout)
+        done = await auth_login(
+            claude, profile, mode=mode, timeout=timeout, stdout_to_stderr=ui_to_stderr
+        )
     except ClaudeTimeout:
         return LoginOutcome(
             mode, await fetch_status(claude, profile), f"sign-in timed out after {timeout:g} s"
@@ -428,8 +434,11 @@ def cmd_login(args: argparse.Namespace) -> int:
     if isinstance(setup, int):
         return setup
     cfg, profile, claude = setup
+    # With --json our stdout is the result document: claude's login UI goes to stderr instead,
+    # so that is the stream that must be a terminal for the in-place (tty) sign-in.
+    ui_tty = (sys.stderr if as_json else sys.stdout).isatty()
     mode = choose_login_mode(
-        stdin_tty=sys.stdin.isatty(), stdout_tty=sys.stdout.isatty(), terminal=args.terminal
+        stdin_tty=sys.stdin.isatty(), stdout_tty=ui_tty, terminal=args.terminal
     )
     label = f"{profile.emoji} {profile.name}".strip()
     if not as_json:
@@ -440,7 +449,7 @@ def cmd_login(args: argparse.Namespace) -> int:
         else:
             eprint(f"Opening a Terminal window to sign in {label} (waiting up to 10 min)…")
     try:
-        outcome = asyncio.run(login(cfg, profile, claude, mode))
+        outcome = asyncio.run(login(cfg, profile, claude, mode, ui_to_stderr=as_json))
     except KeyboardInterrupt:
         return fail(as_json, "sign-in cancelled", code=EXIT_CANCELLED)
     refreshed = request_daemon_refresh(profile.id) if outcome.logged_in else False

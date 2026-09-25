@@ -607,3 +607,37 @@ def test_cli_logout_eof_means_no(
     monkeypatch.setattr("builtins.input", eof)
     assert main(["auth", "logout", "--profile", "work"]) == 1
     assert marker("work", cfg_dir).exists()
+
+
+def test_cli_login_json_on_a_tty_keeps_stdout_clean(
+    cfg_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    # `--json` in a terminal: claude's login UI goes to stderr, stdout is only the document
+    scenario(tmp_path, monkeypatch, stateful(stdout="Opening browser to sign in…"))
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        monkeypatch.setattr(stream, "isatty", lambda: True)
+    code = main(["auth", "login", "--profile", "work", "--json"])
+    out, err = capfd.readouterr()
+    doc = json.loads(out)
+    assert code == 0 and doc["logged_in"] is True and doc["mode"] == "tty"
+    assert "Opening browser to sign in" in err
+
+
+def test_cli_login_json_without_a_tty_stderr_goes_headless(
+    cfg_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    # the child's UI would land on stderr; with no terminal there, sign in headless
+    scenario(tmp_path, monkeypatch, stateful(stdout="Opening browser to sign in…"))
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: False)
+    code = main(["auth", "login", "--profile", "work", "--json"])
+    out, _ = capfd.readouterr()
+    doc = json.loads(out)
+    assert code == 0 and doc["mode"] == "headless"
