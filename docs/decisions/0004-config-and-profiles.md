@@ -28,7 +28,7 @@ Profiles are shared by the widgets, the menu bar app, `ccs`, the daemon, and the
   "display": {
     "time_format": "24h",
     "colors": { "yellow_from": 50, "red_from": 80 },
-    "menu_bar": "emoji_percent"           // emoji_percent | icon_only
+    "menu_bar": "letter_percent"          // letter_percent | icon_only (ADR-0018; emoji_percent = legacy alias)
   },
   "polling": {
     "interval_seconds": 60,

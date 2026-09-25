@@ -42,7 +42,7 @@ ccs config validate   # check for errors
 | `display.time_format` | string | `"24h"` | Clock format for reset times (24-hour) |
 | `display.colors.yellow_from` | int (%) | `50` | Bars turn yellow at this percent |
 | `display.colors.red_from` | int (%) | `80` | Bars turn red at this percent |
-| `display.menu_bar` | `"emoji_percent"` \| `"icon_only"` | `"emoji_percent"` | Menu bar label style ([Menu bar app](04-menu-bar-app.md)) |
+| `display.menu_bar` | `"letter_percent"` \| `"icon_only"` | `"letter_percent"` | Menu bar label style ([Menu bar app](04-menu-bar-app.md)) |
 
 ## `polling`
 | Key | Type | Default | Description |
@@ -141,7 +141,7 @@ Thresholds in percent ([Limits & supervisor](07-limits-and-supervisor.md)).
 - `name`, `warmup.model`, `warmup.prompt`, and `supervisor.resume_prompt` are non-empty strings; toggles are `true`/`false`.
 - Times are `HH:MM` (24h). Each schedule entry needs at least one weekday; weekdays are `mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun`, with no duplicates.
 - `cooldown_minutes` is 0–1440. Polling intervals are 5–3600 seconds.
-- `display.menu_bar` is `emoji_percent` or `icon_only`. `display.time_format` is `24h`.
+- `display.menu_bar` is `letter_percent` or `icon_only` (the older `emoji_percent` is accepted and means `letter_percent`). `display.time_format` is `24h`.
 - Unknown keys are kept as they are, so newer settings survive older tools.
 - The file is written with sorted keys, 2-space indentation, and literal emoji, by both the app and `ccs`. `ccs` never adds defaults to the file: keys you leave out keep following the defaults.
 - A JSON Schema of the file is in the repo at `schema/config.schema.json`. `ccs config validate` also checks the cross-field rules above (unique ids, warn < pause, reserved flags).
@@ -152,7 +152,7 @@ Thresholds in percent ([Limits & supervisor](07-limits-and-supervisor.md)).
   "version": 1,
   "revision": 7,
   "default_profile": "work",
-  "display": { "time_format": "24h", "colors": { "yellow_from": 50, "red_from": 80 }, "menu_bar": "emoji_percent" },
+  "display": { "time_format": "24h", "colors": { "yellow_from": 50, "red_from": 80 }, "menu_bar": "letter_percent" },
   "profiles": [
     {
       "id": "work", "flag": "work", "name": "Work", "emoji": "💼", "config_dir": "~/.claude-work",

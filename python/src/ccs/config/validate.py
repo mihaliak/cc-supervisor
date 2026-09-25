@@ -13,7 +13,8 @@ from ccs.paths import expand_config_dir
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
-MENU_BAR_MODES = ("emoji_percent", "icon_only")
+# `emoji_percent` is the pre-ADR-0018 name of `letter_percent`; still accepted.
+MENU_BAR_MODES = ("letter_percent", "icon_only", "emoji_percent")
 TIME_FORMATS = ("24h",)
 
 CCS_RESERVED = frozenset({"help", "version", "profile", "force", "no-supervise", "json"})
@@ -182,7 +183,7 @@ def _validate_top(v: _V, d: dict[str, Any]) -> None:
         if display.get("time_format") not in TIME_FORMATS:
             v.add("display.time_format", 'must be "24h"')
         if display.get("menu_bar") not in MENU_BAR_MODES:
-            v.add("display.menu_bar", 'must be "emoji_percent" or "icon_only"')
+            v.add("display.menu_bar", 'must be "letter_percent" or "icon_only"')
         colors = v.dict_at(display, "colors", "display.colors")
         if colors is not None:
             y = colors.get("yellow_from")

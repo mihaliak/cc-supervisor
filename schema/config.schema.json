@@ -59,9 +59,11 @@
         },
         "menu_bar": {
           "enum": [
-            "emoji_percent",
-            "icon_only"
-          ]
+            "letter_percent",
+            "icon_only",
+            "emoji_percent"
+          ],
+          "description": "emoji_percent is the legacy name of letter_percent (ADR-0018)"
         }
       }
     },

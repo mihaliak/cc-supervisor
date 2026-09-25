@@ -143,7 +143,7 @@ final class ConfigReaderTests: XCTestCase {
     func testDefaultsAndOverrides() {
         let missing = ConfigReader.read(file: URL(fileURLWithPath: "/nonexistent/config.json"), home: home)
         XCTAssertEqual(missing.ccsPath, "/Users/u/.local/bin/ccs")
-        XCTAssertEqual(missing.menuBarMode, .emojiPercent)
+        XCTAssertEqual(missing.menuBarMode, .letterPercent)
         XCTAssertFalse(missing.fileExists)
 
         let custom = ConfigReader.parse(Data(#"{"ccs_path":"~/bin/ccs","display":{"menu_bar":"icon_only"}}"#.utf8), home: home)
@@ -152,7 +152,12 @@ final class ConfigReaderTests: XCTestCase {
 
         let nullPath = ConfigReader.parse(Data(#"{"ccs_path":null,"display":{"menu_bar":"weird"}}"#.utf8), home: home)
         XCTAssertEqual(nullPath.ccsPath, "/Users/u/.local/bin/ccs")
-        XCTAssertEqual(nullPath.menuBarMode, .emojiPercent)
+        XCTAssertEqual(nullPath.menuBarMode, .letterPercent)
+
+        let legacy = ConfigReader.parse(Data(#"{"display":{"menu_bar":"emoji_percent"}}"#.utf8), home: home)
+        XCTAssertEqual(legacy.menuBarMode, .letterPercent)
+        XCTAssertEqual(MenuBarMode.normalized("emoji_percent"), "letter_percent")
+        XCTAssertEqual(MenuBarMode.normalized("icon_only"), "icon_only")
     }
 
     func testStateLocationHonorsEnvironment() {

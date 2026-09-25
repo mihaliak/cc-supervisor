@@ -16,9 +16,7 @@
   - `make app` builds with `xcodebuild` and installs to `~/Applications/CC Supervisor.app`.
   - Personal use: no App Store, no notarization, no distribution.
 - **Sandboxing:** the host app is **not** sandboxed, because it execs `ccs` and reads the state dir. The widget extension **is** sandboxed, as WidgetKit requires. Signing is covered in ADR-0012.
-- **Menu bar label:**
-  - `display.menu_bar = emoji_percent` (default): `💼 45%  🏠 12%`, where each percent uses its level color.
-  - `icon_only`: a single gauge SF Symbol tinted by the worst level.
+- **Menu bar label:** superseded by [ADR-0018](0018-menu-bar-label.md) (`letter_percent` default, `icon_only`).
 - **Dropdown:**
   - per-profile cards: rows for Session, Weekly, model-scoped and Extra usage (%, bar, reset absolute + relative), plus supervisor state (active/paused ccs sessions, other sessions count, next warm-up)
   - actions: Refresh, Warm up now, Pause/Resume profile, Settings…, Quit

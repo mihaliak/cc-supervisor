@@ -9,10 +9,10 @@ Set in Settings → General (`display.menu_bar`):
 
 | Mode | Looks like |
 |------|------------|
-| Emoji + percent (default) | `💼 45%  🏠 12%`: each profile's session usage, colored green/yellow/red. `?%` means no session data yet (e.g. sign-in required). |
+| Letter + session/weekly % (default) | `P 2% ● - 63% ●   W 24% ● - 99% ●`: per profile, the first letter of its name, then session % and a dot, a dash, weekly % and a dot. Only the dots are colored green/yellow/red (gray = no data); `?%` means no data yet (e.g. sign-in required). |
 | Icon only | a single gauge icon tinted by the worst level across all profiles |
 
-The label is drawn as a small colored image, so the colors survive in both light and dark menu bars.
+The label uses a smaller font than the rest of the menu bar. It is drawn as an image so the dot colors survive; the letters and numbers follow the menu bar's light or dark appearance. Configs that still say `emoji_percent` show this letter label.
 
 ## Dropdown
 ```

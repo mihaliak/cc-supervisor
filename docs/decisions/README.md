@@ -24,6 +24,8 @@ Binding project principles. Every plan and implementation must comply. If a deci
 | [0015](0015-notifications.md) | Notifications | accepted |
 | [0016](0016-identifiers.md) | Names, identifiers, paths | accepted |
 | [0017](0017-cli-surface.md) | `ccs` CLI surface | accepted |
+| [0018](0018-menu-bar-label.md) | Menu bar label: letter, session and weekly percent, colored dots | accepted |
+| [0019](0019-widget-profile-parameter.md) | Widget profile parameter is a String with dynamic options | accepted |
 
 ## Template
 

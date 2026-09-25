@@ -129,6 +129,15 @@ public struct ProfileSnapshot: Codable, Sendable, Equatable, Identifiable {
 
     /// The 5-hour session row, if present.
     public var sessionRow: UsageRow? { rows.first { $0.kind == .session } }
+
+    /// The 7-day (all models) row, if present.
+    public var weeklyRow: UsageRow? { rows.first { $0.kind == .weekly } }
+
+    /// First letter of the name, uppercased (menu bar label, ADR-0018).
+    public var initial: String {
+        let source = name.trimmingCharacters(in: .whitespaces).isEmpty ? id : name
+        return source.first.map { String($0).uppercased() } ?? "?"
+    }
 }
 
 public enum RowKind: String, Codable, Sendable {

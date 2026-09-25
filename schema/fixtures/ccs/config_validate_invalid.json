@@ -1,7 +1,7 @@
 {
   "issues": [
     {
-      "message": "must be \"emoji_percent\" or \"icon_only\"",
+      "message": "must be \"letter_percent\" or \"icon_only\"",
       "path": "display.menu_bar"
     },
     {

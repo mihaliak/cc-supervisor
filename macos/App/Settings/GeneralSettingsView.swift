@@ -36,9 +36,13 @@ struct GeneralSettingsView: View {
             }
 
             Section("Menu bar") {
-                Picker("Label", selection: store.stringBinding(.root("display.menu_bar"))) {
-                    Text("Emoji + session %").tag("emoji_percent")
-                    Text("Icon only").tag("icon_only")
+                let menuBar = store.stringBinding(.root("display.menu_bar"))
+                Picker("Label", selection: Binding(
+                    get: { MenuBarMode.normalized(menuBar.wrappedValue) },
+                    set: { menuBar.wrappedValue = $0 }
+                )) {
+                    Text("Letter + session/weekly %").tag(MenuBarMode.letterPercent.rawValue)
+                    Text("Icon only").tag(MenuBarMode.iconOnly.rawValue)
                 }
                 .disabled(!store.canEdit)
                 IssueText(messages: store.issues(.root("display.menu_bar")))

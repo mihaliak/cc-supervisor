@@ -82,11 +82,26 @@ final class SnapshotDecodingTests: XCTestCase {
         XCTAssertTrue(WidgetSnapshot(generatedAt: nil, profiles: []).isDaemonOffline(now: .now))
     }
 
-    func testMenuLabelPercentText() throws {
+    func testMenuLabelParts() throws {
         let snapshot = try SnapshotDecoding.decode(try Fixtures.data("snapshot/ok.json"))
-        XCTAssertEqual(MenuLabelContent.percentText(snapshot.profiles[0]), "45%")
+        let profile = snapshot.profiles[0]
+        XCTAssertEqual(profile.initial, String(profile.name.prefix(1)).uppercased())
+        XCTAssertEqual(MenuLabelContent.percentText(profile.sessionRow, profile: profile), "45%")
+        XCTAssertEqual(MenuLabelContent.dotLevel(profile.sessionRow, profile: profile), profile.sessionRow?.level)
+        let weekly = try XCTUnwrap(profile.weeklyRow)
+        XCTAssertEqual(MenuLabelContent.percentText(weekly, profile: profile), "\(weekly.percent)%")
+        XCTAssertEqual(MenuLabelContent.dotLevel(weekly, profile: profile), weekly.level)
+
         let signIn = try SnapshotDecoding.decode(try Fixtures.data("snapshot/needs_sign_in.json")).profiles[0]
-        XCTAssertEqual(MenuLabelContent.percentText(signIn), "?%")
+        XCTAssertEqual(MenuLabelContent.percentText(signIn.sessionRow, profile: signIn), "?%")
+        XCTAssertNil(MenuLabelContent.dotLevel(signIn.sessionRow, profile: signIn))
+        XCTAssertTrue(MenuLabelContent.accessibilityText(snapshot).contains("session 45%"))
+    }
+
+    func testProfileInitial() {
+        let json = #"{"generated_at":null,"profiles":[{"id":"work","name":"work"},{"id":"x9","name":" "}]}"#
+        let snapshot = try? SnapshotDecoding.decode(Data(json.utf8))
+        XCTAssertEqual(snapshot?.profiles.map(\.initial), ["W", "X"])
     }
 
     func testStatusChips() throws {

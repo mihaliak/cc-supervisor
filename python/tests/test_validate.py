@@ -167,3 +167,15 @@ def test_version_newer_message() -> None:
 def test_reserved_flags_cover_ccs_and_claude() -> None:
     assert {"help", "version", "profile", "force", "no-supervise", "json"} <= RESERVED_FLAGS
     assert {"resume", "continue", "model", "print", "effort", "bg"} <= CLAUDE_LONG_OPTIONS
+
+
+@pytest.mark.parametrize("mode", ["letter_percent", "icon_only", "emoji_percent"])
+def test_menu_bar_modes_accepted(mode: str) -> None:
+    # emoji_percent is the legacy name of letter_percent (ADR-0018).
+    cfg = default_config_dict()
+    cfg["display"]["menu_bar"] = mode
+    assert [i.path for i in validate(cfg)] == []
+
+
+def test_menu_bar_default_is_letter_percent() -> None:
+    assert default_config_dict()["display"]["menu_bar"] == "letter_percent"

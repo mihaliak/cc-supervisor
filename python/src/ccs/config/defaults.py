@@ -14,7 +14,7 @@ WARMUP_MODEL = "haiku"
 _DISPLAY: dict[str, Any] = {
     "time_format": "24h",
     "colors": {"yellow_from": 50, "red_from": 80},
-    "menu_bar": "emoji_percent",
+    "menu_bar": "letter_percent",
 }
 
 _POLLING: dict[str, Any] = {
