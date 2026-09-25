@@ -26,6 +26,7 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: CC Supervisor
+        CFBundleIconName: AppIcon
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSUIElement: true
@@ -41,6 +42,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: local.ccsupervisor.app
         PRODUCT_NAME: CC Supervisor
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_MODULE_NAME: CCSupervisor
     dependencies:
       - target: CCSupervisorWidgets

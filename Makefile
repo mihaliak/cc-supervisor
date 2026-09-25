@@ -11,7 +11,7 @@ APP_NAME    := CC Supervisor.app
 APP_BUILT   := $(DERIVED)/Build/Products/Release/$(APP_NAME)
 APP_DEST    := $(HOME)/Applications/$(APP_NAME)
 
-.PHONY: help venv install-dev test test-python test-swift test-live lint fmt \
+.PHONY: help icon venv install-dev test test-python test-swift test-live lint fmt \
         xcodegen-check xcodebuild-check project app-build app clean \
         prereqs install uninstall upgrade
 
@@ -74,6 +74,9 @@ app: app-build ## build and install to ~/Applications/CC Supervisor.app
 	ditto "$(APP_BUILT)" "$(APP_DEST)"
 	@bash scripts/lsclean.sh "$(APP_DEST)"
 	@echo "installed: $(APP_DEST)"
+
+icon: ## regenerate the app icon PNGs + SVG from macos/Branding/render-icon.swift
+	swift macos/Branding/render-icon.swift
 
 prereqs: ## check install prerequisites (macOS/Xcode 26, xcodegen, python >= 3.12, pipx)
 	@PY="$(PY)" sh scripts/check-prereqs.sh

@@ -27,6 +27,7 @@ Binding project principles. Every plan and implementation must comply. If a deci
 | [0018](0018-menu-bar-label.md) | Menu bar label: letter, session and weekly percent, colored dots | accepted |
 | [0019](0019-widget-profile-parameter.md) | Widget profile parameter is a String with dynamic options | accepted |
 | [0020](0020-settings-window.md) | Settings window layout | accepted |
+| [0021](0021-app-icon.md) | App icon: orange usage gauge | accepted |
 
 ## Template
 
