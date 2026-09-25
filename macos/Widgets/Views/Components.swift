@@ -98,6 +98,23 @@ struct StackedUsageRowView: View {
     }
 }
 
+/// Small widget: the reset time under the session percent. Without one the row stays, empty,
+/// so a small widget keeps its layout (the gauge doesn't grow into the gap).
+struct SmallResetLine: View {
+    let text: String?
+
+    var body: some View {
+        let shown = text.flatMap { $0.isEmpty ? nil : $0 }
+        Text(shown ?? "0")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .opacity(shown == nil ? 0 : 1)
+            .accessibilityHidden(shown == nil)
+    }
+}
+
 /// Small footer `W 50% · Sat 08:00`, percent in level color.
 struct WeeklyLineView: View {
     let line: WidgetCompactLine

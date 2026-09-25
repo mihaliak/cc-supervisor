@@ -23,12 +23,19 @@ enum PreviewEntries {
         date: now,
         display: WidgetDisplayBuilder.build(snapshot: nil, profileID: nil, now: now)
     )
+    /// No reset time under the percent: the layout must match `ok`.
+    static let noReset: UsageEntry = {
+        var display = ok.display
+        display.session?.trailing = nil
+        return UsageEntry(date: now, display: display)
+    }()
 }
 
 #Preview("Small", as: .systemSmall) {
     ProfileUsageWidget()
 } timeline: {
     PreviewEntries.ok
+    PreviewEntries.noReset
     PreviewEntries.paused
     PreviewEntries.signIn
     PreviewEntries.stale
@@ -41,6 +48,7 @@ enum PreviewEntries {
 } timeline: {
     UsageEntry(date: PreviewEntries.ok.date, display: PreviewEntries.ok.display, smallStyle: .gauge)
     UsageEntry(date: PreviewEntries.paused.date, display: PreviewEntries.paused.display, smallStyle: .gauge)
+    UsageEntry(date: PreviewEntries.noReset.date, display: PreviewEntries.noReset.display, smallStyle: .gauge)
 }
 
 #Preview("Medium", as: .systemMedium) {

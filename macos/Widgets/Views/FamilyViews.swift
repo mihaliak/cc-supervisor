@@ -14,13 +14,7 @@ struct SmallWidgetView: View {
                 VStack(spacing: 2) {
                     UsageGaugeView(percent: session.percent, level: session.level, percentText: session.percentText)
                         .frame(maxWidth: 118)
-                    if let trailing = session.trailing {
-                        Text(trailing)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                    }
+                    SmallResetLine(text: session.trailing)
                 }
                 .frame(maxWidth: .infinity)
                 .opacity(display.dimmed ? 0.5 : 1)
@@ -37,13 +31,7 @@ struct SmallWidgetView: View {
                         .foregroundStyle(LevelColor.color(session.level))
                         .minimumScaleFactor(0.6)
                     WidgetUsageBar(percent: session.percent, level: session.level)
-                    if let trailing = session.trailing {
-                        Text(trailing)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                    }
+                    SmallResetLine(text: session.trailing)
                 }
                 .opacity(display.dimmed ? 0.5 : 1)
                 Spacer(minLength: 0)
