@@ -72,6 +72,7 @@ app: app-build ## build and install to ~/Applications/CC Supervisor.app
 	mkdir -p "$(HOME)/Applications"
 	rm -rf "$(APP_DEST)"
 	ditto "$(APP_BUILT)" "$(APP_DEST)"
+	@bash scripts/lsclean.sh "$(APP_DEST)"
 	@echo "installed: $(APP_DEST)"
 
 prereqs: ## check install prerequisites (macOS/Xcode 26, xcodegen, python >= 3.12, pipx)

@@ -24,7 +24,7 @@
   - Reload policy is `.after(lastEntry)`.
   - The host app watches `snapshot.json` (`DispatchSource` file monitor) and calls `WidgetCenter.shared.reloadAllTimelines()`, throttled to at most 1 per 60 s. It reloads immediately on status changes (paused, resumed, sign-in).
 - **Configuration:** `AppIntentConfiguration`.
-  - `ProfileEntity`: its query lists profiles from `snapshot.json`.
+  - Profile picker: superseded by [ADR-0019](0019-widget-profile-parameter.md). It is a `String` profile id with dynamic options from `snapshot.json`, because entity parameters don't decode in ad-hoc signed builds.
   - Toggles: `showWeekly`, `showModelScoped`, `showExtraUsage` (medium and large only).
   - Tapping the widget opens `ccsupervisor://profile/<id>`.
 - **Sizes:** small, medium, large (see P12).

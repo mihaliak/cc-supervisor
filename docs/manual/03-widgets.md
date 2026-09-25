@@ -11,7 +11,7 @@ Each widget shows **one profile**. Add as many as you like, for example one per 
 
 | Option | Sizes | Effect |
 |--------|-------|--------|
-| Profile | all | Which profile to show. The list comes from your profiles; a new widget starts with the first one. |
+| Profile | all | Which profile to show. The list comes from your profiles; a new widget starts with the first one. Widgets added before 2026-09-25 need their profile picked again once. |
 | Show weekly | medium, large | Weekly row on or off |
 | Show model limits | medium, large | Fable (or other model) rows on or off |
 | Show extra usage | medium, large | Extra-usage row on or off |

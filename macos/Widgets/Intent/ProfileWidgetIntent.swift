@@ -6,8 +6,8 @@ struct ProfileWidgetIntent: WidgetConfigurationIntent {
     static let title: LocalizedStringResource = "Claude usage"
     static let description = IntentDescription("Choose the CC Supervisor profile this widget shows.")
 
-    @Parameter(title: "Profile")
-    var profile: ProfileEntity?
+    @Parameter(title: "Profile", optionsProvider: ProfileOptionsProvider())
+    var profileID: String?
 
     @Parameter(title: "Show weekly", default: true)
     var showWeekly: Bool

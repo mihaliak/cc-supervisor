@@ -10,7 +10,7 @@ struct UsageTimelineProvider: AppIntentTimelineProvider {
     func snapshot(for configuration: ProfileWidgetIntent, in context: Context) async -> UsageEntry {
         let now = Date()
         let snapshot = try? SnapshotLoader.load().get()
-        let profileID = configuration.profile?.id
+        let profileID = configuration.profileID
         // Widget gallery without real data for this profile: show the sample.
         if context.isPreview, snapshot?.profile(id: profileID ?? "") == nil {
             return UsageEntry.sample(now: now)
@@ -28,7 +28,7 @@ struct UsageTimelineProvider: AppIntentTimelineProvider {
         let snapshot = try? SnapshotLoader.load().get()
         let entries = WidgetTimeline.items(
             snapshot: snapshot,
-            profileID: configuration.profile?.id,
+            profileID: configuration.profileID,
             options: configuration.options,
             now: now
         ).map(UsageEntry.init)
