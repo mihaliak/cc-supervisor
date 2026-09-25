@@ -179,3 +179,46 @@ def test_menu_bar_modes_accepted(mode: str) -> None:
 
 def test_menu_bar_default_is_letter_percent() -> None:
     assert default_config_dict()["display"]["menu_bar"] == "letter_percent"
+
+
+def test_default_profile_null_is_valid() -> None:
+    # the schema allows null and `Config.default()` handles it: no default profile
+    cfg = minimal()
+    cfg["default_profile"] = None
+    assert validate(cfg) == []
+
+
+def test_missing_default_profile_is_checked_against_what_was_written() -> None:
+    # the "personal" default must not be reported for a profile the user never wrote
+    cfg = minimal()
+    del cfg["default_profile"]
+    assert validate(cfg) == []
+
+
+@pytest.mark.parametrize("value", [5, True, ["work"], ""])
+def test_default_profile_must_be_null_or_a_profile_id(value: Any) -> None:
+    cfg = minimal()
+    cfg["default_profile"] = value
+    assert "default_profile" in [i.path for i in validate(cfg)]
+
+
+@pytest.mark.parametrize("bad", [float("inf"), float("-inf"), float("nan")])
+@pytest.mark.parametrize(
+    ("where", "path"),
+    [
+        (["profiles", 0, "limits", "session", "note"], "profiles[0].limits.session.note"),
+        (["profiles", 0, "future"], "profiles[0].future"),
+        (["display", "extra"], "display.extra"),
+        (["unknown_top"], "unknown_top"),
+        (["profiles", 0, "warmup", "triggers", "schedule"], "profiles[0].warmup.triggers.schedule"),
+    ],
+)
+def test_non_finite_numbers_are_rejected_anywhere(bad: float, where: list[Any], path: str) -> None:
+    cfg = minimal()
+    node: Any = cfg
+    for key in where[:-1]:
+        node = node.setdefault(key, {}) if isinstance(key, str) else node[key]
+    node[where[-1]] = [1, bad] if where[-1] == "schedule" else bad
+    issues = validate(cfg)
+    expected = f"{path}[1]" if where[-1] == "schedule" else path
+    assert any(i.path == expected and "finite" in i.message for i in issues), issues

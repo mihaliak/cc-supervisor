@@ -167,3 +167,59 @@ def test_human_output(env: Path, capsys: pytest.CaptureFixture[str]) -> None:
 def test_unknown_profile(env: Path, capsys: pytest.CaptureFixture[str]) -> None:
     code, doc, _ = run(capsys, "profile", "show", "nope", "--json")
     assert code == 1 and "nope" in doc["error"]
+
+
+def test_config_set_default_profile_null(env: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    run(capsys, "profile", "list", "--json")
+    code, doc, _ = run(capsys, "config", "set", "default_profile=null", "--json")
+    assert code == 0 and doc["ok"] is True
+    assert json.loads(paths.config_file().read_text())["default_profile"] is None
+    code, doc, _ = run(capsys, "profile", "list", "--json")
+    assert code == 0 and doc["default_profile"] is None
+    assert not any(p["default"] for p in doc["profiles"])
+
+
+def test_missing_default_profile_loads_and_validates(
+    env: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # "personal" is only the default when such a profile exists; `load` and `validate` agree
+    profiles = [{"id": "work", "flag": "work", "name": "W", "emoji": "💼", "config_dir": "~/.w"}]
+    raw: dict[str, Any] = {"version": 1, "profiles": profiles}
+    paths.config_file().parent.mkdir(parents=True, exist_ok=True)
+    paths.config_file().write_text(json.dumps(raw))
+    code, doc, _ = run(capsys, "config", "validate", "--json")
+    assert code == 0 and doc["issues"] == []
+    code, doc, _ = run(capsys, "profile", "list", "--json")
+    assert code == 0 and doc["default_profile"] is None
+    profiles.append(
+        {"id": "personal", "flag": "personal", "name": "P", "emoji": "🏠", "config_dir": "~/.p"}
+    )
+    paths.config_file().write_text(json.dumps(raw))
+    code, doc, _ = run(capsys, "profile", "list", "--json")
+    assert code == 0 and doc["default_profile"] == "personal"
+
+
+@pytest.mark.parametrize("value", ["1e999", "-1e999", "[1, 1e400]", '{"x": 1e999}'])
+def test_set_rejects_non_finite_numbers(
+    env: Path, capsys: pytest.CaptureFixture[str], value: str
+) -> None:
+    run(capsys, "profile", "list", "--json")
+    before = paths.config_file().read_text()
+    code, doc, _ = run(capsys, "profile", "set", "work", f"limits.session.note={value}", "--json")
+    assert code == 2 and "finite" in doc["error"]
+    code, doc, _ = run(capsys, "config", "set", f"display.extra={value}", "--json")
+    assert code == 2 and "finite" in doc["error"]
+    assert paths.config_file().read_text() == before
+
+
+@pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity", "[1, NaN]"])
+def test_set_keeps_non_json_constants_as_text(
+    env: Path, capsys: pytest.CaptureFixture[str], value: str
+) -> None:
+    # not JSON (ADR-0017: "otherwise as strings"), so never written as a bare Infinity/NaN
+    run(capsys, "profile", "list", "--json")
+    code, _, _ = run(capsys, "profile", "set", "work", f"limits.session.note={value}", "--json")
+    assert code == 0
+    text = paths.config_file().read_text()
+    assert json.loads(text)["profiles"][1]["limits"]["session"]["note"] == value
+    json.loads(text, parse_constant=lambda c: pytest.fail(f"bare {c} in config.json"))

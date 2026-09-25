@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from typing import Any, TypeGuard
@@ -321,6 +322,21 @@ def _validate_profile(v: _V, raw: Any, path: str) -> None:
         _validate_warmup(v, warmup, f"{path}.warmup")
 
 
+def _check_finite(v: _V, node: Any, path: str) -> None:
+    """Reject `Infinity`/`NaN` (and `1e999`) anywhere, unknown keys included.
+
+    Python's `json` reads them, but they aren't JSON: Swift's decoder refuses the whole file.
+    """
+    if isinstance(node, float) and not math.isfinite(node):
+        v.add(path, "must be a finite number")
+    elif isinstance(node, dict):
+        for key, value in node.items():
+            _check_finite(v, value, f"{path}.{key}" if path else str(key))
+    elif isinstance(node, list):
+        for i, value in enumerate(node):
+            _check_finite(v, value, f"{path}[{i}]")
+
+
 def validate(raw: Any) -> list[Issue]:
     """Validate a raw config dict (missing optional keys take defaults). Never raises."""
     v = _V()
@@ -330,6 +346,7 @@ def validate(raw: Any) -> list[Issue]:
         for key in REQUIRED_KEYS:
             if key not in raw:
                 v.add(key, "is required")
+        _check_finite(v, raw, "")
         d = deep_merge(defaults.default_config_dict(), raw)
         _validate_top(v, d)
         profiles = d.get("profiles")
@@ -355,8 +372,12 @@ def validate(raw: Any) -> list[Issue]:
                     other = seen["config_dir"][ident]
                     v.add(f"{path}.config_dir", f"same config dir as profiles[{other}]")
                 seen["config_dir"][ident] = i
-        default = d.get("default_profile")
-        if profiles and default not in seen["id"]:
+        # Only what the file says: a missing `default_profile` is fine (the "personal" default
+        # applies only if that profile exists, see `Config.from_dict`), and so is null.
+        default = raw.get("default_profile")
+        if default is not None and not isinstance(default, str):
+            v.add("default_profile", "must be null or the id of a profile")
+        elif isinstance(default, str) and profiles and default not in seen["id"]:
             v.add("default_profile", f"'{default}' is not the id of a profile")
     except Exception as exc:  # never raise from validation
         v.add("", f"could not validate: {exc}")

@@ -495,10 +495,15 @@ class Config:
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> Config:
         d = deep_merge(defaults.default_config_dict(), raw)
+        default = d["default_profile"]
+        if "default_profile" not in raw and not any(
+            isinstance(p, dict) and p.get("id") == default for p in d["profiles"]
+        ):
+            default = None  # the "personal" default applies only when that profile exists
         return cls(
             int(d["version"]),
             int(d["revision"]),
-            None if d["default_profile"] is None else str(d["default_profile"]),
+            None if default is None else str(default),
             None if d["ccs_path"] is None else str(d["ccs_path"]),
             None if d["claude_path"] is None else str(d["claude_path"]),
             Display.from_dict(d["display"]),

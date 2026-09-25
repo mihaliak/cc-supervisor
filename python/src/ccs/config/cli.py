@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from collections.abc import Callable
 from typing import Any
 
@@ -24,10 +25,31 @@ _CONFIG_SET_FORBIDDEN = {
 }
 
 
+class _NonFinite(Exception):
+    """A JSON number too large for a float (`1e999`); not a `ValueError` on purpose."""
+
+
+def _finite_float(text: str) -> float:
+    value = float(text)
+    if not math.isfinite(value):
+        raise _NonFinite(text)
+    return value
+
+
+def _not_json(name: str) -> Any:
+    raise ValueError(f"{name} is not JSON")
+
+
 def parse_value(text: str) -> Any:
-    """JSON when it parses (numbers, booleans, null, arrays, objects, quoted strings), else text."""
+    """JSON when it parses (numbers, booleans, null, arrays, objects, quoted strings), else text.
+
+    Strict JSON: `NaN`/`Infinity` aren't JSON, so they stay text. A number that overflows a
+    float (`1e999`) is a `UsageError`: it would be written as `Infinity`, which Swift refuses.
+    """
     try:
-        return json.loads(text)
+        return json.loads(text, parse_float=_finite_float, parse_constant=_not_json)
+    except _NonFinite as exc:
+        raise UsageError(f"{exc} is not a finite number") from exc
     except ValueError:
         return text
 
