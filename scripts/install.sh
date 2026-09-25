@@ -13,11 +13,16 @@ APP="${APP:-$HOME/Applications/CC Supervisor.app}"
 OPEN="${OPEN:-open}"
 WAIT_S="${WAIT_S:-20}"
 
-if [ -n "${CCS_STATE_DIR:-}" ]; then
-    STATE_DIR="$CCS_STATE_DIR"
-else
-    STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/ccs"
-fi
+# the dir ccs uses (ccs.paths: an env override counts only when it is an absolute path)
+case "${CCS_STATE_DIR:-}" in
+    /*) STATE_DIR="$CCS_STATE_DIR" ;;
+    *)
+        case "${XDG_STATE_HOME:-}" in
+            /*) STATE_DIR="$XDG_STATE_HOME/ccs" ;;
+            *) STATE_DIR="$HOME/.local/state/ccs" ;;
+        esac
+        ;;
+esac
 
 step() { printf '\n==> %s\n' "$*"; }
 

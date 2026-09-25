@@ -21,12 +21,20 @@ YES="${YES:-}"
 PURGE="${PURGE:-}"
 LABEL="local.ccsupervisor.daemon"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
-CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/ccs"
-if [ -n "${CCS_STATE_DIR:-}" ]; then
-    STATE_DIR="$CCS_STATE_DIR"
-else
-    STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/ccs"
-fi
+# the dirs ccs uses (ccs.paths: an env override counts only when it is an absolute path)
+case "${XDG_CONFIG_HOME:-}" in
+    /*) CONFIG_DIR="$XDG_CONFIG_HOME/ccs" ;;
+    *) CONFIG_DIR="$HOME/.config/ccs" ;;
+esac
+case "${CCS_STATE_DIR:-}" in
+    /*) STATE_DIR="$CCS_STATE_DIR" ;;
+    *)
+        case "${XDG_STATE_HOME:-}" in
+            /*) STATE_DIR="$XDG_STATE_HOME/ccs" ;;
+            *) STATE_DIR="$HOME/.local/state/ccs" ;;
+        esac
+        ;;
+esac
 BOOK_DIR="$STATE_DIR/statusline"
 NL=$'\n'
 
@@ -118,6 +126,34 @@ ask() {
         y | Y | yes | YES) return 0 ;;
         *) return 1 ;;
     esac
+}
+
+purge_refusal() {
+    # purge_refusal <dir> <marker>... -> prints why <dir> must not be deleted recursively
+    # (nothing when it may be): the filesystem root, $HOME or a parent of it, or a dir without
+    # any of the markers ccs creates in it. A mis-set CCS_STATE_DIR / XDG_CONFIG_HOME (e.g.
+    # $HOME) must never make a purge delete someone's files.
+    local dir="$1" real home m
+    shift
+    if ! real="$(cd -P -- "$dir" 2>/dev/null && pwd)"; then
+        echo "it can't be resolved"
+        return 0
+    fi
+    home="$(cd -P -- "$HOME" 2>/dev/null && pwd)" || home="$HOME"
+    if [ -z "$real" ] || [ "$real" = / ]; then
+        echo "it is the filesystem root"
+        return 0
+    fi
+    case "${home%/}/" in
+        "$real/"*)
+            echo "it is \$HOME or a folder containing it"
+            return 0
+            ;;
+    esac
+    for m in "$@"; do
+        if [ -e "$real/$m" ]; then return 0; fi
+    done
+    echo "it doesn't look like a ccs folder (none of: $*)"
 }
 
 find_ccs() {
@@ -250,7 +286,25 @@ if [ "$PURGE" = 1 ]; then
 elif [ -z "$YES" ] && ask "Also delete config (~/.config/ccs) and state (~/.local/state/ccs)?"; then
     purge=1
 fi
+refused=0
 if [ "$purge" = 1 ]; then
+    for dir in "$CONFIG_DIR" "$STATE_DIR"; do
+        [ -e "$dir" ] || [ -L "$dir" ] || continue
+        if [ "$dir" = "$CONFIG_DIR" ]; then
+            why="$(purge_refusal "$dir" config.json)"
+        else
+            why="$(purge_refusal "$dir" statusline usage widget supervisor events.jsonl)"
+        fi
+        if [ -n "$why" ]; then
+            echo "  ! not deleting $dir: $why. Check the environment (XDG_CONFIG_HOME," \
+                "CCS_STATE_DIR, XDG_STATE_HOME) or delete it by hand."
+            refused=1
+        fi
+    done
+fi
+if [ "$refused" = 1 ]; then
+    echo "  nothing deleted"
+elif [ "$purge" = 1 ]; then
     rm -rf "$CONFIG_DIR"
     if [ "$kept_n" = 0 ]; then
         rm -rf "$STATE_DIR"
@@ -277,3 +331,7 @@ fi
 
 echo
 echo "CC Supervisor is uninstalled. Claude config dirs and logins were not touched."
+if [ "$refused" = 1 ]; then
+    echo "Config and state were NOT deleted: see the ! lines above." >&2
+    exit 1
+fi

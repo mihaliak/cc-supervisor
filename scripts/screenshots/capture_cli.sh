@@ -22,9 +22,12 @@ out=$2
 shift 2
 [[ -x "$py" ]] || { echo "missing $py (run: make venv)" >&2; exit 1; }
 
-abspath() { case $1 in /*) printf '%s\n' "${1%/}" ;; *) printf '%s\n' "$PWD/${1%/}" ;; esac }
-case "$(abspath "$out")/" in
-    "$(abspath "$demo")/"*)
+# `..` and symlinks resolved (the dirs may not exist yet), so no spelling gets around the check
+resolve() { "$py" -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"; }
+real_out=$(resolve "$out")
+real_demo=$(resolve "$demo")
+case "${real_out%/}/" in
+    "${real_demo%/}/"*)
         echo "out-dir must be outside the demo dir (it is wiped on every run)" >&2
         exit 2
         ;;
