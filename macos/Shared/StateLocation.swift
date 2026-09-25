@@ -8,6 +8,12 @@ public enum StateLocation {
     /// The user's real home directory. Inside the widget sandbox `NSHomeDirectory()`
     /// is the container, so resolve it via `getpwuid` (ADR-0012 verification).
     public static func realHome() -> URL {
+        #if SCREENSHOTS
+        // The README screenshot harness runs with the demo environment's HOME.
+        if let home = ProcessInfo.processInfo.environment["HOME"], home.hasPrefix("/") {
+            return URL(fileURLWithPath: home, isDirectory: true)
+        }
+        #endif
         if let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir {
             return URL(fileURLWithPath: String(cString: dir), isDirectory: true)
         }

@@ -6,8 +6,12 @@ import os
 enum AppEnvironment {
     /// XCTest hosts the app; skip every side effect (daemon, notifications, ccs calls).
     static var isRunningTests: Bool {
+        #if SCREENSHOTS
+        true  // the README screenshot harness: demo env only, no side effects
+        #else
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
             || NSClassFromString("XCTestCase") != nil
+        #endif
     }
 
     static var appVersion: String {
@@ -214,6 +218,14 @@ final class AppModel {
             if !daemonOnline { banner = .error(error.localizedDescription) }
         }
     }
+
+    #if SCREENSHOTS
+    /// The screenshot harness shows the daemon as connected (no socket involved).
+    func showDaemonOnline() {
+        daemonOnline = true
+        banner = .hidden
+    }
+    #endif
 
     // MARK: - Actions
 

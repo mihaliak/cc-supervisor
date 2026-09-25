@@ -68,7 +68,7 @@ struct StatuslineSection: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Apply makes plain `claude` in this config dir show the statusline too; a backup of settings.json is kept.")
                 if let path = preview?.status?.scriptPath {
-                    Text("Script: \(path)").textSelection(.enabled)
+                    Text("Script: \(DirectoryField.abbreviate(path))").textSelection(.enabled)
                 }
             }
             .font(.caption)

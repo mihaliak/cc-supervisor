@@ -14,7 +14,7 @@ APP_BUILT   := $(DERIVED)/Build/Products/Release/$(APP_NAME)
 BUILD_NUMBER := $(shell git rev-list --count HEAD 2>/dev/null || echo 1)
 APP_DEST    := $(HOME)/Applications/$(APP_NAME)
 
-.PHONY: help icon venv install-dev test test-python test-swift test-live lint fmt \
+.PHONY: help icon screenshots venv install-dev test test-python test-swift test-live lint fmt \
         xcodegen-check xcodebuild-check project app-build app clean \
         prereqs install uninstall upgrade
 
@@ -84,6 +84,9 @@ app: app-build ## build and install to ~/Applications/CC Supervisor.app
 
 icon: ## regenerate the app icon PNGs + SVG from macos/Branding/render-icon.swift
 	swift macos/Branding/render-icon.swift
+
+screenshots: venv ## regenerate README screenshots from an anonymized demo env (docs/assets/screenshots)
+	@PY="$(abspath $(VENV_BIN))/python" bash scripts/screenshots/run.sh
 
 prereqs: ## check install prerequisites (macOS/Xcode 26, xcodegen, python >= 3.12, pipx)
 	@PY="$(PY)" sh scripts/check-prereqs.sh
