@@ -6,6 +6,8 @@ import os
 enum ValidationOutcome: Sendable, Equatable {
     case report(ValidationReport)
     case unavailable(String)
+    /// The run was cancelled or superseded; nothing to report (keep the previous state).
+    case cancelled
 }
 
 /// One edit not yet on disk. `base` is the value on disk when the edit started (nil = the key
@@ -70,6 +72,8 @@ final class ConfigStore {
     @ObservationIgnored var validator: (@MainActor () async -> ValidationOutcome)?
     @ObservationIgnored var onSaved: (@MainActor () -> Void)?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
+    /// Bumped per validation run; only the newest run's result is applied.
+    @ObservationIgnored private var validationGeneration = 0
     @ObservationIgnored private var diskData: Data?
     @ObservationIgnored private let log = Logger(subsystem: "local.ccsupervisor.app", category: "config")
 
@@ -179,8 +183,18 @@ final class ConfigStore {
         saveTask = Task { [weak self] in
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled else { return }
-            await self?.saveNow()
+            await self?.runScheduledSave()
         }
+    }
+
+    /// The debounced autosave. Runs inside `saveTask`, so unlike `saveNow()` it must not
+    /// cancel that task: doing so cancelled its own `ccs config validate` run, which then
+    /// surfaced as "Couldn't validate the config … CancellationError". Detaching it from
+    /// `saveTask` also means a newer edit schedules a new save without killing this one.
+    private func runScheduledSave() async {
+        saveTask = nil
+        let result = write(resolution: nil)
+        await afterWrite(result)
     }
 
     /// Write pending edits now (explicit actions, window close) and validate.
@@ -214,14 +228,21 @@ final class ConfigStore {
             validationProblem = "Validation unavailable"
             return
         }
+        validationGeneration += 1
+        let generation = validationGeneration
         let validated = raw
-        switch await validator() {
+        let outcome = await validator()
+        // A newer run started meanwhile: its result wins, drop this one.
+        guard generation == validationGeneration else { return }
+        switch outcome {
         case .report(let report):
             errors = ValidationErrors(report: report, validated: validated)
             isInvalid = !report.ok
             validationProblem = nil
         case .unavailable(let why):
             validationProblem = why
+        case .cancelled:
+            break
         }
     }
 

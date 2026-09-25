@@ -286,6 +286,66 @@ final class ConfigStoreTests: XCTestCase {
         XCTAssertTrue(store.errors.isEmpty)
     }
 
+    /// Regression: the debounced autosave used to cancel its own task before validating,
+    /// so a cancellable `ccs config validate` run ended in "Couldn't validate the config …
+    /// CancellationError" (seen when switching the menu bar label).
+    func testAutosaveValidationIsNotCancelledByItself() async throws {
+        let store = ConfigStore(fileURL: file)
+        store.saveDelay = .milliseconds(10)
+        let validated = expectation(description: "validated")
+        let probe = CancellationProbe()
+        store.validator = {
+            // Like the real `ccs` call: a wait that throws when its task is cancelled.
+            do {
+                try await Task.sleep(for: .milliseconds(100))
+            } catch {
+                probe.cancelled = true
+                return .cancelled
+            }
+            validated.fulfill()
+            return .report(ValidationReport(ok: true, issues: []))
+        }
+        store.set(.root("display.menu_bar"), .string("icon_only"))
+        await fulfillment(of: [validated], timeout: 5)
+        XCTAssertFalse(probe.cancelled)
+        XCTAssertNil(store.validationProblem)
+        XCTAssertFalse(store.isInvalid)
+    }
+
+    /// A newer edit during a running validation must not cancel or poison it, and a
+    /// cancelled run never shows up as a validation problem.
+    func testEditDuringValidationAndCancelledOutcome() async throws {
+        let store = ConfigStore(fileURL: file)
+        store.saveDelay = .milliseconds(10)
+        let firstStarted = expectation(description: "first validation started")
+        let bothDone = expectation(description: "two validations finished")
+        bothDone.expectedFulfillmentCount = 2
+        let probe = CancellationProbe()
+        store.validator = {
+            probe.runs += 1
+            if probe.runs == 1 { firstStarted.fulfill() }
+            do {
+                try await Task.sleep(for: .milliseconds(150))
+            } catch {
+                probe.cancelled = true
+                return .cancelled
+            }
+            bothDone.fulfill()
+            return .report(ValidationReport(ok: true, issues: []))
+        }
+        store.set(.root("display.menu_bar"), .string("icon_only"))
+        await fulfillment(of: [firstStarted], timeout: 5)
+        store.set(.root("display.menu_bar"), .string("letter_percent"))
+        await fulfillment(of: [bothDone], timeout: 5)
+        XCTAssertFalse(probe.cancelled)
+        XCTAssertNil(store.validationProblem)
+        XCTAssertEqual(try disk().value(at: FieldPath.parse("display.menu_bar")), .string("letter_percent"))
+
+        store.validator = { .cancelled }
+        await store.validate()
+        XCTAssertNil(store.validationProblem, "a cancelled run is not an error")
+    }
+
     func testDefaultsFillMissingKeys() throws {
         try #"{"version": 1, "revision": 0, "profiles": [{"id": "w", "flag": "w", "name": "W", "emoji": "x", "config_dir": "~/w"}]}"#
             .write(to: file, atomically: true, encoding: .utf8)
@@ -370,4 +430,11 @@ final class SettingsComponentsTests: XCTestCase {
         XCTAssertEqual(DirectoryField.abbreviate("/Users/me", home: home), "~")
         XCTAssertEqual(DirectoryField.abbreviate("/Users/meow/x", home: home), "/Users/meow/x")
     }
+}
+
+/// Mutable flags shared with a validator closure (all on the main actor).
+@MainActor
+private final class CancellationProbe {
+    var cancelled = false
+    var runs = 0
 }

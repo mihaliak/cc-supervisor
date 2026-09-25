@@ -159,7 +159,10 @@ final class SettingsController {
     private func runValidation() async -> ValidationOutcome {
         do {
             return .report(try await ccs.configValidate())
+        } catch is CancellationError {
+            return .cancelled
         } catch {
+            if Task.isCancelled { return .cancelled }
             return .unavailable(error.localizedDescription)
         }
     }
