@@ -37,9 +37,7 @@ CC Supervisor helps you keep track of, and get the most out of, Claude Code subs
 - Native macOS notifications.
 
 ## Screenshots
-<!-- screenshot: widgets (small, medium, large) on the desktop -->
-<!-- screenshot: menu bar dropdown -->
-<!-- screenshot: statusline in a ccs session -->
+Widgets, the menu bar, notifications, Settings, the statusline and the CLI are shown in the [README](../../README.md#screenshots). `make screenshots` regenerates those images from the real code, using an anonymized demo environment (`scripts/screenshots/`).
 
 ## Quick start (5 minutes)
 1. **Install.** Check the [prerequisites](01-installation.md), then run this in the repo:

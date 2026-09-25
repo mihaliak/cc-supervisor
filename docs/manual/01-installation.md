@@ -42,9 +42,9 @@ After installing, review the new profiles in **Settings… → Profiles**: warm-
 | Background supervisor | LaunchAgent `~/Library/LaunchAgents/local.ccsupervisor.daemon.plist` |
 | Your settings | `~/.config/ccs/config.json` |
 | Runtime data (usage, sessions, logs) | `~/.local/state/ccs/` |
+| Statusline script (per profile) | `<config dir>/ccs-statusline.py`, for example `~/.claude-work/ccs-statusline.py` |
 
 If your shell sets `XDG_CONFIG_HOME`, `XDG_STATE_HOME` or `CCS_STATE_DIR`, `ccs daemon install` saves them in the LaunchAgent, and the app reads them from there when it launches, so the app, the supervisor and `ccs` use the same folders. Restart the app after reinstalling the daemon with different folders. Widgets can only read `~/.local/state/ccs/`, so they need the default state folder (`ccs doctor` warns otherwise).
-| Statusline script (per profile) | `<config dir>/ccs-statusline.py`, for example `~/.claude-work/ccs-statusline.py` |
 
 Make sure `~/.local/bin` is on your `PATH` (`pipx ensurepath`).
 
@@ -101,6 +101,7 @@ It:
 | `make project` | Generates `macos/CCSupervisor.xcodeproj` with XcodeGen. It is not committed. |
 | `make app-build` | Builds the app and widgets (Release, ad-hoc signed) into `build/xcode`. |
 | `make app` | `app-build`, then copies the app to `~/Applications/`. |
+| `make screenshots` | Regenerates the README images in `docs/assets/screenshots/` from the real app, widget and CLI code, using an anonymized demo environment. |
 | `make clean` | Removes build outputs, caches, and the generated project. |
 | `make prereqs` | Checks the install prerequisites (also the first step of `make install`). |
 | `make install` / `make upgrade` / `make uninstall` | See the sections on this page. |

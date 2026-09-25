@@ -30,6 +30,7 @@ The single source of truth for plan status. Workflow rules are in [ADR-0014](../
 | P13 | [Install, uninstall, doctor](done/P13-install-and-doctor.md) | done | P06, P07, P08, P09, P12 | infra |
 | P14 | [Migration from current setup](done/P14-migration.md) | done | P11, P13 | ops |
 | P15 | [Review fixes](done/P15-review-fixes.md) | done | P13 | all |
+| P16 | [README and screenshots](done/P16-readme-and-screenshots.md) | done | P15 | docs |
 
 ## Parallelism hints
 - P00 and P01 can run in parallel.
