@@ -35,3 +35,12 @@ def test_vector(vec: dict[str, Any]) -> None:
     assert format_relative(reset, now) == vec["relative"]
     assert format_reset_combined(reset, now, tz) == vec["combined"]
     assert format_reset_compact(reset, now, tz) == vec["compact"]
+
+
+def test_range_edge_does_not_overflow() -> None:
+    """Minute rounding or the local zone would step past `datetime.max`: shown as given."""
+    tz = ZoneInfo("Europe/Bratislava")
+    now = _dt("2026-09-24T15:47:00Z")
+    edge = _dt("9999-12-31T23:59:59Z")
+    assert format_reset_absolute(edge, now, tz) == "31 Dec 23:59"
+    assert format_reset_combined(edge, now, tz).startswith("31 Dec 23:59 (in ")

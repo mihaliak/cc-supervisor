@@ -18,7 +18,7 @@ from ccs.launcher.main import (
     launcher_env,
     statusline_args,
 )
-from ccs.launcher.pty_proxy import SubmitScanner, exit_code_from_status, strip_ctrl_z
+from ccs.launcher.pty_proxy import InputFilter, exit_code_from_status, strip_ctrl_z
 
 NOW = datetime(2026, 9, 24, 17, 18, tzinfo=UTC)
 
@@ -52,20 +52,24 @@ def test_strip_ctrl_z(data: bytes, rest: bytes, found: bool) -> None:
     assert strip_ctrl_z(data) == (rest, found)
 
 
+def submits(f: InputFilter, data: bytes) -> bool:
+    return f.feed(data)[1]
+
+
 def test_submit_scanner_plain_enter() -> None:
-    s = SubmitScanner()
-    assert s.feed(b"hello") is False
-    assert s.feed(b"\r") is True
-    assert s.feed(b"\x1b[13u") is True
+    s = InputFilter()
+    assert submits(s, b"hello") is False
+    assert submits(s, b"\r") is True
+    assert submits(s, b"\x1b[13u") is True
 
 
 def test_submit_scanner_ignores_paste_content() -> None:
-    s = SubmitScanner()
-    assert s.feed(b"\x1b[200~line1\nline2\r\x1b[201~") is False
+    s = InputFilter()
+    assert submits(s, b"\x1b[200~line1\nline2\r\x1b[201~") is False
     # a paste split across reads
-    assert s.feed(b"\x1b[200~multi\n") is False
-    assert s.feed(b"more\r") is False
-    assert s.feed(b"\x1b[201~\r") is True
+    assert submits(s, b"\x1b[200~multi\n") is False
+    assert submits(s, b"more\r") is False
+    assert submits(s, b"\x1b[201~\r") is True
 
 
 def test_exit_code_from_status() -> None:

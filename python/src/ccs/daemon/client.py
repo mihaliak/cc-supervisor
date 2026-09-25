@@ -5,6 +5,8 @@
   and returned by `iter_pushes()`.
 - `AsyncDaemonClient`: asyncio, for long-lived clients (the P05 launcher, tests). Replies are
   matched by `id`; pushes (`event`, `snapshot`, `cmd`) go to `next_push()`.
+
+Both refuse a socket they can't trust (`socket_trust_error`, ADR-0022) before connecting.
 """
 
 from __future__ import annotations
@@ -12,7 +14,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
+import os
 import socket
+import stat
 from collections import deque
 from collections.abc import Iterator
 from pathlib import Path
@@ -23,9 +28,45 @@ from ccs import __version__, paths
 
 PROTO = 1
 
+log = logging.getLogger(__name__)
+
 
 class DaemonUnavailable(Exception):
     """No daemon is listening, or it did not answer in time."""
+
+
+def socket_trust_error(sock_path: Path) -> str | None:
+    """Why the daemon socket must not be used, or None (ADR-0022).
+
+    The socket (`lstat`: a symlink is refused) and its directory must belong to the current
+    user, and the directory must not be group- or world-writable. A missing path is not an
+    error here: connecting then fails as usual.
+    """
+    uid = os.getuid()
+    try:
+        link = os.lstat(sock_path.parent)
+        folder = os.stat(sock_path.parent)  # a symlinked state dir is judged by its target
+        sock = os.lstat(sock_path)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        return f"cannot inspect: {exc}"
+    if link.st_uid != uid or folder.st_uid != uid:
+        return f"{sock_path.parent} is not owned by the current user"
+    if folder.st_mode & 0o022:
+        return f"{sock_path.parent} is group- or world-writable"
+    if not stat.S_ISSOCK(sock.st_mode):
+        return f"{sock_path} is not a socket"
+    if sock.st_uid != uid:
+        return f"{sock_path} is not owned by the current user"
+    return None
+
+
+def _check_trust(sock_path: Path) -> None:
+    problem = socket_trust_error(sock_path)
+    if problem is not None:
+        log.warning("refusing the daemon socket: %s", problem)
+        raise DaemonUnavailable(f"refusing the daemon socket: {problem}")
 
 
 class DaemonClient:
@@ -43,6 +84,7 @@ class DaemonClient:
         """Open the socket; raises `DaemonUnavailable`."""
         if self._sock is not None:
             return
+        _check_trust(self.sock_path)
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.settimeout(self.timeout)
         try:
@@ -159,6 +201,7 @@ class AsyncDaemonClient:
 
     async def connect(self) -> None:
         """Open the connection; raises `DaemonUnavailable`."""
+        _check_trust(self.sock_path)
         try:
             self._reader, self._writer = await asyncio.wait_for(
                 asyncio.open_unix_connection(str(self.sock_path), limit=16 * 1024 * 1024),

@@ -7,6 +7,7 @@ with tolerant (de)serialization; the policy (`policy.py`) never does IO.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -51,6 +52,24 @@ def _str_list(value: Any) -> list[str]:
     return [v for v in value if isinstance(v, str)] if isinstance(value, list) else []
 
 
+def extra_instance(limit: float | None, arm: int) -> str:
+    """`extra_usage:<cap>:<arm>`: a new cap or a re-arm (drop below warn) is a new instance."""
+    cap = "none" if limit is None else f"{limit:g}"
+    return f"{EXTRA_USAGE}:{cap}:{arm}"
+
+
+# Before ADR-0022 the credits instance was `extra_usage:<YYYY-MM>:<cap>` (a calendar month
+# re-armed it). Stored keys are read as arm 0 of their cap, which is where a fresh state starts,
+# so an upgrade never re-fires a warn or pause that already happened.
+_LEGACY_EXTRA = re.compile(rf"((?:warnp?:)?){EXTRA_USAGE}:[0-9]{{4}}-[0-9]{{2}}:([^:]+)")
+
+
+def upgrade_key(key: str) -> str:
+    """A pre-ADR-0022 `extra_usage` instance (or its warn key) in the current format."""
+    m = _LEGACY_EXTRA.fullmatch(key)
+    return f"{m[1]}{EXTRA_USAGE}:{m[2]}:0" if m else key
+
+
 def bounded(items: Iterable[str], limit: int = BOUND_KEYS) -> tuple[str, ...]:
     """Unique items in first-seen order, keeping only the newest `limit`."""
     seen: dict[str, None] = {}
@@ -59,6 +78,10 @@ def bounded(items: Iterable[str], limit: int = BOUND_KEYS) -> tuple[str, ...]:
         seen[item] = None
     keys = list(seen)
     return tuple(keys[-limit:])
+
+
+def _keys(value: Any) -> tuple[str, ...]:
+    return bounded(upgrade_key(k) for k in _str_list(value))
 
 
 @dataclass(frozen=True)
@@ -103,6 +126,7 @@ class Hold:
         hid, kind, instance = _str(d.get("id")), _str(d.get("kind")), _str(d.get("instance"))
         if hid is None or instance is None:
             return None
+        instance = upgrade_key(instance)
         if kind is None:
             kind = hid.split(":", 1)[0]
         if kind not in KINDS:
@@ -157,13 +181,18 @@ class LedgerEntry:
 
 @dataclass(frozen=True)
 class ProfileSupervisorState:
-    """`supervisor/<profile>.json`: active holds plus dedupe / hysteresis memory."""
+    """`supervisor/<profile>.json`: active holds plus dedupe / hysteresis memory.
+
+    `extra_usage_arm` numbers the credits window instance (`extra_instance`); the policy
+    bumps it when `percent` drops below warn after the instance fired (ADR-0022).
+    """
 
     holds: tuple[Hold, ...] = ()
     warned: tuple[str, ...] = ()
     paused_instances: tuple[str, ...] = ()
     released_instances: tuple[str, ...] = ()
     ledger: tuple[LedgerEntry, ...] = ()
+    extra_usage_arm: int = 0
 
     def to_dict(self, profile_id: str) -> dict[str, Any]:
         return {
@@ -174,6 +203,7 @@ class ProfileSupervisorState:
             "paused_instances": list(self.paused_instances),
             "released_instances": list(self.released_instances),
             "ledger": [e.to_dict() for e in self.ledger],
+            "extra_usage_arm": self.extra_usage_arm,
         }
 
     @classmethod
@@ -183,12 +213,16 @@ class ProfileSupervisorState:
             return cls()
         holds = [Hold.from_dict(h) for h in d.get("holds") or []]
         ledger = [LedgerEntry.from_dict(e) for e in d.get("ledger") or []]
+        arm = d.get("extra_usage_arm")
+        if not isinstance(arm, int) or isinstance(arm, bool) or arm < 0:
+            arm = 0
         return cls(
             holds=tuple(h for h in holds if h is not None),
-            warned=bounded(_str_list(d.get("warned"))),
-            paused_instances=bounded(_str_list(d.get("paused_instances"))),
-            released_instances=bounded(_str_list(d.get("released_instances"))),
+            warned=_keys(d.get("warned")),
+            paused_instances=_keys(d.get("paused_instances")),
+            released_instances=_keys(d.get("released_instances")),
             ledger=tuple(e for e in ledger if e is not None)[-BOUND_LEDGER:],
+            extra_usage_arm=arm,
         )
 
     def with_ledger(self, entries: Sequence[LedgerEntry]) -> tuple[LedgerEntry, ...]:
@@ -197,7 +231,12 @@ class ProfileSupervisorState:
 
 @dataclass(frozen=True)
 class Supervision:
-    """The `supervision` block of a session record."""
+    """The `supervision` block of a session record.
+
+    `pending_override_instances`: model-scoped hold instances a session was started anyway
+    against while its model was still unknown; they count as overridden once the model is
+    known and matches (ADR-0022).
+    """
 
     state: str = RUNNING
     holds: tuple[str, ...] = ()
@@ -205,6 +244,7 @@ class Supervision:
     resume_at: datetime | None = None
     was_busy_at_pause: bool | None = None
     overridden_instances: tuple[str, ...] = ()
+    pending_override_instances: tuple[str, ...] = ()
 
     @classmethod
     def from_dict(cls, d: Any) -> Supervision:
@@ -219,6 +259,7 @@ class Supervision:
             resume_at=parse_time(d.get("resume_at")),
             was_busy_at_pause=busy if isinstance(busy, bool) else None,
             overridden_instances=tuple(_str_list(d.get("overridden_instances"))),
+            pending_override_instances=tuple(_str_list(d.get("pending_override_instances"))),
         )
 
 

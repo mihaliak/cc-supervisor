@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from datetime import UTC, datetime
 from typing import IO, Any
@@ -19,6 +20,9 @@ from ccs.statusline.render import RenderContext, fallback_line, parse_time, rend
 OFFLINE_AFTER_S = 300  # usage file older than 5 min → supervisor offline (ADR-0009)
 LIVE_REFRESH_S = 60  # rewrite an unchanged live report after 60 s (fresh `observed_at`)
 LIVE_SCHEMA = 1
+# Ids that become file names under the state dir: exactly `ccs.paths.ID_RE` (a test keeps them
+# equal). `ccs.paths` isn't embedded: its pathlib import would cost ~6 ms per refresh.
+ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 def _read_json(path: str) -> dict[str, Any] | None:
@@ -36,6 +40,11 @@ def _dict(value: Any) -> dict[str, Any]:
 
 def _str(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
+
+
+def safe_id(value: Any) -> str | None:
+    """`value` when it is usable as a file name (`paths.is_valid_id`), else `None`."""
+    return value if isinstance(value, str) and ID_RE.fullmatch(value) else None
 
 
 def _iso(dt: datetime) -> str:
@@ -101,11 +110,14 @@ def build_live_report(
 
 
 def live_report_path(state_dir: str, report: dict[str, Any]) -> str | None:
-    """`live/<wrapper_id>.json`, or `live/session-<session_id>.json` without a wrapper."""
-    wrapper_id = _str(report.get("wrapper_id"))
-    if wrapper_id:
-        return os.path.join(state_dir, "live", f"{wrapper_id}.json")
-    session_id = _str(report.get("session_id"))
+    """`live/<wrapper_id>.json`, or `live/session-<session_id>.json` without a wrapper.
+
+    `None` (no report) when the id that names the file isn't a safe file name.
+    """
+    if report.get("wrapper_id"):
+        wrapper_id = safe_id(report.get("wrapper_id"))
+        return os.path.join(state_dir, "live", f"{wrapper_id}.json") if wrapper_id else None
+    session_id = safe_id(report.get("session_id"))
     if session_id:
         return os.path.join(state_dir, "live", f"session-{session_id}.json")
     return None
@@ -176,7 +188,7 @@ def main(
         usage = _read_json(usage_path) if state_dir else None
         record = (
             _read_json(os.path.join(state_dir, "sessions", f"{wrapper_id}.json"))
-            if state_dir and wrapper_id
+            if state_dir and safe_id(wrapper_id)
             else None
         )
         report = build_live_report(constants, data, wrapper_id, current)

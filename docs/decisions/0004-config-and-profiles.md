@@ -1,6 +1,6 @@
 # ADR-0004: Config file & profile model
 
-- Status: accepted
+- Status: accepted; partly superseded by [ADR-0022](0022-review-hardening.md)
 - Date: 2026-09-24
 - Source: user decisions (config split, thresholds, warm-up, extra usage, model-scoped toggle) + planner defaults (file format, location)
 

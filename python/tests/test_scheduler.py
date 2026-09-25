@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import Awaitable, Callable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+import pytest
 from warmup_helpers import (
     TZ,
     FakeDaemon,
@@ -19,7 +21,7 @@ from warmup_helpers import (
 )
 
 from ccs.clock import FakeClock
-from ccs.config.models import ScheduleEntry
+from ccs.config.models import Config, Profile, ScheduleEntry
 from ccs.daemon.scheduler import (
     CHAIN_DELAY,
     Scheduler,
@@ -77,11 +79,28 @@ def test_occurrences_weekdays_filter_and_multiple_entries() -> None:
 # ---------------------------------------------------------------- scheduler harness
 
 
+class SchedDaemon(FakeDaemon):
+    """`FakeDaemon` plus `ensure_profile`: `reloaded` (a config set by the test) appears on
+    the reload that an unknown profile triggers."""
+
+    def __init__(self, cfg: Config, clock: FakeClock) -> None:
+        super().__init__(cfg, clock)
+        self.reloads = 0
+        self.reloaded: Config | None = None
+
+    async def ensure_profile(self, pid: str) -> Profile | None:
+        if self.profile(pid) is None:
+            self.reloads += 1
+            if self.reloaded is not None:
+                self.config = self.reloaded
+        return self.profile(pid)
+
+
 def harness(
     start: datetime, *profiles: dict[str, Any]
-) -> tuple[Scheduler, FakeDaemon, StubRunner, FakeClock]:
+) -> tuple[Scheduler, SchedDaemon, StubRunner, FakeClock]:
     clock = FakeClock(start)
-    daemon = FakeDaemon(config(*profiles), clock)
+    daemon = SchedDaemon(config(*profiles), clock)
     runner = StubRunner()
     sched = Scheduler(daemon, runner=runner, store=WarmupStore(), tz=TZ)  # type: ignore[arg-type]
     return sched, daemon, runner, clock
@@ -203,7 +222,7 @@ def test_sleep_across_midnight_no_catch_up_for_previous_day() -> None:
 
 def chain_harness(
     start: datetime, **warm: Any
-) -> tuple[Scheduler, FakeDaemon, StubRunner, FakeClock, datetime]:
+) -> tuple[Scheduler, SchedDaemon, StubRunner, FakeClock, datetime]:
     sched, daemon, runner, clock = harness(start, {"id": "work", "warmup": warmup(**warm)})
     reset = start + timedelta(hours=1)
     daemon.snapshots["work"] = snapshot(resets_at=reset, observed=start)
@@ -349,7 +368,7 @@ def test_next_warmup_none_when_disabled() -> None:
 # ---------------------------------------------------------------- op + evaluation
 
 
-def two_profiles(start: datetime) -> tuple[Scheduler, FakeDaemon, StubRunner, FakeClock]:
+def two_profiles(start: datetime) -> tuple[Scheduler, SchedDaemon, StubRunner, FakeClock]:
     return harness(
         start,
         {"id": "work"},
@@ -464,5 +483,54 @@ def test_config_change_drops_removed_profiles() -> None:
         daemon.config = new
         await sched.on_config_changed(None, new)
         assert "work" not in sched.chains
+
+    run(body)
+
+
+def test_op_reloads_config_for_unknown_profile() -> None:
+    async def body() -> None:
+        sched, daemon, runner, _ = harness(local(2026, 9, 24, 12), {"id": "work"})
+        daemon.reloaded = config({"id": "work"}, {"id": "new"})  # added since the last reload
+        reply = await sched.op_warmup(None, {"profile_id": "new", "trigger": "app_start"})
+        await settle()
+        assert reply["ok"] and reply["results"][0]["profile_id"] == "new"
+        assert daemon.reloads == 1 and runner.runs == [("new", "app_start")]
+        missing = await sched.op_warmup(None, {"profile_id": "nope"})
+        assert missing["error"] == "unknown_profile" and daemon.reloads == 2
+
+    run(body)
+
+
+def test_tick_survives_one_bad_profile() -> None:
+    """A profile that breaks evaluation (e.g. `active_hours.end` "23:00\\n" before the validator
+    rejected it) must not stop schedules, auto-chains or the loop for the others."""
+
+    async def body() -> None:
+        with pytest.raises(ValueError):
+            rules.parse_hhmm("23:00\n")
+        start = local(2026, 9, 24, 5, 59)
+        bad_hours = {"start": "07:00", "end": "23:00\n"}
+        bad = warmup(
+            active_hours=bad_hours,
+            triggers={"schedule": [{"time": "06:00", "weekdays": ALL_DAYS}]},
+        )
+        sched, daemon, runner, clock = harness(
+            start, {"id": "bad", "warmup": bad}, sched_profile("06:00")
+        )
+        daemon.snapshots["bad"] = snapshot(resets_at=start + timedelta(hours=1))
+        sched.arm("bad")
+        assert "bad" in sched.chains
+        await sched.tick()
+        await tick_until(sched, clock, local(2026, 9, 24, 6, 1))
+        assert ("work", rules.SCHEDULE) in runner.runs
+        assert sched.next_warmup("work")[0] is not None
+        # the loop itself keeps going (it used to die on the first bad tick)
+        sched.tick_s = 0.01
+        task = asyncio.ensure_future(sched.loop())
+        await asyncio.sleep(0.1)
+        assert not task.done()
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
     run(body)

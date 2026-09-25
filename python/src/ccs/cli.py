@@ -20,7 +20,7 @@ from ccs.config.models import Config
 from ccs.daemon import cli as daemon_cli
 from ccs.launcher.args import LaunchArgsError, LaunchSpec, is_management
 from ccs.launcher.args import parse_launcher_args as _parse_launcher_args
-from ccs.output import EXIT_ERROR, EXIT_USAGE, eprint
+from ccs.output import EXIT_ERROR, EXIT_INTERRUPTED, EXIT_USAGE, eprint
 from ccs.statusline import commands as statusline_cli
 from ccs.supervisor import cli as supervisor_cli
 from ccs.usage import cli as usage_cli
@@ -56,7 +56,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def launch(argv: Sequence[str]) -> int:
-    """`ccs --<flag> …`: load (or seed) the config, pre-parse, run claude."""
+    """`ccs --<flag> …`: load (or seed) the config, pre-parse, run claude.
+
+    Ctrl-C before claude starts exits 130 without a traceback.
+    """
+    try:
+        return _launch(argv)
+    except KeyboardInterrupt:
+        return EXIT_INTERRUPTED
+
+
+def _launch(argv: Sequence[str]) -> int:
     try:
         config = store.ensure_config()
     except store.ConfigError as exc:

@@ -27,6 +27,7 @@ It runs every check below in parallel (about a second), prints `✓` / `!` / `�
 | `notifications.route` | ! no menu bar app is connected, so notifications fall back to osascript (shown as "Script Editor") | `open -a "CC Supervisor"` |
 | `app.installed` | ! `~/Applications/CC Supervisor.app` is missing | `make app` |
 | `widget.snapshot` | ! no widget data yet, or older than 5 minutes (widgets then show "Supervisor offline") | `ccs daemon start` / `ccs daemon restart` |
+| `state.dir` | ! `CCS_STATE_DIR` or `XDG_STATE_HOME` moves the state folder away from `~/.local/state/ccs`; widgets can only read the default folder | unset the variable, then `ccs daemon install` |
 
 ### Per-profile checks
 | Check | ✗ / ! means | Fix |
@@ -37,13 +38,15 @@ It runs every check below in parallel (about a second), prints `✓` / `!` / `�
 | `usage.last_poll` | ! no usage data yet; the last poll attempt is over 5 min old (the daemon isn't polling); or the last *successful* poll is over 10 min old (polls fail; the error is shown) | `ccs daemon start` / `ccs daemon restart`; `ccs usage --refresh --profile <id>` |
 | `usage.status` | ! sign-in required, no subscription, or stale data; ✗ usage source error (Claude Code changed its experimental usage interface) | `ccs auth login --profile <id>`; `ccs usage --refresh --profile <id>`; update CC Supervisor |
 | `statusline.script` | ! the script is outdated (older generator or code, or the profile's name, emoji, thresholds or Python changed). ✓ when not generated yet: `ccs --<flag>` creates it | `ccs statusline generate --profile <id>` |
-| `statusline.interpreter` | ✗ the Python the script runs with is gone (e.g. after a Homebrew or pyenv upgrade) | `ccs statusline generate --profile <id>`, then `ccs statusline apply --profile <id>` if applied |
-| `statusline.applied` | ! applied with an outdated command. ✓ when not applied or when `settings.json` has another `statusLine` (informational: `ccs` sessions still show theirs) | `ccs statusline apply --profile <id>` |
+| `statusline.interpreter` | ✗ the Python the script runs with is gone (paths with spaces are fine) (e.g. after a Homebrew or pyenv upgrade) | `ccs statusline generate --profile <id>`, then `ccs statusline apply --profile <id>` if applied |
+| `statusline.applied` | ✗ applied, but the script it runs is missing. ! applied with an outdated command. ✓ when not applied or when `settings.json` has another `statusLine` (informational: `ccs` sessions still show theirs) | `ccs statusline apply --profile <id>` |
+| `statusline.model_scoped` | ! the statusline is off but a model-scoped limit (e.g. Fable) is set to pause. The session's model is only learned from the statusline, so those pauses can't happen | `ccs profile set <id> statusline.enabled=true`, or make the limit warn-only |
 | `supervisor.state` | ! a pause should have been lifted more than 10 minutes ago (the supervisor isn't running or can't confirm the reset), or the state file is unreadable | `ccs daemon restart`, or `ccs resume --profile <id>` |
 
 ## Logs and history
 ```sh
 ccs daemon logs          # recent supervisor log lines (~/.local/state/ccs/logs/daemon.log)
+# launcher diagnostics of `ccs --<profile>` sessions: ~/.local/state/ccs/logs/launcher.log
 ccs events               # warnings, pauses, resumes, warm-ups, errors
 ccs events --follow      # live
 ccs status               # current usage + supervisor state
@@ -56,7 +59,7 @@ ccs daemon restart       # restart it (e.g. after upgrading ccs)
 ccs daemon install       # (re)install: rewrites the LaunchAgent with your current PATH
 ```
 - `ccs daemon status` says **loaded but not responding**: look at `ccs daemon logs`. launchd's own output for crashes that happen before logging starts is in `~/.local/state/ccs/logs/launchd.err.log`.
-- To run it by hand and watch its log, stop the LaunchAgent first (`ccs daemon stop`), then run `ccs daemon run --foreground`. A second copy exits immediately with `daemon already running`.
+- To run it by hand and watch its log, stop the LaunchAgent first (`ccs daemon stop`), then run `ccs daemon run --foreground`. A second copy you start by hand exits immediately with `daemon already running`. The launchd copy instead waits (log: "another daemon holds … waiting for it to exit") and takes over when yours exits.
 - Low-level launchd checks: `launchctl print gui/$(id -u)/local.ccsupervisor.daemon` shows state and pid; `launchctl kickstart -k gui/$(id -u)/local.ccsupervisor.daemon` restarts it.
 - The supervisor rewrites `~/.local/state/ccs/usage/<profile>.json` and `widget/snapshot.json` after every usage check, even a failed one. A file older than 5 minutes means the supervisor isn't running, which is what `⚠ supervisor offline` in the statusline and widgets reports.
 
@@ -93,6 +96,10 @@ ccs daemon install       # (re)install: rewrites the LaunchAgent with your curre
 | `ccs usage` says `no plan limits` | The profile is signed in with an API key, or the account has no Claude subscription | Nothing to track. Sign in with a subscription account: `ccs auth login --profile <id>` |
 | Usage error: **usage source error** | Claude Code changed how it reports usage (that interface is experimental), or `claude` couldn't start | Update CC Supervisor; `ccs usage --refresh --profile <id>` shows the error text directly; `ccs doctor`; `ccs daemon logs`. The last good numbers stay visible, and **no pauses happen** until fixed. |
 | Supervisor can't find `claude` | `PATH` changed since `ccs daemon install` | Re-run `ccs daemon install`, or set `claude_path` in the config |
+| `config.invalid` event: "cannot read config" or "config is not valid UTF-8" | `config.json` isn't readable by you, or was saved in another encoding | Fix the permissions (`chmod 600`) or re-save it as UTF-8. The supervisor keeps running on the last good config. |
+| `ccs config validate` rejects `polling.*interval_seconds` | Intervals above 240 s aren't allowed, because files older than 5 minutes mean "offline" | Set 240 or less |
+| Menu stays offline while `ccs daemon status` is fine, or `ccs` says "refusing the daemon socket: …" and runs unsupervised | The state folder or `daemon.sock` isn't owned by you, or the folder is writable by other users. The app and `ccs` refuse such a socket | `chmod 700 ~/.local/state/ccs` and make sure you own it, then `ccs daemon restart` |
+| `session.ended` with reason `stale` right after a supervisor restart | A session from before the restart didn't reconnect within 60 s (its launcher is gone) | Nothing to do |
 | `ccs status` first line says `daemon: not running` | The supervisor is stopped or not installed; the numbers shown are the last saved ones | `ccs daemon start`, or `ccs daemon install` |
 | `ccs daemon start` says "not installed" | The LaunchAgent was never installed or was uninstalled | `ccs daemon install` |
 | Notifications or the widget gallery show a blank app icon (Finder shows the gauge) | macOS's icon cache still has the icon from before the app had one | Run once: `sudo rm -rf /Library/Caches/com.apple.iconservices.store && sudo killall -9 iconservicesd iconservicesagent; killall NotificationCenter`, then Settings → Notifications → **Send Test Notification** |

@@ -20,6 +20,7 @@
 		<string>/Users/me/.local/bin/ccs</string>
 		<string>daemon</string>
 		<string>run</string>
+		<string>--launchd</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>

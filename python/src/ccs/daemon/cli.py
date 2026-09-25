@@ -50,6 +50,7 @@ def register(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
         p.add_argument("--json", action="store_true", help="machine-readable output")
         if name == "run":
             p.add_argument("--foreground", action="store_true", help=argparse.SUPPRESS)
+            p.add_argument(launchd.LAUNCHD_FLAG, action="store_true", help=argparse.SUPPRESS)
         p.set_defaults(func=handler)
     d.set_defaults(func=lambda args: _usage(d))
 
@@ -94,11 +95,14 @@ def cmd_run(args: argparse.Namespace) -> int:
     from ccs.daemon.server import Daemon, DaemonAlreadyRunning
 
     setup_logging(bool(getattr(args, "foreground", False)) or sys.stderr.isatty())
+    # under launchd, wait for a running daemon instead of exiting: `KeepAlive` would respawn
+    # us every 10 s (ADR-0022); a foreground run just reports it
+    under_launchd = bool(getattr(args, "launchd", False)) or launchd.launched_by_agent()
     try:
-        asyncio.run(Daemon().run())
+        asyncio.run(Daemon().run(wait_for_lock=under_launchd))
     except DaemonAlreadyRunning:
         print("daemon already running")
-        return EXIT_OK  # launchd must not respawn-loop
+        return EXIT_OK
     except KeyboardInterrupt:
         pass
     return EXIT_OK

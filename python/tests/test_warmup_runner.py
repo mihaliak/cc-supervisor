@@ -34,11 +34,13 @@ def make_runner(
     *,
     timeout_s: float = 10.0,
     resolve: Callable[[], str] | None = None,
+    confirm_delays: tuple[float, ...] = (0.0, 0.0),
+    polls: list[UsageSnapshot | None] | None = None,
 ) -> tuple[WarmupRunner, list[Event]]:
     events: list[Event] = []
 
     async def poll(pid: str) -> UsageSnapshot | None:
-        return poll_result
+        return polls.pop(0) if polls else poll_result
 
     runner = WarmupRunner(
         clock=SystemClock(),
@@ -47,6 +49,7 @@ def make_runner(
         poll=poll,
         resolve_claude=resolve or (lambda: str(fake_path)),
         timeout_s=timeout_s,
+        confirm_delays=confirm_delays,
     )
     return runner, events
 
@@ -140,6 +143,37 @@ def test_window_not_started(
     outcome = asyncio.run(runner.run(profile(), rules.AUTO_CHAIN))
     assert outcome.reason == WINDOW_NOT_STARTED
     assert runner.store.view("work")["last_attempt"]["reason"] == WINDOW_NOT_STARTED
+
+
+def test_window_that_shows_up_late_counts(
+    fake_claude: Callable[[dict[str, Any]], Any], fake_claude_path: Path
+) -> None:
+    # the usage API lagged the warm-up request: the first polls still show no window
+    fake_claude({"print": {"stdout": "ok"}})
+    late = [snapshot(session=False), snapshot(session=False)]
+    runner, events = make_runner(fake_claude_path, active_window(), polls=late)
+    outcome = asyncio.run(runner.run(profile(), rules.AUTO_CHAIN))
+    assert outcome.reason is None
+    assert outcome.resets_at is not None
+    assert types(events) == ["warmup.started", "warmup.succeeded"]
+
+
+def test_window_confirmation_polls_once_per_delay(
+    fake_claude: Callable[[dict[str, Any]], Any], fake_claude_path: Path
+) -> None:
+    fake_claude({"print": {"stdout": "ok"}})
+    calls: list[str] = []
+    runner, _ = make_runner(fake_claude_path, snapshot(session=False), confirm_delays=(0.0,) * 3)
+    inner = runner._poll
+
+    async def counting(pid: str) -> UsageSnapshot | None:
+        calls.append(pid)
+        return await inner(pid)
+
+    runner._poll = counting
+    outcome = asyncio.run(runner.run(profile(), rules.AUTO_CHAIN))
+    assert outcome.reason == WINDOW_NOT_STARTED
+    assert calls == ["work"] * 4  # right away, then after each delay
 
 
 def test_claude_not_found(fake_claude_path: Path) -> None:

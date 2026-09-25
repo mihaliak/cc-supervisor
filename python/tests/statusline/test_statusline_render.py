@@ -25,6 +25,7 @@ from ccs.statusline.render import (
     display_percent,
     fallback_line,
     level_for,
+    parse_time,
     render,
     to_ansi,
     to_plain,
@@ -269,6 +270,47 @@ def test_fixture_stdin_haiku_no_effort() -> None:
 def test_no_reset_time_omits_time() -> None:
     line = plain(ctx(stdin(45, session_reset=None)))
     assert line == HEAD + "45% ▓▓▓▓▓░░░░░"
+
+
+CONTROLS = [chr(c) for c in (*range(0x20), *range(0x7F, 0xA0))]
+
+
+def test_stdin_control_chars_are_stripped() -> None:
+    data = stdin(45, model="Opus\x1b[2J 5.5", effort="x\x9bhigh", folder="/tmp/evil\x1b]0;t\x07\nx")
+    usage = usage_doc(model_scoped=[("Fa\x1b[31mble", 82, WEEKLY_RESET)])
+    usage["extra_usage"] = {"enabled": True, "percent": 90, "used": 1, "currency": "X\rY"}
+    context = ctx(data, usage=usage, limits=Limits(spill=True))
+    line = plain(context)
+    assert not any(ch in line for ch in CONTROLS)
+    assert line.startswith("💼 Work ~ evil]0;tx ~ Opus[2J 5.5 / xhigh ~ 45% ")
+    assert "~ Fa[31mble ⚠ 82% Sat 08:00" in line
+    assert "~ XY 1.00" in line
+    assert "\x1b]" not in to_ansi(render(context))
+
+
+def test_only_control_chars_drop_the_part() -> None:
+    line = plain(ctx(stdin(45, model="\x1b\x07", folder="\x1b\n")))
+    assert line.startswith("💼 Work ~ 45% ")
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "9999-12-31T23:59:59+00:00",  # tz shift / minute rounding would overflow
+        "0001-01-01T00:00:00+05:00",  # before year 1 in UTC
+        253402300000,  # epoch seconds in the last hours of year 9999
+        1790000000000,  # epoch milliseconds: out of range
+        1e300,
+        float("nan"),
+        "2026-13-01T00:00:00Z",
+    ],
+)
+def test_unusable_reset_time_skips_the_time(value: Any) -> None:
+    assert parse_time(value) is None
+    data = stdin(40, session_reset=None, weekly=90, weekly_reset=None)
+    data["rate_limits"]["five_hour"]["resets_at"] = value
+    data["rate_limits"]["seven_day"]["resets_at"] = value
+    assert plain(ctx(data)) == HEAD + "40% ▓▓▓▓░░░░░░ ~ W ⚠ 90%"
 
 
 # ---------------------------------------------------------------- data precedence / freshness

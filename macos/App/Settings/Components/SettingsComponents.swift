@@ -154,13 +154,39 @@ struct EmojiField: View {
     }
 }
 
-/// A text field that writes its binding only on Return or when it loses focus, so a
-/// half-typed value (e.g. a path) is never saved.
+/// Typed `CommitTextField` values not committed yet. Quitting doesn't end editing, so the
+/// app commits them itself before its last save (`SettingsController.saveBeforeQuit`).
+@MainActor
+final class UncommittedDrafts {
+    static let shared = UncommittedDrafts()
+
+    private var commits: [UUID: @MainActor () -> Void] = [:]
+
+    var count: Int { commits.count }
+
+    func set(_ id: UUID, commit: @escaping @MainActor () -> Void) {
+        commits[id] = commit
+    }
+
+    func remove(_ id: UUID) {
+        commits[id] = nil
+    }
+
+    func commitAll() {
+        let all = commits.values
+        commits = [:]
+        for commit in all { commit() }
+    }
+}
+
+/// A text field that writes its binding only on Return, when it loses focus or goes away,
+/// or when the app quits, so a half-typed value (e.g. a path) is never saved while typing.
 struct CommitTextField: View {
     let title: String
     @Binding var text: String
     var prompt = ""
     @State private var draft = ""
+    @State private var draftID = UUID()
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -168,8 +194,17 @@ struct CommitTextField: View {
             .focused($focused)
             .onSubmit(commit)
             .onAppear { draft = text }
+            .onDisappear(perform: commit)
             .onChange(of: text) { _, newValue in
                 if !focused { draft = newValue }
+            }
+            .onChange(of: draft) { _, newValue in
+                if newValue == text {
+                    UncommittedDrafts.shared.remove(draftID)
+                } else {
+                    let binding = $text
+                    UncommittedDrafts.shared.set(draftID) { binding.wrappedValue = newValue }
+                }
             }
             .onChange(of: focused) { _, isFocused in
                 if !isFocused { commit() }
@@ -177,6 +212,7 @@ struct CommitTextField: View {
     }
 
     private func commit() {
+        UncommittedDrafts.shared.remove(draftID)
         if draft != text { text = draft }
     }
 }

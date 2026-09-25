@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import plistlib
 import stat
 import subprocess
 import sys
@@ -288,6 +289,76 @@ def test_uninstall_with_nothing_installed(box: Box) -> None:
     assert "nothing applied by ccs" in done.stdout
 
 
+def test_uninstall_without_a_working_ccs_restores_from_bookkeeping(box: Box) -> None:
+    installed(box)
+    settings = box.home / ".claude-work" / "settings.json"
+    broken = write_exec(box.root / "broken-ccs", "#!/nonexistent/python\n")  # venv gone
+    done = box.run("uninstall.sh", extra={"YES": "1", "CCS": str(broken)})
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert json.loads(settings.read_text(encoding="utf-8"))["statusLine"] == {
+        "type": "command",
+        "command": "bash old.sh",
+    }
+    assert "work: statusLine restored" in done.stdout
+    assert not (box.state_dir / "statusline" / "work.json").exists()
+    assert "nothing applied" not in done.stdout
+    assert not box.plist.exists()  # removed without ccs too
+
+
+@pytest.mark.parametrize("change", ["remove_profile", "invalid_config"])
+def test_uninstall_reverts_what_ccs_refuses_to(box: Box, change: str) -> None:
+    installed(box)
+    cfg = json.loads(box.config_file.read_text(encoding="utf-8"))
+    if change == "remove_profile":
+        cfg["profiles"] = [p for p in cfg["profiles"] if p["id"] != "work"]
+        cfg["default_profile"] = cfg["profiles"][0]["id"]
+    else:
+        cfg["profiles"][1]["limits"]["session"]["warn"] = 95  # above pause: config invalid
+    box.config_file.write_text(json.dumps(cfg), encoding="utf-8")
+    assert box.ccs("statusline", "revert", "--profile", "work").returncode != 0
+    settings = box.home / ".claude-work" / "settings.json"
+    done = box.run("uninstall.sh", extra={"YES": "1", "PURGE": "1"})
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert (
+        json.loads(settings.read_text(encoding="utf-8"))["statusLine"]["command"] == "bash old.sh"
+    )
+    assert "work: statusLine restored" in done.stdout
+    assert not box.state_dir.exists()
+    assert not (box.home / ".claude-work" / "ccs-statusline.py").exists()
+
+
+def test_uninstall_finds_ccs_on_path(box: Box) -> None:
+    installed(box)
+    stubs = Path(box.env["PATH"].split(":")[0])
+    logging_stub(stubs / "ccs", box.stub_log, f'exec "{box.env["CCS"]}" "$@"')
+    done = box.run("uninstall.sh", extra={"YES": "1", "CCS": ""})
+    assert done.returncode == 0, done.stdout + done.stderr
+    calls = box.calls()
+    assert "ccs statusline revert --profile work" in calls
+    assert "ccs daemon uninstall" in calls
+
+
+def test_uninstall_purge_keeps_records_it_could_not_revert(box: Box) -> None:
+    installed(box)
+    settings = box.home / ".claude-work" / "settings.json"
+    mine = {"statusLine": {"type": "command", "command": "bash mine.sh"}}
+    settings.write_text(json.dumps(mine), encoding="utf-8")  # changed by hand since apply
+    book = box.state_dir / "statusline" / "work.json"
+    for extra in ({"YES": "1", "PURGE": "1"}, {"YES": "1", "PURGE": "1", "CCS": "/missing"}):
+        done = box.run("uninstall.sh", extra=extra)
+        assert done.returncode == 0, done.stdout + done.stderr
+        assert json.loads(settings.read_text(encoding="utf-8")) == mine
+        assert book.is_file()
+        assert json.loads(book.read_text(encoding="utf-8"))["previous_statusline"] == {
+            "type": "command",
+            "command": "bash old.sh",
+        }
+        assert f"      {book}" in done.stdout
+        assert "not reverted" in done.stdout and "nothing applied" not in done.stdout
+        assert sorted(p.name for p in box.state_dir.rglob("*")) == ["statusline", "work.json"]
+        assert not box.config_file.exists()
+
+
 # ---------------------------------------------------------------- upgrade.sh
 
 
@@ -304,8 +375,27 @@ def test_upgrade_refreshes_existing_scripts_only(box: Box) -> None:
     assert script.read_text(encoding="utf-8") == good
     assert not (box.home / ".claude" / "ccs-statusline.py").exists()
     calls = box.calls()
-    assert any(c.startswith("launchctl bootstrap") or "kickstart" in c for c in calls)
+    assert any(c.startswith("launchctl bootstrap") for c in calls)
     assert f"open {box.app}" in calls
+
+
+def test_upgrade_reinstalls_the_launchagent(box: Box) -> None:
+    assert box.run("install.sh").returncode == 0
+    old = plistlib.loads(box.plist.read_bytes())
+    old["ProgramArguments"] = [a for a in old["ProgramArguments"] if a != "--launchd"]
+    box.plist.write_bytes(plistlib.dumps(old))  # a LaunchAgent from an older ccs
+    box.stub_log.unlink()
+    state = str(box.state_dir)
+    done = box.run("upgrade.sh", extra={"CCS_STATE_DIR": state})
+    assert done.returncode == 0, done.stdout + done.stderr
+    new = plistlib.loads(box.plist.read_bytes())
+    assert new["ProgramArguments"][-1] == "--launchd"
+    assert new["EnvironmentVariables"]["CCS_STATE_DIR"] == state
+    calls = box.calls()
+    bootout = next(i for i, c in enumerate(calls) if c.startswith("launchctl bootout"))
+    bootstrap = next(i for i, c in enumerate(calls) if c.startswith("launchctl bootstrap"))
+    assert bootout < bootstrap
+    assert not any("kickstart" in c for c in calls)
 
 
 def test_scripts_are_valid_shell() -> None:

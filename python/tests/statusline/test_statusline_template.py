@@ -151,6 +151,28 @@ def test_script_ignores_python_env_and_site(tmp_path: Path) -> None:
     assert "Sonnet 5 / low" in proc.stdout
 
 
+def test_config_dir_newline_cannot_escape_the_comment(tmp_path: Path) -> None:
+    config_dir = tmp_path / 'x\nprint("INJECTED")\n#\x85'
+    config_dir.mkdir()
+    cfg = make_config(config_dir)
+    script = template.generate(cfg.profiles[0], cfg).path
+    text = script.read_text()
+    run_as = [line for line in text.splitlines() if line.startswith("# Run as: ")]
+    assert len(run_as) == 1 and '\\nprint("INJECTED")\\n#\\x85' in run_as[0]
+    assert "\nprint(" not in text.split("\nCONSTANTS = ", 1)[0]
+    proc = subprocess.run(
+        [sys.executable, "-S", "-E", str(script)],
+        input="{}",
+        capture_output=True,
+        text=True,
+        env={"CCS_STATE_DIR": str(tmp_path / "state")},
+        timeout=30,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert strip_ansi(proc.stdout).startswith("💼 Work ~ ?%")
+    assert "INJECTED" not in proc.stdout
+
+
 def test_embedded_modules_import_only_stdlib() -> None:
     allowed = set(template.EMBEDDED_MODULES) | {"ccs", "ccs.statusline"}
     for name, source in template.embedded_sources().items():

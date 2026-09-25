@@ -2,6 +2,8 @@ import Foundation
 
 /// Where the Python side keeps its files (ADR-0005/0016), resolved the same way as
 /// `ccs.paths`: `$CCS_STATE_DIR`, else `$XDG_STATE_HOME/ccs`, else `~/.local/state/ccs`.
+/// The app passes the daemon LaunchAgent's environment (`LaunchAgentEnvironment`); the
+/// widget uses its own, i.e. the default state dir (ADR-0022).
 public enum StateLocation {
     /// The user's real home directory. Inside the widget sandbox `NSHomeDirectory()`
     /// is the container, so resolve it via `getpwuid` (ADR-0012 verification).

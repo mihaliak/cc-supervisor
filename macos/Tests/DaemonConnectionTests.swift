@@ -51,8 +51,20 @@ final class JSONLinesFramerTests: XCTestCase {
 
 /// End-to-end against a tiny POSIX unix-socket server speaking `schema/ipc.md`.
 final class DaemonConnectionTests: XCTestCase {
+    private var dir: String!
+
+    /// A private (0700) state dir; short, since socket paths are limited to 104 bytes.
+    override func setUpWithError() throws {
+        dir = "/tmp/ccs-app-test-\(getpid())-\(Int.random(in: 1000...9999))"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(atPath: dir)
+    }
+
     func testHelloSubscribeAndPushes() async throws {
-        let path = "/tmp/ccs-app-test-\(getpid())-\(Int.random(in: 1000...9999)).sock"
+        let path = dir + "/daemon.sock"
         let server = try TestSocketServer(path: path)
         defer { server.close() }
 
@@ -105,13 +117,96 @@ final class DaemonConnectionTests: XCTestCase {
         XCTAssertTrue(sawSnapshot)
         XCTAssertTrue(sawEvent)
     }
+
+    /// Regression: `reconnectNow()` while the first `hello` reply was pending kept counting
+    /// request ids, so the second `hello` went out as id 3 and the app never went online.
+    func testReconnectNowStartsIdsOver() async throws {
+        let path = dir + "/daemon.sock"
+        let server = try TestSocketServer(path: path)
+        defer { server.close() }
+
+        let connection = DaemonConnection(socketPath: path, appVersion: "9.9")
+        connection.start()
+        defer { connection.stop() }
+
+        // First connection: read hello + subscribe, never answer (and keep it open).
+        let first = try server.acceptAndServe { $0.count >= 2 } responses: { _ in [] }
+        XCTAssertEqual(Self.ids(first), [1, 2])
+
+        connection.reconnectNow()
+        let second = try server.acceptAndServe { $0.count >= 2 } responses: { lines in
+            Self.ids(lines).map { #"{"proto":1,"id":\#($0),"ok":true}"# }
+        }
+        XCTAssertEqual(Self.ids(second), [1, 2], "a new connection starts at id 1")
+
+        let updates = connection.updates
+        let collector = Task { () -> Bool in
+            for await update in updates {
+                if case .online(true) = update { return true }
+            }
+            return false
+        }
+        let watchdog = Task {
+            try await Task.sleep(for: .seconds(5))
+            collector.cancel()
+        }
+        let online = await collector.value
+        watchdog.cancel()
+        XCTAssertTrue(online, "the reply to the second hello brings the app online")
+    }
+
+    /// ADR-0022: only a socket we own, in a dir we own that nobody else can write to.
+    func testSocketTrust() throws {
+        let path = dir + "/daemon.sock"
+        XCTAssertNil(DaemonConnection.socketTrustProblem(path), "missing: connecting fails as usual")
+
+        let server = try TestSocketServer(path: path)
+        defer { server.close() }
+        XCTAssertNil(DaemonConnection.socketTrustProblem(path), "0700 dir + our socket")
+        XCTAssertEqual(
+            DaemonConnection.socketTrustProblem(path, uid: getuid() + 1),
+            "\(dir!) is not owned by the current user"
+        )
+
+        chmod(dir!, 0o777)
+        XCTAssertEqual(DaemonConnection.socketTrustProblem(path), "\(dir!) is group- or world-writable")
+        chmod(dir!, 0o720)
+        XCTAssertEqual(DaemonConnection.socketTrustProblem(path), "\(dir!) is group- or world-writable")
+        chmod(dir!, 0o700)
+
+        let plain = dir + "/plain"
+        FileManager.default.createFile(atPath: plain, contents: Data())
+        XCTAssertEqual(DaemonConnection.socketTrustProblem(plain), "\(plain) is not a socket")
+        let link = dir + "/link.sock"
+        try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: path)
+        XCTAssertEqual(DaemonConnection.socketTrustProblem(link), "\(link) is not a socket", "a symlink is refused")
+        XCTAssertEqual(DaemonConnection.socketTrustProblem("/etc/hosts"), "/etc is not owned by the current user")
+    }
+
+    /// A refused socket is never connected to: the app stays offline.
+    func testRefusedSocketStaysOffline() async throws {
+        let path = dir + "/daemon.sock"
+        let server = try TestSocketServer(path: path)
+        defer { server.close() }
+        chmod(dir!, 0o777)
+        defer { chmod(dir!, 0o700) }
+
+        let connection = DaemonConnection(socketPath: path, appVersion: "9.9")
+        connection.start()
+        defer { connection.stop() }
+        XCTAssertFalse(server.hasPendingClient(within: 0.5), "no connection attempt")
+    }
+
+    private static func ids(_ lines: [String]) -> [Int] {
+        lines.compactMap { ((try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any])?["id"] as? Int }
+    }
 }
 
-/// Minimal blocking unix-socket server for the test above.
+/// Minimal blocking unix-socket server for the tests above.
 private final class TestSocketServer: @unchecked Sendable {
     private let fd: Int32
     private let path: String
-    private var client: Int32 = -1
+    private var clients: [Int32] = []
 
     init(path: String) throws {
         self.path = path
@@ -128,16 +223,18 @@ private final class TestSocketServer: @unchecked Sendable {
         let bound = withUnsafePointer(to: &addr) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, size) }
         }
-        guard bound == 0, listen(fd, 1) == 0 else { throw POSIXError(.EADDRINUSE) }
+        guard bound == 0, listen(fd, 4) == 0 else { throw POSIXError(.EADDRINUSE) }
     }
 
     /// Accept one client, read lines until `enough(lines)`, then write `responses(lines)`.
+    /// Clients stay open until `close()`.
     func acceptAndServe(
         until enough: ([String]) -> Bool,
         responses: ([String]) -> [String]
     ) throws -> [String] {
-        client = accept(fd, nil, nil)
+        let client = accept(fd, nil, nil)
         guard client >= 0 else { throw POSIXError(.ECONNABORTED) }
+        clients.append(client)
         var tv = timeval(tv_sec: 5, tv_usec: 0)
         setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
         var buffer = Data()
@@ -157,8 +254,14 @@ private final class TestSocketServer: @unchecked Sendable {
         return lines
     }
 
+    /// True when a client connects within `seconds` (it isn't accepted).
+    func hasPendingClient(within seconds: Double) -> Bool {
+        var fds = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+        return poll(&fds, 1, Int32(seconds * 1000)) > 0
+    }
+
     func close() {
-        if client >= 0 { Darwin.close(client) }
+        for client in clients { Darwin.close(client) }
         Darwin.close(fd)
         unlink(path)
     }

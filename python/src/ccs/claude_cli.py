@@ -190,7 +190,10 @@ async def run(
     timeout: float,
     stdin_data: bytes | None = None,
 ) -> Completed:
-    """Run a command to completion. On timeout the process group is killed → `ClaudeTimeout`."""
+    """Run a command to completion. On timeout the process group is killed → `ClaudeTimeout`.
+
+    Any exec failure (`OSError`: missing, not executable, …) raises `ClaudeNotFound`.
+    """
     started = time.monotonic()
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -202,7 +205,7 @@ async def run(
             cwd=cwd or _default_cwd(),
             start_new_session=True,
         )
-    except FileNotFoundError as exc:
+    except OSError as exc:  # missing, not executable, bad interpreter, …
         raise ClaudeNotFound(f"cannot execute {argv[0]}: {exc}") from exc
     _track_spawn(proc.pid)
     try:

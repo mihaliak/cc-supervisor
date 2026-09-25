@@ -49,13 +49,15 @@ The label uses a smaller font than the rest of the menu bar. It is drawn as an i
   - **⚙**: opens Settings on this profile.
   - Errors from any action show in red on the card.
 - **Refresh**: fetch usage for all profiles now (through the supervisor, or `ccs usage --refresh` when it's offline).
-- **Settings…**: opens the Settings window. **Quit** quits the app (the supervisor keeps running).
+- **Settings…**: opens the Settings window. **Quit** quits the app (the supervisor keeps running). Unsaved Settings edits, even a value you're still typing, are saved first.
 
 ### Supervisor offline banner
 When the app can't reach the background supervisor, the dropdown shows a banner at the top (from `ccs daemon status`):
 - **Install daemon**: the daemon was never installed (`ccs daemon install`).
 - **Start daemon**: the daemon is installed but stopped, or loaded but not responding (`ccs daemon start`).
 - **ccs not found at <path>**: the app can't find the `ccs` command. Set its path in Settings (`ccs_path`, default `~/.local/bin/ccs`).
+
+The app also stays offline, and logs why, if the state folder or `daemon.sock` isn't owned by you or the folder is writable by other users.
 
 While it is offline, usage data goes stale, sessions aren't supervised, and statuslines show `⚠ supervisor offline`. The app reconnects by itself (after 1, 2, 5, 10, then every 30 s) as soon as the supervisor is back.
 
@@ -90,7 +92,7 @@ You can open these from scripts, a browser, or `open`:
 | Link | Does |
 |------|------|
 | `ccsupervisor://profile/<id>` | Opens Settings on that profile (clicking a widget does this) |
-| `ccsupervisor://signin/<id>` | Starts sign-in for that profile |
+| `ccsupervisor://signin/<id>` | Asks for confirmation, then starts sign-in for that profile (Cancel does nothing) |
 | `ccsupervisor://refresh` | Fetches usage now |
 
 ```sh

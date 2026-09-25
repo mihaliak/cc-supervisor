@@ -244,7 +244,7 @@ final class ConfigStoreTests: XCTestCase {
         _ = await store.saveNow()
         let mode = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? NSNumber
         XCTAssertEqual(mode?.intValue, 0o640)
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.path), ["config.json"])
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.path).sorted(), [".config.lock", "config.json"])
     }
 
     func testUndoingAnEditDropsIt() async throws {
@@ -384,6 +384,124 @@ final class ConfigStoreTests: XCTestCase {
         store.set(pause, .int(92))
         _ = await store.saveNow()
         XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "{ not json")
+    }
+
+    /// The save takes Python's `.config.lock` (created 0600, like `ccs.fsio.FileLock`).
+    func testSaveCreatesThePythonLockFile() async throws {
+        let store = ConfigStore(fileURL: file)
+        store.set(pause, .int(93))
+        _ = await store.saveNow()
+        let lock = dir.appendingPathComponent(".config.lock")
+        XCTAssertEqual(ConfigStore.lockURL(for: file), lock)
+        let mode = try FileManager.default.attributesOfItem(atPath: lock.path)[.posixPermissions] as? NSNumber
+        XCTAssertEqual(mode?.intValue, 0o600)
+    }
+
+    /// Regression (lost update): `ccs` read the file under its lock and wrote it back later;
+    /// our save landed in between and was overwritten. Now the save waits for the lock and
+    /// merges onto what `ccs` wrote.
+    func testSaveWaitsForTheConfigLock() async throws {
+        let store = ConfigStore(fileURL: file)
+        store.set(pause, .int(92))
+
+        // Like `ccs.config.store.save`: lock, read, … (slow) … write, unlock.
+        let fd = open(ConfigStore.lockURL(for: file).path, O_RDWR | O_CREAT, 0o600)
+        XCTAssertEqual(flock(fd, LOCK_EX), 0)
+        var theirs = try disk()
+        theirs.setValue(.int(97), at: FieldPath.parse("profiles[0].limits.weekly.pause"))
+        theirs.setValue(.int(8), at: [.key("revision")])
+        let data = theirs.canonicalData()
+        let target: URL = file
+        DispatchQueue.global().async {
+            usleep(300_000)
+            try? data.write(to: target)
+            flock(fd, LOCK_UN)
+            close(fd)
+        }
+
+        let result = await store.saveNow()
+        XCTAssertEqual(result, .saved(revision: 9))
+        let after = try disk()
+        XCTAssertEqual(after.value(at: FieldPath.parse("profiles[0].limits.session.pause")), .int(92), "ours")
+        XCTAssertEqual(after.value(at: FieldPath.parse("profiles[0].limits.weekly.pause")), .int(97), "theirs")
+    }
+
+    func testLockHeldTooLongFailsAndKeepsTheEdit() async throws {
+        let store = ConfigStore(fileURL: file)
+        store.lockTimeout = 0.2
+        store.set(pause, .int(92))
+        let fd = open(ConfigStore.lockURL(for: file).path, O_RDWR | O_CREAT, 0o600)
+        XCTAssertEqual(flock(fd, LOCK_EX), 0)
+
+        guard case .failed = await store.saveNow() else { return XCTFail("expected a failed save") }
+        XCTAssertNotNil(store.saveError)
+        XCTAssertEqual(store.pending.count, 1, "the edit is kept")
+        XCTAssertEqual(try disk().value(at: FieldPath.parse("profiles[0].limits.session.pause")), .int(90))
+
+        flock(fd, LOCK_UN)
+        close(fd)
+        let retried = await store.saveNow()
+        XCTAssertEqual(retried, .saved(revision: 8))
+        XCTAssertNil(store.saveError)
+    }
+
+    /// Quitting writes pending edits right away (the debounced save would never run).
+    func testSaveBeforeQuitWritesSynchronously() throws {
+        let store = ConfigStore(fileURL: file)
+        store.saveDelay = .seconds(60)
+        store.set(pause, .int(93))
+        XCTAssertEqual(store.saveBeforeQuit(), .saved(revision: 8))
+        XCTAssertEqual(try disk().value(at: FieldPath.parse("profiles[0].limits.session.pause")), .int(93))
+        XCTAssertTrue(store.pending.isEmpty)
+        XCTAssertEqual(store.saveBeforeQuit(), .nothingToSave)
+    }
+
+    /// Regression: after `ccs profile remove`, `load()` dropped edits made meanwhile. Now
+    /// edits of the removed profile are dropped and the rest are merged and saved.
+    func testProfileRemoveKeepsOtherEdits() async throws {
+        let store = ConfigStore(fileURL: file)
+        store.saveDelay = .seconds(60)
+        let personalPause = FieldPath.profile("personal", "limits.session.pause")
+        store.set(pause, .int(92))
+        store.set(personalPause, .int(77))
+        try externalWrite { doc in
+            // What `ccs profile remove work --default personal` writes.
+            let kept = doc["profiles"]!.arrayValue!.filter { $0["id"]?.stringValue != "work" }
+            doc.setValue(.array(kept), at: [.key("profiles")])
+            doc.setValue(.string("personal"), at: [.key("default_profile")])
+        }
+
+        await store.reloadKeepingEdits()
+        XCTAssertNil(store.conflict, "an edit of the removed profile is not a conflict")
+        XCTAssertTrue(store.pending.isEmpty)
+        XCTAssertEqual(store.profiles.map(\.id), ["personal"])
+        XCTAssertEqual(store.defaultProfileID, "personal")
+        XCTAssertEqual(store.int(personalPause), 77)
+        let after = try disk()
+        XCTAssertEqual(after.value(at: FieldPath.parse("profiles[0].limits.session.pause")), .int(77))
+        XCTAssertEqual(after["revision"], .int(9))
+    }
+
+    func testReloadKeepingEditsWithoutEditsJustReloads() async throws {
+        let store = ConfigStore(fileURL: file)
+        try externalWrite { $0.setValue(.int(97), at: FieldPath.parse("profiles[0].limits.weekly.pause")) }
+        let before = try Data(contentsOf: file)
+        await store.reloadKeepingEdits()
+        XCTAssertEqual(store.int(weeklyPause), 97)
+        XCTAssertEqual(try Data(contentsOf: file), before, "nothing written")
+    }
+
+    func testLoadClearsTheConflict() async throws {
+        let store = ConfigStore(fileURL: file)
+        store.set(pause, .int(92))
+        try externalWrite { $0.setValue(.int(85), at: FieldPath.parse("profiles[0].limits.session.pause")) }
+        _ = await store.saveNow()
+        XCTAssertNotNil(store.conflict)
+        store.load()
+        XCTAssertNil(store.conflict)
+        XCTAssertTrue(store.canEdit)
+        XCTAssertTrue(store.pending.isEmpty)
+        XCTAssertEqual(store.int(pause), 85)
     }
 
     func testReloadIfChangedSkipsWhileEditing() throws {

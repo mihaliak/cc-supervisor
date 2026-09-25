@@ -1,6 +1,6 @@
 # ADR-0002: Usage data source: Claude Code `get_usage` + statusline live data
 
-- Status: accepted
+- Status: accepted; partly superseded by [ADR-0022](0022-review-hardening.md)
 - Date: 2026-09-24
 - Source: user decision (auth question) + planner research
 

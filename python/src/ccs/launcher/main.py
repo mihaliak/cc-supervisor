@@ -9,19 +9,25 @@ Modes:
 The child env is the caller's env plus `CLAUDE_CONFIG_DIR` and the `CCS_*` variables, so
 `ccs --work` behaves like `CLAUDE_CONFIG_DIR=~/.claude-work claude` (transparency). For the
 default `~/.claude`, `CLAUDE_CONFIG_DIR` is removed instead (see `paths.apply_claude_config_dir`).
+
+The interactive launcher never logs to the terminal (ADR-0006): records go to
+`logs/launcher.log` in the state dir, or nowhere. Ctrl-C before claude starts exits 130.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import importlib
 import json
+import logging
+import logging.handlers
 import os
 import shlex
 import signal
 import sys
 import uuid
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -33,10 +39,14 @@ from ccs.launcher.args import LaunchSpec
 from ccs.launcher.commands import CommandHandler, Timings
 from ccs.launcher.daemon_link import DaemonLink, LaunchdApi, Registration
 from ccs.launcher.pty_proxy import PtyProxy
-from ccs.output import eprint
+from ccs.output import EXIT_INTERRUPTED, eprint
 
 STATUSLINE_SCRIPT = "ccs-statusline.py"
+LAUNCHER_LOG = "launcher.log"
+LOG_BYTES = 1024 * 1024
 ExecFn = Callable[[str, list[str], dict[str, str]], Any]
+
+log = logging.getLogger(__name__)
 
 
 def is_print_mode(claude_args: Sequence[str]) -> bool:
@@ -109,6 +119,55 @@ def statusline_args(
     return ["--settings", json.dumps(settings, separators=(",", ":"))]
 
 
+def _log_handler() -> logging.Handler:
+    """`logs/launcher.log` in the state dir; a `NullHandler` when that is not writable."""
+    try:
+        paths.state_dir().mkdir(mode=0o700, parents=True, exist_ok=True)
+        paths.log_dir().mkdir(exist_ok=True)
+        handler: logging.Handler = logging.handlers.RotatingFileHandler(
+            paths.log_dir() / LAUNCHER_LOG, maxBytes=LOG_BYTES, backupCount=1, encoding="utf-8"
+        )
+    except OSError:
+        return logging.NullHandler()
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s %(process)d %(levelname)s %(name)s: %(message)s")
+    )
+    return handler
+
+
+@contextlib.contextmanager
+def file_logging() -> Iterator[None]:
+    """Route all logging to the launcher log while claude owns the terminal (then restore).
+
+    `lastResort` and `raiseExceptions` are off too, so neither an unhandled record nor a
+    failing handler can print to the TTY.
+    """
+    root = logging.getLogger()
+    saved = (root.level, logging.lastResort, logging.raiseExceptions)
+    handler = _log_handler()
+    root.addHandler(handler)
+    root.setLevel(logging.INFO)
+    logging.lastResort = None
+    logging.raiseExceptions = False
+    try:
+        yield
+    finally:
+        root.removeHandler(handler)
+        handler.close()
+        root.setLevel(saved[0])
+        logging.lastResort, logging.raiseExceptions = saved[1], saved[2]
+
+
+def _log_loop_exception(loop: asyncio.AbstractEventLoop, context: dict[str, Any]) -> None:
+    """Loop exception handler: log it (to the launcher log), never print it."""
+    exc = context.get("exception")
+    log.error(
+        "event loop: %s",
+        context.get("message", "unhandled exception"),
+        exc_info=exc if isinstance(exc, BaseException) else None,
+    )
+
+
 def _reset_inherited_ignores() -> None:
     for sig in (signal.SIGPIPE, signal.SIGXFSZ):
         signal.signal(sig, signal.SIG_DFL)
@@ -168,14 +227,22 @@ class LauncherSession:
         return True, True
 
     async def run(self) -> int:
+        asyncio.get_running_loop().set_exception_handler(_log_loop_exception)
         link = self.link
-        if link is not None:
-            await link.connect()
-        go, started_overridden = await self._held_check()
+        code = 0
+        try:
+            if link is not None:
+                await link.connect()
+            go, started_overridden = await self._held_check()
+            # a Ctrl-C during the steps above only cancels this task at its next await:
+            # take it here, before claude exists
+            await asyncio.sleep(0)
+        except KeyboardInterrupt:  # Ctrl-C at the start prompt
+            go, code = False, EXIT_INTERRUPTED
         if not go:
             if link is not None:
                 await link.close(None)
-            return 0
+            return code
         proxy = PtyProxy(self.argv, self.env, stdin_fd=self.stdin_fd, stdout_fd=self.stdout_fd)
         self.proxy = proxy
         proxy.spawn()
@@ -189,6 +256,7 @@ class LauncherSession:
         handler = CommandHandler(proxy, lookup, report, timings=self.timings)
         self.handler = handler
         proxy.on_user_submit = handler.on_user_submit
+        proxy.on_user_input = handler.on_user_input
         if link is not None:
             link.start(
                 Registration(
@@ -222,7 +290,34 @@ def run(
     sock_path: Path | None = None,
     timings: Timings | None = None,
 ) -> int:
-    """Run the launcher; returns the exit code (claude's in interactive mode)."""
+    """Run the launcher; returns the exit code (claude's in interactive mode, 130 on Ctrl-C
+    before claude started)."""
+    try:
+        return _run(
+            spec,
+            config,
+            stdin_fd=stdin_fd,
+            stdout_fd=stdout_fd,
+            exec_fn=exec_fn,
+            launchd=launchd,
+            sock_path=sock_path,
+            timings=timings,
+        )
+    except KeyboardInterrupt:
+        return EXIT_INTERRUPTED
+
+
+def _run(
+    spec: LaunchSpec,
+    config: Config,
+    *,
+    stdin_fd: int,
+    stdout_fd: int,
+    exec_fn: ExecFn | None,
+    launchd: LaunchdApi | None,
+    sock_path: Path | None,
+    timings: Timings | None,
+) -> int:
     profile = spec.profile
     try:
         claude = claude_cli.resolve_claude(config)
@@ -257,4 +352,5 @@ def run(
         stdout_fd=stdout_fd,
         timings=timings,
     )
-    return asyncio.run(session.run())
+    with file_logging():
+        return asyncio.run(session.run())

@@ -32,7 +32,7 @@ struct AppConfig: Sendable, Equatable {
 
 enum ConfigReader {
     static func read(
-        file: URL = StateLocation.configFile(),
+        file: URL = LaunchAgentEnvironment.configFile,
         home: URL = StateLocation.realHome()
     ) -> AppConfig {
         guard let data = try? Data(contentsOf: file) else {

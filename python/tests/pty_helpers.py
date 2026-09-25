@@ -93,7 +93,11 @@ class Term:
         return int(self.proc.returncode)
 
     def attrs_now(self) -> list[Any]:
-        return termios.tcgetattr(self.slave)
+        attrs = termios.tcgetattr(self.slave)
+        # leaving raw mode without a flush (TCSADRAIN keeps typeahead) makes the kernel set
+        # PENDIN ("retype pending input"); it clears itself on the next read
+        attrs[3] &= ~getattr(termios, "PENDIN", 0)
+        return attrs
 
     def close(self) -> None:
         if self.proc.poll() is None:

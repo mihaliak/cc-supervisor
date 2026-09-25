@@ -1,6 +1,6 @@
 # ADR-0008: Limit policy & default thresholds
 
-- Status: accepted
+- Status: accepted; partly superseded by [ADR-0022](0022-review-hardening.md)
 - Date: 2026-09-24
 - Source: user decisions (80/90 session, weekly 80/95, model-scoped toggle, extra-usage toggle) + planner defaults (hysteresis, cadence)
 

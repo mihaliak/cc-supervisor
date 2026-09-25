@@ -26,6 +26,7 @@ from ccs.config import store
 from ccs.config.models import Config, Profile
 from ccs.daemon import extensions as ext_mod
 from ccs.daemon.hooks import DaemonHooks, WrapperInfo
+from ccs.daemon.reaper import valid_pid
 from ccs.events import TEST_TYPE, Event, EventBus
 from ccs.snapshot import build_widget_snapshot, write_widget_snapshot
 from ccs.usage.merge import LiveReport, apply_staleness, merge
@@ -39,6 +40,7 @@ LINE_LIMIT = 1024 * 1024
 ACK_TIMEOUT_S = 10.0
 QUEUE_MAX = 1000
 SNAPSHOT_MIN_INTERVAL_S = 1.0
+LOCK_RETRY_S = 1.0  # launchd start while another daemon holds the lock: retry this often
 SESSION_SCHEMA = 1
 ACTIVITIES = ("busy", "idle", "shell", "waiting", "unknown")
 
@@ -83,6 +85,10 @@ def _int_or_none(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
+def _pid_or_none(value: Any) -> int | None:
+    return value if valid_pid(value) else None
+
+
 def _str_or_none(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
 
@@ -111,6 +117,10 @@ class Conn:
         if self._queue.qsize() >= QUEUE_MAX:
             log.warning("client %s is not reading; closing it", self.client)
             self.close()
+            # the writer may be stuck in `drain()` forever: drop the socket so the client
+            # sees EOF (and reconnects) and our reader and writer loops end
+            with contextlib.suppress(Exception):
+                self.writer.transport.abort()
             return
         self._queue.put_nowait({"proto": PROTO, **obj})
 
@@ -123,17 +133,36 @@ class Conn:
             if not fut.done():
                 fut.set_result({"result": "not_connected", "detail": {}})
 
+    def _encode(self, item: dict[str, Any]) -> bytes | None:
+        """One protocol line. An unencodable reply becomes `internal_error` (so the client is
+        not left waiting); an unencodable push is dropped."""
+        try:
+            return (json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n").encode()
+        except Exception as exc:
+            log.warning("cannot encode message for client %s: %s", self.client, exc)
+        if "id" not in item:
+            return None
+        fallback = {"proto": PROTO, "id": item["id"], "ok": False, "error": "internal_error"}
+        try:
+            return (json.dumps(fallback, sort_keys=True) + "\n").encode()
+        except Exception:
+            return None
+
     async def writer_loop(self) -> None:
         try:
             while True:
                 item = await self._queue.get()
                 if item is None:
                     break
-                data = (json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n").encode()
+                data = self._encode(item)
+                if data is None:
+                    continue
                 self.writer.write(data)
                 await self.writer.drain()
         except (ConnectionError, OSError):
             pass
+        except Exception:
+            log.exception("writer for client %s failed", self.client)
         finally:
             self.closed = True
             with contextlib.suppress(Exception):
@@ -204,6 +233,9 @@ class Daemon:
         self.snapshots: dict[str, UsageSnapshot] = {}
         self.live_reports: dict[str, LiveReport] = {}
         self.sessions: dict[str, dict[str, Any]] = {}
+        # wrapper_id -> clock.monotonic() when loaded from disk at startup; dropped when the
+        # launcher re-registers (the reaper expires the rest, see `REREGISTER_GRACE_S`)
+        self.provisional: dict[str, float] = {}
         self.wrapper_conns: dict[str, Conn] = {}
         self.conns: set[Conn] = set()
         self.other_sessions: dict[str, dict[str, int]] = {}
@@ -263,9 +295,14 @@ class Daemon:
         return sorted(recs, key=lambda r: str(r.get("started_at") or ""))
 
     def write_session(self, wrapper_id: str) -> None:
+        """Mirror one record to `sessions/<id>.json` (the in-memory record stays authoritative)."""
         rec = self.sessions.get(wrapper_id)
-        if rec is not None:
+        if rec is None:
+            return
+        try:
             fsio.atomic_write_json(paths.session_file(wrapper_id), rec, mode=0o644)
+        except (OSError, ValueError) as exc:
+            log.warning("cannot write session file for %s: %s", wrapper_id, exc)
 
     def update_session(
         self, wrapper_id: str, mutate: Callable[[dict[str, Any]], None]
@@ -353,7 +390,7 @@ class Daemon:
             return None
         try:
             write_widget_snapshot(doc)
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             log.warning("cannot write widget snapshot: %s", exc)
         self._last_snapshot_write = time.monotonic()
         for conn in list(self.conns):
@@ -368,7 +405,10 @@ class Daemon:
             if wait > 0:
                 await asyncio.sleep(wait)
             self._snapshot_wanted.clear()
-            self.write_snapshot_now()
+            try:
+                self.write_snapshot_now()
+            except Exception:  # never let one bad snapshot stop all later ones
+                log.exception("widget snapshot failed")
 
     # ------------------------------------------------------------ status
 
@@ -409,6 +449,14 @@ class Daemon:
 
     # ------------------------------------------------------------ config
 
+    async def ensure_profile(self, profile_id: str) -> Profile | None:
+        """The profile; when unknown, reload the config once first (it may have just been added)."""
+        profile = self.profile(profile_id)
+        if profile is None:
+            await self.config_watcher.check_once(force=True)
+            profile = self.profile(profile_id)
+        return profile
+
     async def set_config(self, new: Config) -> None:
         old = self.config
         self.config = new
@@ -422,8 +470,8 @@ class Daemon:
         return WrapperInfo(
             wrapper_id=str(rec.get("wrapper_id")),
             profile_id=str(rec.get("profile_id")),
-            wrapper_pid=_int_or_none(rec.get("wrapper_pid")),
-            claude_pid=_int_or_none(rec.get("claude_pid")),
+            wrapper_pid=_pid_or_none(rec.get("wrapper_pid")),
+            claude_pid=_pid_or_none(rec.get("claude_pid")),
             cwd=_str_or_none(rec.get("cwd")),
             started_overridden=overridden,
             reregistered=rereg,
@@ -433,15 +481,23 @@ class Daemon:
     async def unregister(
         self, wrapper_id: str, *, exit_code: int | None, reason: str
     ) -> dict[str, Any] | None:
-        """Forget a launcher: drop its record + file, emit `session.ended`, fire hooks."""
+        """Forget a launcher: drop its record + file, emit `session.ended`, fire hooks.
+
+        The file is removed only for a known record, never for an id that merely arrived.
+        """
         rec = self.sessions.pop(wrapper_id, None)
+        self.provisional.pop(wrapper_id, None)
         conn = self.wrapper_conns.pop(wrapper_id, None)
         if conn is not None:
             conn.wrapper_id = None
-        with contextlib.suppress(FileNotFoundError):
-            paths.session_file(wrapper_id).unlink()
         if rec is None:
             return None
+        try:
+            paths.session_file(wrapper_id).unlink()
+        except FileNotFoundError:
+            pass
+        except (OSError, ValueError) as exc:
+            log.warning("cannot remove session file for %s: %s", wrapper_id, exc)
         pid = str(rec.get("profile_id") or "") or None
         self.emit(
             Event(
@@ -471,13 +527,13 @@ class Daemon:
 
     async def _op_status(self, conn: Conn, msg: dict[str, Any]) -> dict[str, Any]:
         pid = _str_or_none(msg.get("profile_id"))
-        if pid is not None and self.profile(pid) is None:
+        if pid is not None and await self.ensure_profile(pid) is None:
             return {"ok": False, "error": "unknown_profile"}
         return {"ok": True, **self.status_payload(pid)}
 
     async def _op_refresh(self, conn: Conn, msg: dict[str, Any]) -> dict[str, Any]:
         pid = _str_or_none(msg.get("profile_id"))
-        if pid is not None and self.profile(pid) is None:
+        if pid is not None and await self.ensure_profile(pid) is None:
             return {"ok": False, "error": "unknown_profile"}
         for target in [pid] if pid else self.profile_ids():
             self.request_poll(target)
@@ -516,16 +572,18 @@ class Daemon:
         profile_id = _str_or_none(msg.get("profile_id"))
         if wrapper_id is None or profile_id is None:
             return {"ok": False, "error": "bad_request", "detail": "wrapper_id and profile_id"}
-        if self.profile(profile_id) is None:
-            await self.config_watcher.check_once(force=True)
-            if self.profile(profile_id) is None:
-                return {"ok": False, "error": "unknown_profile"}
-        wrapper_pid = _int_or_none(msg.get("wrapper_pid"))
-        claude_pid = _int_or_none(msg.get("claude_pid"))
+        for key in ("wrapper_pid", "claude_pid"):
+            if msg.get(key) is not None and not valid_pid(msg.get(key)):
+                return {"ok": False, "error": "bad_request", "detail": key}
+        if await self.ensure_profile(profile_id) is None:
+            return {"ok": False, "error": "unknown_profile"}
+        wrapper_pid = _pid_or_none(msg.get("wrapper_pid"))
+        claude_pid = _pid_or_none(msg.get("claude_pid"))
         cwd = _str_or_none(msg.get("cwd"))
         overridden = bool(msg.get("started_overridden"))
         rec = self.sessions.get(wrapper_id)
         rereg = rec is not None
+        self.provisional.pop(wrapper_id, None)  # its launcher is back: no longer stale
         if rec is None:
             rec = new_session_record(
                 wrapper_id=wrapper_id,
@@ -589,6 +647,10 @@ class Daemon:
         op = msg.get("op")
         if not isinstance(op, str):
             return {"ok": False, "error": "bad_request", "detail": "op"}
+        wrapper_id = msg.get("wrapper_id")
+        if wrapper_id is not None and not paths.is_valid_id(wrapper_id):
+            # ids become file names (`sessions/<id>.json`): checked once for every op
+            return {"ok": False, "error": "bad_request", "detail": "wrapper_id"}
         handler = self._ops.get(op) or self.hooks.ops.get(op)
         if handler is None:
             if op in ("pause", "resume", "warmup"):
@@ -621,8 +683,9 @@ class Daemon:
                 if not line:
                     break
                 try:
-                    msg = json.loads(line)
-                except ValueError:
+                    # lone surrogates (`"\udcff"`) would break every later UTF-8 write
+                    msg = fsio.scrub_surrogates(json.loads(line))
+                except (ValueError, RecursionError):
                     conn.push({"id": None, "ok": False, "error": "bad_json"})
                     continue
                 if not isinstance(msg, dict):
@@ -668,43 +731,56 @@ class Daemon:
         task.add_done_callback(_done)
 
     def _load_sessions(self) -> None:
-        from ccs.daemon.reaper import pid_alive
+        """Load `sessions/*.json` at startup; drop dead or bad records (never raises).
 
+        Loaded records are provisional until their launcher re-registers (see `Reaper`).
+        """
         try:
             files = sorted(paths.sessions_dir().glob("*.json"))
         except OSError:
             return
         for path in files:
-            rec = fsio.read_json(path)
-            wrapper_id = rec.get("wrapper_id") if rec else None
-            wpid = _int_or_none(rec.get("wrapper_pid")) if rec else None
-            if (
-                rec is None
-                or not isinstance(wrapper_id, str)
-                or wpid is None
-                or not pid_alive(wpid)
-            ):
-                with contextlib.suppress(FileNotFoundError):
+            try:
+                self._load_session(path)
+            except Exception:
+                log.exception("cannot load session file %s; removing it", path.name)
+                with contextlib.suppress(OSError):
                     path.unlink()
-                if rec is not None and isinstance(wrapper_id, str):
-                    self.emit(
-                        Event(
-                            "session.ended",
-                            _str_or_none(rec.get("profile_id")),
-                            None,
-                            {"wrapper_id": wrapper_id, "exit_code": None, "reason": "reaped"},
-                        )
-                    )
-                continue
-            self.sessions[wrapper_id] = rec
+
+    def _load_session(self, path: Path) -> None:
+        from ccs.daemon.reaper import pid_alive
+
+        rec = fsio.read_json(path)
+        wrapper_id = rec.get("wrapper_id") if rec is not None else None
+        if rec is None or not paths.is_valid_id(wrapper_id) or path.stem != wrapper_id:
+            log.warning("dropping unreadable session file %s", path.name)
+            with contextlib.suppress(OSError):
+                path.unlink()
+            return
+        wpid = _pid_or_none(rec.get("wrapper_pid"))
+        if wpid is None or not pid_alive(wpid):
+            with contextlib.suppress(OSError):
+                path.unlink()
+            self.emit(
+                Event(
+                    "session.ended",
+                    _str_or_none(rec.get("profile_id")),
+                    None,
+                    {"wrapper_id": wrapper_id, "exit_code": None, "reason": "reaped"},
+                )
+            )
+            return
+        self.sessions[wrapper_id] = rec
+        self.provisional[wrapper_id] = self.clock.monotonic()
 
     def _load_config(self) -> Config | None:
+        """The startup config, or `None` (logged; the watcher reloads a fix). Never raises."""
         try:
             return store.load(self.config_path)[0]
         except store.ConfigMissing:
             try:
                 return store.ensure_config(self.config_path)
-            except store.ConfigError as exc:
+            except Exception as exc:
                 log.error("cannot seed config: %s", exc)
                 return None
         except store.ConfigInvalid as exc:
@@ -712,16 +788,17 @@ class Daemon:
             issues = [{"path": i.path, "message": i.message} for i in exc.issues]
             self.emit(Event("config.invalid", None, None, {"issues": issues}))
             return None
-        except store.ConfigError as exc:
+        except Exception as exc:
             log.error("cannot load config at startup: %s", exc)
             return None
 
     async def start(self) -> None:
         paths.ensure_state_layout()
-        lock = fsio.try_lock(paths.daemon_lock())
-        if lock is None:
-            raise DaemonAlreadyRunning(str(paths.daemon_lock()))
-        self._lock = lock
+        if self._lock is None:
+            lock = fsio.try_lock(paths.daemon_lock())
+            if lock is None:
+                raise DaemonAlreadyRunning(str(paths.daemon_lock()))
+            self._lock = lock
         with contextlib.suppress(FileNotFoundError):
             self.sock_path.unlink()
         self.started_at = self.clock.now()
@@ -795,12 +872,41 @@ class Daemon:
     def request_stop(self) -> None:
         self._stop.set()
 
-    async def run(self) -> None:
-        """Start, serve until SIGTERM/SIGINT, then stop gracefully."""
+    async def wait_for_lock(self, retry_s: float = LOCK_RETRY_S) -> bool:
+        """Take `daemon.lock`, waiting while another daemon holds it (ADR-0022).
+
+        Under launchd, exiting instead would make `KeepAlive` respawn us every 10 s. Returns
+        False when a stop was requested first.
+        """
+        paths.ensure_state_layout()
+        waiting = False
+        while not self._stop.is_set():
+            lock = fsio.try_lock(paths.daemon_lock())
+            if lock is not None:
+                self._lock = lock
+                if waiting:
+                    log.info("daemon lock released by the other daemon; starting")
+                return True
+            if not waiting:
+                log.info("another daemon holds %s; waiting for it to exit", paths.daemon_lock())
+                waiting = True
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._stop.wait(), retry_s)
+        return False
+
+    async def run(self, *, wait_for_lock: bool = False) -> None:
+        """Start, serve until SIGTERM/SIGINT, then stop gracefully.
+
+        `wait_for_lock` (launchd): wait for a running daemon to exit instead of raising
+        `DaemonAlreadyRunning`; a stop signal while waiting just returns.
+        """
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
             with contextlib.suppress(NotImplementedError, RuntimeError):
                 loop.add_signal_handler(sig, self.request_stop)
+        if wait_for_lock and not await self.wait_for_lock():
+            log.info("stopped while waiting for the daemon lock")
+            return
         await self.start()
         try:
             await self._stop.wait()

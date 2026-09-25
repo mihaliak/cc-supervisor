@@ -40,6 +40,11 @@
           "description": "Window instances the user overrode by submitting input while paused (additive to ADR-0005).",
           "type": "array",
           "items": { "type": "string" }
+        },
+        "pending_override_instances": {
+          "description": "Model-scoped hold instances present when a started-anyway session registered with an unknown model; adopted as overridden once the model is known and matches (ADR-0022).",
+          "type": "array",
+          "items": { "type": "string" }
         }
       }
     }

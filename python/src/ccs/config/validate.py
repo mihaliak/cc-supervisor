@@ -10,8 +10,19 @@ from ccs.config import defaults
 from ccs.config.models import deep_merge
 from ccs.paths import expand_config_dir
 
-SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
-TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+# Patterns are applied with `fullmatch` (a trailing newline never passes) and use ASCII
+# classes only; `schema/config.schema.json` carries the same patterns anchored with ^…$.
+SLUG_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
+TIME_RE = re.compile(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]")
+# `haiku`, `sonnet`, `opus[1m]`, `claude-opus-5-5`, provider ids (`us.anthropic.…-v1:0`, `…@2025…`)
+MODEL_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:@/\[\]-]{0,127}")
+CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+PROMPT_CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")  # newline and tab allowed
+# The only keys a config file must spell out; everything else takes a default (the schema's
+# `required` lists the same keys).
+REQUIRED_KEYS = ("version", "profiles")
+POLL_INTERVAL_MIN_S = 5
+POLL_INTERVAL_MAX_S = 240  # the 5-minute heartbeat rule (ADR-0005/0009, ADR-0022)
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 # `emoji_percent` is the pre-ADR-0018 name of `letter_percent`; still accepted.
 MENU_BAR_MODES = ("letter_percent", "icon_only", "emoji_percent")
@@ -114,6 +125,11 @@ def _is_int(v: Any) -> TypeGuard[int]:
     return isinstance(v, int) and not isinstance(v, bool)
 
 
+def is_path(v: Any) -> bool:
+    """An absolute or `~`-prefixed path without control characters (ADR-0004/0022)."""
+    return isinstance(v, str) and v.startswith(("/", "~")) and not CONTROL_RE.search(v)
+
+
 class _V:
     def __init__(self) -> None:
         self.issues: list[Issue] = []
@@ -146,9 +162,25 @@ class _V:
             return None
         return v
 
+    def text(self, d: dict[str, Any], key: str, path: str) -> str | None:
+        """A non-empty single-line string (names, emoji): no control characters."""
+        v = self.nonempty_str(d, key, path)
+        if v is not None and CONTROL_RE.search(v):
+            self.add(path, "must not contain control characters")
+            return None
+        return v
+
+    def prompt(self, d: dict[str, Any], key: str, path: str) -> str | None:
+        """A non-empty prompt: control characters other than newline and tab are rejected."""
+        v = self.nonempty_str(d, key, path)
+        if v is not None and PROMPT_CONTROL_RE.search(v):
+            self.add(path, "must not contain control characters (newline and tab are fine)")
+            return None
+        return v
+
     def time_str(self, d: dict[str, Any], key: str, path: str) -> None:
         v = d.get(key)
-        if not isinstance(v, str) or not TIME_RE.match(v):
+        if not isinstance(v, str) or not TIME_RE.fullmatch(v):
             self.add(path, "must be a 24h time HH:MM")
 
     def warn_pause(self, d: dict[str, Any], path: str) -> None:
@@ -175,8 +207,8 @@ def _validate_top(v: _V, d: dict[str, Any]) -> None:
         v.add("revision", "must be a whole number >= 0")
     for key in ("ccs_path", "claude_path"):
         val = d.get(key)
-        if val is not None and (not isinstance(val, str) or not val.strip()):
-            v.add(key, "must be null or a non-empty path")
+        if val is not None and not is_path(val):
+            v.add(key, "must be null or an absolute path (or start with ~)")
 
     display = v.dict_at(d, "display", "display")
     if display is not None:
@@ -194,7 +226,7 @@ def _validate_top(v: _V, d: dict[str, Any]) -> None:
     polling = v.dict_at(d, "polling", "polling")
     if polling is not None:
         for key in ("interval_seconds", "fast_interval_seconds", "idle_interval_seconds"):
-            v.int_range(polling, key, f"polling.{key}", 5, 3600)
+            v.int_range(polling, key, f"polling.{key}", POLL_INTERVAL_MIN_S, POLL_INTERVAL_MAX_S)
         v.int_range(
             polling, "fast_when_percent_at_least", "polling.fast_when_percent_at_least", 1, 100
         )
@@ -207,8 +239,12 @@ def _validate_top(v: _V, d: dict[str, Any]) -> None:
 
 def _validate_warmup(v: _V, w: dict[str, Any], path: str) -> None:
     v.bool_at(w, "enabled", f"{path}.enabled")
-    v.nonempty_str(w, "model", f"{path}.model")
-    v.nonempty_str(w, "prompt", f"{path}.prompt")
+    model = w.get("model")
+    if not isinstance(model, str) or not MODEL_RE.fullmatch(model):
+        v.add(f"{path}.model", "must be a model name or id such as haiku or claude-opus-5-5")
+    prompt = v.prompt(w, "prompt", f"{path}.prompt")
+    if prompt is not None and prompt.startswith("-"):
+        v.add(f"{path}.prompt", "must not start with - (claude would read it as an option)")
     v.int_range(w, "cooldown_minutes", f"{path}.cooldown_minutes", 0, 1440)
     triggers = v.dict_at(w, "triggers", f"{path}.triggers")
     if triggers is not None:
@@ -242,7 +278,7 @@ def _validate_profile(v: _V, raw: Any, path: str) -> None:
     p = deep_merge(defaults.profile_defaults(), raw)
     for key in ("id", "flag"):
         val = p.get(key)
-        if not isinstance(val, str) or not SLUG_RE.match(val):
+        if not isinstance(val, str) or not SLUG_RE.fullmatch(val):
             v.add(
                 f"{path}.{key}",
                 "must be 1-32 chars of a-z, 0-9 and -, starting with a letter or digit",
@@ -250,13 +286,15 @@ def _validate_profile(v: _V, raw: Any, path: str) -> None:
     flag = p.get("flag")
     if isinstance(flag, str) and flag in RESERVED_FLAGS:
         v.add(f"{path}.flag", f"'{flag}' is reserved (ccs or claude option)")
-    v.nonempty_str(p, "name", f"{path}.name")
-    emoji = v.nonempty_str(p, "emoji", f"{path}.emoji")
+    v.text(p, "name", f"{path}.name")
+    emoji = v.text(p, "emoji", f"{path}.emoji")
     if emoji is not None and len(emoji) > 8:
         v.add(f"{path}.emoji", "must be at most 8 characters")
-    cdir = p.get("config_dir")
-    if not isinstance(cdir, str) or not (cdir.startswith("/") or cdir.startswith("~")):
-        v.add(f"{path}.config_dir", "must be an absolute path or start with ~")
+    if not is_path(p.get("config_dir")):
+        v.add(
+            f"{path}.config_dir",
+            "must be an absolute path or start with ~ (no control characters)",
+        )
 
     limits = v.dict_at(p, "limits", f"{path}.limits")
     if limits is not None:
@@ -274,7 +312,7 @@ def _validate_profile(v: _V, raw: Any, path: str) -> None:
     sup = v.dict_at(p, "supervisor", f"{path}.supervisor")
     if sup is not None:
         v.bool_at(sup, "enabled", f"{path}.supervisor.enabled")
-        v.nonempty_str(sup, "resume_prompt", f"{path}.supervisor.resume_prompt")
+        v.prompt(sup, "resume_prompt", f"{path}.supervisor.resume_prompt")
     sl = v.dict_at(p, "statusline", f"{path}.statusline")
     if sl is not None:
         v.bool_at(sl, "enabled", f"{path}.statusline.enabled")
@@ -289,6 +327,9 @@ def validate(raw: Any) -> list[Issue]:
     if not isinstance(raw, dict):
         return [Issue("", "config must be a JSON object")]
     try:
+        for key in REQUIRED_KEYS:
+            if key not in raw:
+                v.add(key, "is required")
         d = deep_merge(defaults.default_config_dict(), raw)
         _validate_top(v, d)
         profiles = d.get("profiles")
@@ -308,7 +349,7 @@ def validate(raw: Any) -> list[Issue]:
                         v.add(f"{path}.{key}", f"duplicate {key} '{val}'")
                     seen[key][val] = i
             cdir = prof.get("config_dir")
-            if isinstance(cdir, str) and (cdir.startswith("/") or cdir.startswith("~")):
+            if isinstance(cdir, str) and is_path(cdir):
                 ident = expand_config_dir(cdir)
                 if ident in seen["config_dir"]:
                     other = seen["config_dir"][ident]

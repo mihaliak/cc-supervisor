@@ -111,11 +111,27 @@ class SupervisorEngine:
                 views.append(view)
         return views
 
+    def _release_orphaned_holds(self, profile_id: str) -> None:
+        """Session-scoped manual holds end with their session (ADR-0022).
+
+        Also catches sessions that vanished without an unregister (records of dead launchers
+        dropped at daemon start).
+        """
+        if self.daemon.profile(profile_id) is None:
+            return
+        st, dropped = policy.release_orphaned_holds(
+            self.state(profile_id), self.daemon.clock.now(), self.daemon.sessions
+        )
+        if dropped:
+            log.info("%s: session ended; released %s", profile_id, [h.instance for h in dropped])
+            self._save(profile_id, st)  # persists and requests a snapshot write (holds changed)
+
     def evaluate(self, profile_id: str) -> policy.Decision | None:
         """Run the policy for one profile and execute the resulting actions."""
         profile = self.daemon.profile(profile_id)
         if profile is None:
             return None
+        self._release_orphaned_holds(profile_id)
         now = self.daemon.clock.now()
         decision = policy.evaluate(
             profile,
@@ -155,6 +171,8 @@ class SupervisorEngine:
                 resume_at=None,
                 overridden_instances=[],
             )
+        elif isinstance(action, policy.AdoptOverride):
+            self._adopt_override(pid, action)
         elif isinstance(action, policy.ForcePoll):
             at = action.at if action.at > now else None
             self.daemon.request_poll(pid, at)
@@ -197,6 +215,9 @@ class SupervisorEngine:
             fields: dict[str, Any] = {}
             if result in ("injected", "skipped") and isinstance(busy, bool):
                 fields["was_busy_at_pause"] = busy
+            elif result in ("injected", "skipped"):
+                # unknown status or an override during the pause: stays unknown (ADR-0022)
+                log.debug("pause of %s: %s without was_busy", action.wrapper_id, result)
             else:
                 log.warning("pause of %s: no usable ack (%s)", action.wrapper_id, result)
             session_id = _str(detail.get("session_id")) if isinstance(detail, dict) else None
@@ -211,6 +232,28 @@ class SupervisorEngine:
             self.daemon.update_session(action.wrapper_id, mutate)
 
         self._spawn_cmd(pid, action.wrapper_id, "pause", payload, on_ack)
+
+    def _adopt_override(self, pid: str, action: policy.AdoptOverride) -> None:
+        """Pending start-anyway instances now match the session's model → overridden."""
+        rec = self.daemon.sessions.get(action.wrapper_id)
+        if rec is None:
+            return
+        raw = rec.get("supervision")
+        sup: dict[str, Any] = raw if isinstance(raw, dict) else {}
+        previous = [i for i in sup.get("overridden_instances") or [] if isinstance(i, str)]
+        pending = [
+            i
+            for i in sup.get("pending_override_instances") or []
+            if isinstance(i, str) and i not in action.instances
+        ]
+        fields: dict[str, Any] = {
+            "overridden_instances": list(bounded((*previous, *action.instances))),
+            "pending_override_instances": pending,
+        }
+        if sup.get("state") != PAUSED:  # a pause for another hold keeps its state
+            fields["state"] = OVERRIDDEN
+        self._set_supervision(action.wrapper_id, **fields)
+        self._record_override(pid, action.wrapper_id, action.instances, "started_overridden")
 
     def _resume_session(self, pid: str, wrapper_id: str, prompt: str | None) -> None:
         self._set_supervision(
@@ -290,10 +333,14 @@ class SupervisorEngine:
             view = SessionView.from_record(rec)
             holds = self.state(pid).holds
             inst = [h.instance for h in policy.applicable_holds(holds, view)] if view else []
+            # model-scoped holds can't be matched before the statusline reports the model;
+            # the start-anyway covers them too once the model is known (ADR-0022)
+            pending = [h.instance for h in policy.undecided_holds(holds, view)] if view else []
             self._set_supervision(
                 info.wrapper_id,
                 state=OVERRIDDEN if inst else RUNNING,
                 overridden_instances=inst,
+                pending_override_instances=pending,
                 holds=[],
                 paused_at=None,
                 resume_at=None,
@@ -305,7 +352,9 @@ class SupervisorEngine:
         return {"supervision": sup} if isinstance(sup, dict) else {}
 
     def on_wrapper_unregistered(self, info: WrapperInfo) -> None:
+        """Unregister or reaper (`Daemon.unregister` drops the record before this hook)."""
         self._locks.pop(info.wrapper_id, None)
+        self._release_orphaned_holds(info.profile_id)
 
     def on_wrapper_event(self, info: WrapperInfo, message: dict[str, Any]) -> None:
         if message.get("kind") != "input_submitted_while_paused":

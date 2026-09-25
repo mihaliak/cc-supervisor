@@ -10,9 +10,9 @@ from typing import Any
 from ccs import paths
 from ccs.config import store
 from ccs.config.defaults import default_config_dict, default_profile_dict
-from ccs.config.models import Config
+from ccs.config.models import Config, Profile
 from ccs.config.validate import validate
-from ccs.output import EXIT_OK, EXIT_USAGE, UsageError, emit_json, fail
+from ccs.output import EXIT_OK, EXIT_USAGE, UsageError, emit_json, eprint, fail
 
 Handler = Callable[[argparse.Namespace], int]
 
@@ -235,10 +235,30 @@ def cmd_profile_add(args: argparse.Namespace) -> int:
     return _run(args, body)
 
 
+def revert_statusline(profile: Profile) -> dict[str, Any]:
+    """Undo an applied statusline before its profile goes away (`result`, maybe `hint`).
+
+    A conflict or error doesn't block the removal; the hint tells the user what to fix.
+    """
+    from ccs.statusline import apply as statusline_apply  # statusline imports ccs.config
+
+    try:
+        return statusline_apply.revert(profile).to_dict()
+    except (statusline_apply.ApplyError, OSError, ValueError) as exc:
+        path = statusline_apply.settings_path(profile)
+        return {
+            "profile_id": profile.id,
+            "result": "error",
+            "restored": None,
+            "hint": f"could not revert the statusline ({exc}); fix statusLine in {path}",
+        }
+
+
 def cmd_profile_remove(args: argparse.Namespace) -> int:
     def body() -> int:
         cfg = store.ensure_config()
-        if cfg.profile(args.id) is None:
+        profile = cfg.profile(args.id)
+        if profile is None:
             raise store.ConfigError(f"no profile with id '{args.id}'")
         others = [p.id for p in cfg.profiles if p.id != args.id]
         new_default: str | None = args.default
@@ -258,11 +278,24 @@ def cmd_profile_remove(args: argparse.Namespace) -> int:
             if new_default is not None:
                 raw["default_profile"] = new_default
 
+        statusline = revert_statusline(profile)
         saved = store.save(mutate)
+        hint = statusline.get("hint")
         if args.json:
-            emit_json({"ok": True, "revision": saved.revision, "removed": args.id})
+            emit_json(
+                {
+                    "ok": True,
+                    "revision": saved.revision,
+                    "removed": args.id,
+                    "statusline": statusline,
+                }
+            )
         else:
             print(f"removed profile '{args.id}' (config dir and login untouched)")
+            if statusline.get("result") == "reverted":
+                print(f"restored the previous statusLine of '{args.id}'")
+            if hint:
+                eprint(f"ccs: {hint}")
         return EXIT_OK
 
     return _run(args, body)

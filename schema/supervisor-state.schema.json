@@ -28,6 +28,11 @@
       "type": "array",
       "items": { "type": "string" }
     },
+    "extra_usage_arm": {
+      "description": "Arm counter of the `extra_usage` window instance; bumped when percent drops below warn (ADR-0022). Missing means 0.",
+      "type": "integer",
+      "minimum": 0
+    },
     "ledger": {
       "description": "The newest 200 supervisor actions.",
       "type": "array",
@@ -46,7 +51,7 @@
         },
         "kind": { "enum": ["session", "weekly", "model_scoped", "extra_usage", "manual"] },
         "instance": {
-          "description": "Window-instance key: `session:<YYYY-MM-DDTHH:MMZ>`, `weekly:<K>`, `model_scoped:<Name>:<K>`, `extra_usage:<YYYY-MM>:<cap>`, `manual:<ts>` or `manual:<wrapper_id>:<ts>`.",
+          "description": "Window-instance key: `session:<YYYY-MM-DDTHH:MMZ>`, `weekly:<K>`, `model_scoped:<Name>:<K>`, `extra_usage:<cap>:<arm>` (legacy `extra_usage:<YYYY-MM>:<cap>` is upgraded to arm 0 on load, ADR-0022), `manual:<ts>` or `manual:<wrapper_id>:<ts>`.",
           "type": "string",
           "minLength": 1
         },

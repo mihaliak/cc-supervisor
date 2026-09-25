@@ -9,6 +9,7 @@ from typing import Any
 EXIT_OK = 0
 EXIT_ERROR = 1
 EXIT_USAGE = 2
+EXIT_INTERRUPTED = 130  # Ctrl-C (128 + SIGINT)
 
 
 class UsageError(Exception):

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, tzinfo
@@ -36,6 +37,8 @@ IN_PROGRESS = "in_progress"
 
 BUSY_ACTIVITIES = frozenset({"busy", "shell", "waiting"})
 
+_HHMM = re.compile(r"([0-9]{2}):([0-9]{2})")
+
 
 @dataclass(frozen=True)
 class WarmupContext:
@@ -63,11 +66,11 @@ RUN = Decision(True, None)
 
 
 def parse_hhmm(value: str) -> tuple[int, int]:
-    """`"06:05"` → `(6, 5)`. Raises `ValueError` for anything else."""
-    hh, sep, mm = value.partition(":")
-    if not sep or len(hh) != 2 or len(mm) != 2 or not (hh + mm).isdigit():
+    """`"06:05"` → `(6, 5)`. Raises `ValueError` for anything else (ASCII digits, whole string)."""
+    match = _HHMM.fullmatch(value) if isinstance(value, str) else None
+    if match is None:
         raise ValueError(f"not HH:MM: {value!r}")
-    h, m = int(hh), int(mm)
+    h, m = int(match[1]), int(match[2])
     if h > 23 or m > 59:
         raise ValueError(f"not HH:MM: {value!r}")
     return h, m

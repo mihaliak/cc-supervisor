@@ -21,7 +21,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from typing import TYPE_CHECKING, Any
@@ -100,6 +100,15 @@ def next_occurrence(
     """The first occurrence strictly after `after` (within the next 8 days)."""
     found = occurrences_between(entries, after, after + timedelta(days=8), tz)
     return found[0] if found else None
+
+
+@contextlib.contextmanager
+def _guarded(profile_id: str, what: str) -> Iterator[None]:
+    """Log and swallow one profile's failure, so the other profiles still get their turn."""
+    try:
+        yield
+    except Exception:
+        log.exception("warm-up %s for %s failed", what, profile_id)
 
 
 def _hold_ids(value: Any) -> list[str]:
@@ -258,24 +267,27 @@ class Scheduler:
     def run_due_schedules(self, start: datetime, end: datetime) -> None:
         """Regular tick: every profile's due occurrence runs once (latest wins)."""
         for profile in self._profiles():
-            due = self._due(profile, start, end)
-            if not due:
-                continue
-            self.store.mark_consumed(profile.id, due, end)
-            self.evaluate_and_start(profile, rules.SCHEDULE)
+            with _guarded(profile.id, "schedule"):
+                due = self._due(profile, start, end)
+                if not due:
+                    continue
+                self.store.mark_consumed(profile.id, due, end)
+                self.evaluate_and_start(profile, rules.SCHEDULE)
 
     def catch_up(self, start: datetime, now: datetime) -> None:
         """Wake: at most one catch-up per profile, for the latest same-local-day occurrence."""
         today = now.astimezone(self.tz).date()
         for profile in self._profiles():
-            due = self._due(profile, start, now)
-            if not due:
-                continue
-            self.store.mark_consumed(profile.id, due, now)
-            same_day = [o for o in due if o.astimezone(self.tz).date() == today]
-            if same_day:
-                log.info("warm-up %s: catch-up for missed %s", profile.id, format_iso(same_day[-1]))
-                self.evaluate_and_start(profile, rules.SCHEDULE, catch_up=True)
+            with _guarded(profile.id, "catch-up"):
+                due = self._due(profile, start, now)
+                if not due:
+                    continue
+                self.store.mark_consumed(profile.id, due, now)
+                same_day = [o for o in due if o.astimezone(self.tz).date() == today]
+                if same_day:
+                    missed = format_iso(same_day[-1])
+                    log.info("warm-up %s: catch-up for missed %s", profile.id, missed)
+                    self.evaluate_and_start(profile, rules.SCHEDULE, catch_up=True)
 
     # -- auto-chain
 
@@ -314,15 +326,16 @@ class Scheduler:
 
     def check_chains(self, now: datetime) -> None:
         for pid, chain in list(self.chains.items()):
-            if chain.polling or now < chain.next_check_at:
-                continue
-            if now >= chain.give_up_at:
-                log.warning("auto-chain %s: reset not confirmed after 10 min; giving up", pid)
-                self.chains.pop(pid, None)
-                self._handled[pid] = chain.resets_at
-                continue
-            chain.polling = True
-            self._spawn(self._confirm(pid, chain))
+            with _guarded(pid, "auto-chain check"):
+                if chain.polling or now < chain.next_check_at:
+                    continue
+                if now >= chain.give_up_at:
+                    log.warning("auto-chain %s: reset not confirmed after 10 min; giving up", pid)
+                    self.chains.pop(pid, None)
+                    self._handled[pid] = chain.resets_at
+                    continue
+                chain.polling = True
+                self._spawn(self._confirm(pid, chain))
 
     async def _confirm(self, profile_id: str, chain: ChainState) -> None:
         try:
@@ -389,8 +402,9 @@ class Scheduler:
                 self._next.pop(pid, None)
                 self.store.forget(pid)
         for profile in new.profiles:
-            self.arm(profile.id)
-            self._refresh_next(profile.id)
+            with _guarded(profile.id, "config change"):
+                self.arm(profile.id)
+                self._refresh_next(profile.id)
 
     async def on_usage_updated(self, profile_id: str) -> None:
         self.arm(profile_id)
@@ -410,12 +424,16 @@ class Scheduler:
         self.last_tick = now
         self.check_chains(now)
         for profile in self._profiles():
-            self._refresh_next(profile.id)
+            with _guarded(profile.id, "next-run refresh"):
+                self._refresh_next(profile.id)
 
     async def loop(self) -> None:
         try:
             while True:
-                await self.tick()
+                try:
+                    await self.tick()
+                except Exception:  # never let one bad tick end warm-ups for good
+                    log.exception("warm-up scheduler tick failed")
                 await asyncio.sleep(self.tick_s)
         finally:
             await self.shutdown()
@@ -433,7 +451,7 @@ class Scheduler:
         if msg.get("all") is True:
             targets = self._profiles()
         elif isinstance(pid, str) and pid:
-            profile = self.daemon.profile(pid)
+            profile = await self.daemon.ensure_profile(pid)  # reloads once for a new profile
             if profile is None:
                 return {"ok": False, "error": "unknown_profile"}
             targets = [profile]

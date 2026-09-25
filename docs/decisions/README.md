@@ -8,16 +8,16 @@ Binding project principles. Every plan and implementation must comply. If a deci
 | ADR | Title | Status |
 |-----|-------|--------|
 | [0001](0001-language-split.md) | Language split: Swift = native UI only, Python = everything else | accepted |
-| [0002](0002-usage-data-source.md) | Usage data source: Claude Code `get_usage` + statusline live data | accepted |
+| [0002](0002-usage-data-source.md) | Usage data source: Claude Code `get_usage` + statusline live data | accepted, partly superseded by 0022 |
 | [0003](0003-authentication.md) | Authentication: Claude Code's own login per config dir | accepted |
-| [0004](0004-config-and-profiles.md) | Config file & profile model | accepted |
+| [0004](0004-config-and-profiles.md) | Config file & profile model | accepted, partly superseded by 0022 |
 | [0005](0005-state-and-ipc.md) | State directory, file formats, daemon IPC | accepted |
-| [0006](0006-process-model.md) | Process model: launchd daemon + PTY launcher | accepted |
-| [0007](0007-pause-resume.md) | Pause/resume via PTY keystroke injection | accepted |
-| [0008](0008-limit-policy.md) | Limit policy & default thresholds | accepted |
+| [0006](0006-process-model.md) | Process model: launchd daemon + PTY launcher | accepted, partly superseded by 0022 |
+| [0007](0007-pause-resume.md) | Pause/resume via PTY keystroke injection | accepted, partly superseded by 0022 |
+| [0008](0008-limit-policy.md) | Limit policy & default thresholds | accepted, partly superseded by 0022 |
 | [0009](0009-display-conventions.md) | Display conventions: colors, times, statusline format | accepted |
-| [0010](0010-warmup.md) | Warm-up sessions | accepted |
-| [0011](0011-macos-app.md) | macOS app: menu bar agent, macOS 26, local builds, XcodeGen | accepted |
+| [0010](0010-warmup.md) | Warm-up sessions | accepted, partly superseded by 0022 |
+| [0011](0011-macos-app.md) | macOS app: menu bar agent, macOS 26, local builds, XcodeGen | accepted, partly superseded by 0022 |
 | [0012](0012-widget-data-path.md) | Widget data path & signing | accepted |
 | [0013](0013-python-engineering.md) | Python engineering standards | accepted |
 | [0014](0014-docs-and-workflow.md) | Docs, plans, and git workflow | accepted |
@@ -28,6 +28,7 @@ Binding project principles. Every plan and implementation must comply. If a deci
 | [0019](0019-widget-profile-parameter.md) | Widget profile parameter is a String with dynamic options | accepted |
 | [0020](0020-settings-window.md) | Settings window layout | accepted |
 | [0021](0021-app-icon.md) | App icon: orange usage gauge | accepted |
+| [0022](0022-review-hardening.md) | Review hardening | accepted |
 
 ## Template
 

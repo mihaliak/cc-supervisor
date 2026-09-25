@@ -13,8 +13,8 @@ For the profile's config dir, CC Supervisor runs Claude Code once, non-interacti
 - **prompt**: `Reply with just: ok` by default (per profile, `warmup.prompt`)
 - it runs in an empty scratch folder, with your hooks disabled, and **nothing is saved** to your conversation history
 
-Afterward, usage is fetched again to confirm the window started, and you get a notification: "💼 Work: session window started, resets 11:02".
-- If Claude Code exits with an error, takes longer than 2 minutes (it is stopped), or usage still shows no active window, the warm-up **failed** and you get a notification with the reason, e.g. `exit_1`, `timeout`, or `window_not_started`.
+Afterward, usage is fetched again to confirm the window started. Claude's usage numbers can lag by a minute or more, so if the window isn't visible yet it re-checks for up to about 3 minutes, and you get a notification: "💼 Work: session window started, resets 11:02".
+- If Claude Code exits with an error, takes longer than 2 minutes (it is stopped), or usage still shows no active window, the warm-up **failed** and you get a notification with the reason, e.g. `exit_1`, `timeout`, `window_not_started`, or `error` (an unexpected problem; the notification names it).
 - Only one warm-up runs per profile at a time.
 
 ## Triggers

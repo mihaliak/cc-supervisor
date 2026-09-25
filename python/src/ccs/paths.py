@@ -3,9 +3,24 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
+from typing import TypeGuard
 
 APP_DIR = "ccs"
+# Ids that become file names (`wrapper_id`, `session_id`): no separators, no dots (ADR-0022).
+ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
+def is_valid_id(value: object) -> TypeGuard[str]:
+    """True for a string id that is safe as a file name: `[A-Za-z0-9_-]{1,64}`, whole string."""
+    return isinstance(value, str) and ID_RE.fullmatch(value) is not None
+
+
+def _checked_id(value: str, what: str) -> str:
+    if not is_valid_id(value):
+        raise ValueError(f"invalid {what}: {value!r}")
+    return value
 
 
 def _xdg_base(var: str, fallback: str) -> Path:
@@ -70,11 +85,14 @@ def live_dir() -> Path:
 
 
 def live_file(wrapper_id: str | None = None, session_id: str | None = None) -> Path:
-    """`live/<wrapper_id>.json`, or `live/session-<session_id>.json` without a wrapper."""
+    """`live/<wrapper_id>.json`, or `live/session-<session_id>.json` without a wrapper.
+
+    Raises `ValueError` for an id that is not `is_valid_id`.
+    """
     if wrapper_id:
-        return live_dir() / f"{wrapper_id}.json"
+        return live_dir() / f"{_checked_id(wrapper_id, 'wrapper_id')}.json"
     if session_id:
-        return live_dir() / f"session-{session_id}.json"
+        return live_dir() / f"session-{_checked_id(session_id, 'session_id')}.json"
     raise ValueError("live_file needs a wrapper_id or a session_id")
 
 
@@ -84,8 +102,8 @@ def sessions_dir() -> Path:
 
 
 def session_file(wrapper_id: str) -> Path:
-    """`sessions/<wrapper_id>.json`."""
-    return sessions_dir() / f"{wrapper_id}.json"
+    """`sessions/<wrapper_id>.json`. Raises `ValueError` for an id that is not `is_valid_id`."""
+    return sessions_dir() / f"{_checked_id(wrapper_id, 'wrapper_id')}.json"
 
 
 def supervisor_dir() -> Path:

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
+import signal
+import threading
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, tzinfo
 from typing import Any
@@ -94,20 +98,48 @@ def is_yes(answer: str) -> bool:
     return answer.strip().lower() in ("y", "yes")
 
 
+@contextlib.contextmanager
+def _sigint_raises() -> Iterator[None]:
+    """Let Ctrl-C raise `KeyboardInterrupt` right away while blocked in a read.
+
+    `asyncio.run` installs a SIGINT handler that only cancels the main task at its next await,
+    so a blocking read would swallow the first Ctrl-C.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    previous = signal.getsignal(signal.SIGINT)
+    signal.signal(signal.SIGINT, signal.default_int_handler)
+    try:
+        yield
+    finally:
+        if previous is not None:
+            signal.signal(signal.SIGINT, previous)
+
+
 def ask_yes_no(question: str, in_fd: int, out_fd: int) -> bool:
-    """Write `question`, read one line (cooked mode) from `in_fd`; True for `y`/`yes`."""
+    """Write `question`, read one line (cooked mode) from `in_fd`; True for `y`/`yes`.
+
+    Ctrl-C answers "no" at once: it raises `KeyboardInterrupt` (the launcher exits 130).
+    """
     os.write(out_fd, question.encode("utf-8"))
     line = bytearray()
-    while True:
-        try:
-            chunk = os.read(in_fd, 1)
-        except InterruptedError:
-            continue
-        except OSError:
-            break
-        if not chunk:
-            break
-        line += chunk
-        if chunk in (b"\n", b"\r"):
-            break
+    try:
+        with _sigint_raises():
+            while True:
+                try:
+                    chunk = os.read(in_fd, 1)
+                except InterruptedError:
+                    continue
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                line += chunk
+                if chunk in (b"\n", b"\r"):
+                    break
+    except KeyboardInterrupt:
+        with contextlib.suppress(OSError):
+            os.write(out_fd, b"\n")
+        raise
     return is_yes(line.decode("utf-8", errors="replace"))

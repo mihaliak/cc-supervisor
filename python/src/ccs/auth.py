@@ -60,14 +60,16 @@ Opener = Callable[[Path], int]
 def keychain_service_name(config_dir: str | os.PathLike[str]) -> str:
     """The Keychain service Claude Code stores this config dir's login under (ADR-0003).
 
-    `~/.claude` → `Claude Code-credentials`; any other dir →
-    `Claude Code-credentials-<sha256(absolute dir)[:8]>`. The path is taken as Claude Code gets
-    it in `CLAUDE_CONFIG_DIR` (`~` expanded, trailing slash dropped, symlinks kept). Pure: the
-    Keychain is never read.
+    `~/.claude` (or any path resolving to it) → `Claude Code-credentials`, because
+    `CLAUDE_CONFIG_DIR` is unset for it (`paths.apply_claude_config_dir`). Any other dir →
+    `Claude Code-credentials-<sha256(absolute dir)[:8]>`, with the path taken as Claude Code gets
+    it in `CLAUDE_CONFIG_DIR` (`~` expanded, trailing slash dropped, symlinks kept). The Keychain
+    is never read.
     """
-    given = paths.config_dir_env_value(os.fspath(config_dir))
-    if given == paths.config_dir_env_value("~/.claude"):
+    value = os.fspath(config_dir)
+    if paths.is_default_claude_dir(value):
         return DEFAULT_KEYCHAIN_SERVICE
+    given = paths.config_dir_env_value(value)
     digest = hashlib.sha256(given.encode("utf-8")).hexdigest()[:8]
     return f"{DEFAULT_KEYCHAIN_SERVICE}-{digest}"
 

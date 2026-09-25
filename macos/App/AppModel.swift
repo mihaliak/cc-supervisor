@@ -33,6 +33,31 @@ enum DaemonBannerState: Equatable {
     }
 }
 
+/// The confirmation a `ccsupervisor://signin/<id>` link shows first (ADR-0022).
+struct SignInPrompt: Equatable {
+    var title: String
+    var message: String
+
+    init(profileID: String, profile: ProfileSnapshot?) {
+        let label = profile.map { [$0.emoji, $0.name].filter { !$0.isEmpty }.joined(separator: " ") } ?? ""
+        title = "Sign in to \(label.isEmpty ? profileID : label)?"
+        message = "A link asked CC Supervisor to sign in the profile “\(profileID)”. "
+            + "This opens your browser to sign in to claude.ai."
+    }
+
+    /// A modal alert; true when the user chose Sign In.
+    @MainActor
+    static func runAlert(_ prompt: SignInPrompt) -> Bool {
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.messageText = prompt.title
+        alert.informativeText = prompt.message
+        alert.addButton(withTitle: "Sign In")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+}
+
 struct CardMessage: Equatable {
     var text: String
     var isError: Bool
@@ -65,12 +90,15 @@ final class AppModel {
     @ObservationIgnored private var didFireAppStart = false
     @ObservationIgnored private var started = false
     @ObservationIgnored private var messageTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var quitHandlers: [@MainActor () -> Void] = []
+    /// Asks before a `ccsupervisor://signin/<id>` link starts a sign-in (ADR-0022).
+    @ObservationIgnored var confirmSignIn: @MainActor (SignInPrompt) -> Bool = SignInPrompt.runAlert
     @ObservationIgnored private let log = Logger(subsystem: "local.ccsupervisor.app", category: "model")
 
     init(
         config: AppConfig = ConfigReader.read(),
         snapshotStore: SnapshotStore = SnapshotStore(),
-        socketPath: String = StateLocation.daemonSocket().path
+        socketPath: String = LaunchAgentEnvironment.daemonSocket.path
     ) {
         self.config = config
         self.snapshotStore = snapshotStore
@@ -142,6 +170,16 @@ final class AppModel {
                 log.error("warm-up trigger \(trigger, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+
+    /// Register work that must finish before the app quits (e.g. saving Settings edits).
+    func onQuit(_ handler: @escaping @MainActor () -> Void) {
+        quitHandlers.append(handler)
+    }
+
+    /// Called synchronously from `applicationShouldTerminate`.
+    func prepareToQuit() {
+        for handler in quitHandlers { handler() }
     }
 
     /// Re-read `config.json` (ccs path, menu bar mode). Called when the menu opens.
@@ -262,9 +300,19 @@ final class AppModel {
         }
         switch link {
         case .profile(let id): requestSettings(profileID: id)
-        case .signIn(let id): signIn(profileID: id)
+        case .signIn(let id): confirmAndSignIn(profileID: id)
         case .refresh: refresh()
         }
+    }
+
+    /// Any app or web page can open a link, so it only asks; the user starts the sign-in.
+    private func confirmAndSignIn(profileID: String) {
+        let prompt = SignInPrompt(profileID: profileID, profile: snapshot?.profile(id: profileID))
+        guard confirmSignIn(prompt) else {
+            log.info("sign-in link for \(profileID, privacy: .public) cancelled")
+            return
+        }
+        signIn(profileID: profileID)
     }
 
     func requestSettings(profileID: String? = nil) {

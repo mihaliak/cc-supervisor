@@ -20,7 +20,7 @@ final class SnapshotStore {
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private let log = Logger(subsystem: "local.ccsupervisor.app", category: "snapshot")
 
-    init(fileURL: URL = SnapshotLocation.sourceSnapshotFile()) {
+    init(fileURL: URL = LaunchAgentEnvironment.sourceSnapshotFile) {
         self.fileURL = fileURL
     }
 
@@ -102,7 +102,7 @@ final class SnapshotStore {
     /// ADR-0012 fallback A: mirror into the App Group container for the widget.
     private func mirrorIfNeeded(_ data: Data) {
         #if CCS_WIDGET_APPGROUP
-        let target = SnapshotLocation.snapshotFile()
+        let target = SnapshotLocation.snapshotFile(environment: LaunchAgentEnvironment.resolved)
         guard target != fileURL else { return }
         try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: target, options: .atomic)

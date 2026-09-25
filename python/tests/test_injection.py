@@ -46,8 +46,9 @@ class Reports:
     def __init__(self) -> None:
         self.items: list[tuple[str, dict[str, Any]]] = []
 
-    async def __call__(self, kind: str, detail: dict[str, Any]) -> None:
+    async def __call__(self, kind: str, detail: dict[str, Any]) -> bool:
         self.items.append((kind, detail))
+        return True
 
 
 def run(handler: CommandHandler, cmd: dict[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -83,7 +84,8 @@ def test_pause_unknown_counts_as_busy_single_esc() -> None:
     io = IO()
     h = CommandHandler(io, Script("unknown"), timings=FAST)
     result, detail = run(h, {"cmd_id": "c1", "type": "pause"})
-    assert result == "injected" and detail["was_busy"] is True
+    # ADR-0022: ESC on a guess, but `was_busy` stays unknown (no resume prompt on a guess)
+    assert result == "injected" and detail["was_busy"] is None
     assert io.written == [inject.ESC]  # no retry on `unknown`
     assert detail["interrupted"] is False
 

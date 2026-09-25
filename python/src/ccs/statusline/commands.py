@@ -69,7 +69,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
     cfg, profile = loaded
     try:
         result = template.generate(profile, cfg)
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         return fail(bool(args.json), f"cannot write statusline script: {exc}")
     if args.json:
         emit_json({"ok": True, **result.to_dict()})
@@ -88,7 +88,7 @@ def cmd_apply(args: argparse.Namespace) -> int:
         result = apply_mod.apply(profile, cfg)
     except apply_mod.ApplyError as exc:
         return fail(bool(args.json), str(exc), issues=[{"path": exc.code, "message": str(exc)}])
-    except OSError as exc:
+    except (OSError, ValueError) as exc:  # ValueError covers UnicodeError
         return fail(bool(args.json), f"apply failed: {exc}")
     if args.json:
         emit_json({"ok": True, **result.to_dict()})
@@ -109,7 +109,7 @@ def cmd_revert(args: argparse.Namespace) -> int:
         result = apply_mod.revert(profile)
     except apply_mod.ApplyError as exc:
         return fail(bool(args.json), str(exc), issues=[{"path": exc.code, "message": str(exc)}])
-    except OSError as exc:
+    except (OSError, ValueError) as exc:  # ValueError covers UnicodeError
         return fail(bool(args.json), f"revert failed: {exc}")
     ok = result.result != apply_mod.CONFLICT
     if args.json:

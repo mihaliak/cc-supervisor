@@ -250,19 +250,25 @@ class DaemonLink:
 
     # ---------------------------------------------------------------- events / close
 
-    async def wrapper_event(self, kind: str, detail: dict[str, Any]) -> None:
-        """Report `input_submitted_while_paused` / `injected` / `inject_failed` (best effort)."""
+    async def wrapper_event(self, kind: str, detail: dict[str, Any]) -> bool:
+        """Report `input_submitted_while_paused` / `injected` / `inject_failed` (best effort).
+
+        True only when the daemon accepted it; False when not registered, down or too slow.
+        """
         client = self.client
         if client is None or not self.registered:
-            return
-        with contextlib.suppress(DaemonUnavailable):
-            await client.request(
+            return False
+        try:
+            reply = await client.request(
                 "wrapper_event",
                 wrapper_id=self.wrapper_id,
                 kind=kind,
                 detail=detail,
                 timeout=2.0,
             )
+        except DaemonUnavailable:
+            return False
+        return reply.get("ok") is True
 
     async def close(self, exit_code: int | None) -> None:
         """Unregister (1 s, best effort) and stop the background tasks."""

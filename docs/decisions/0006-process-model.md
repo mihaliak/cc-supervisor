@@ -1,6 +1,6 @@
 # ADR-0006: Process model: launchd daemon + PTY launcher
 
-- Status: accepted
+- Status: accepted; partly superseded by [ADR-0022](0022-review-hardening.md)
 - Date: 2026-09-24
 - Source: user decision ("ccs needs to open me classic claude code … it just needs to work as background supervisor") + planner design
 

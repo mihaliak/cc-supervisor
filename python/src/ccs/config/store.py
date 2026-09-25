@@ -54,12 +54,20 @@ def lock_path(path: Path | None = None) -> Path:
 
 
 def load_raw(path: Path | None = None) -> dict[str, Any]:
-    """Read the raw JSON object. Raises `ConfigMissing` or `ConfigInvalid` (bad JSON)."""
+    """Read the raw JSON object.
+
+    Raises `ConfigMissing`, or `ConfigInvalid` for bad JSON, bad UTF-8 or an unreadable file
+    (permissions, a directory, …), so callers report it instead of crashing.
+    """
     p = _path(path)
     try:
         text = p.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
         raise ConfigMissing(p) from exc
+    except OSError as exc:
+        raise ConfigInvalid([Issue("", f"cannot read config: {exc.strerror or exc}")]) from exc
+    except UnicodeDecodeError as exc:
+        raise ConfigInvalid([Issue("", f"config is not valid UTF-8: {exc}")]) from exc
     try:
         data = json.loads(text)
     except ValueError as exc:

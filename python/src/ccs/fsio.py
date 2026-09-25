@@ -7,6 +7,7 @@ import fcntl
 import json
 import logging
 import os
+import re
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
@@ -15,10 +16,26 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
+_SURROGATE_RE = re.compile("[\ud800-\udfff]")
+
 
 def dumps_json(obj: Any) -> str:
     """Canonical JSON text shared with the Swift writer: sorted keys, indent 2, UTF-8, newline."""
     return json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+
+
+def scrub_surrogates(obj: Any) -> Any:
+    """A copy of JSON-like `obj` with lone surrogates replaced by U+FFFD, so it encodes as UTF-8.
+
+    JSON parsing keeps `\\udcff` escapes as lone surrogates, which break every later UTF-8 write.
+    """
+    if isinstance(obj, str):
+        return _SURROGATE_RE.sub("\ufffd", obj)
+    if isinstance(obj, dict):
+        return {scrub_surrogates(k): scrub_surrogates(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return type(obj)(scrub_surrogates(v) for v in obj)
+    return obj
 
 
 def _fsync_dir(directory: Path) -> None:
@@ -35,8 +52,12 @@ def _fsync_dir(directory: Path) -> None:
 
 
 def atomic_write_text(path: Path, text: str, mode: int = 0o600) -> None:
-    """Write `text` to `path` atomically: temp file in the same dir, fsync, `os.replace`."""
-    path = Path(path)
+    """Write `text` to `path` atomically: temp file in the same dir, fsync, `os.replace`.
+
+    A symlinked `path` stays a symlink: the link is resolved first and its target is replaced
+    (dotfile managers link `settings.json` / `config.json`).
+    """
+    path = Path(os.path.realpath(path))
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     tmp = Path(tmp_name)

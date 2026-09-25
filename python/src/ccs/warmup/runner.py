@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -27,12 +27,16 @@ log = logging.getLogger(__name__)
 
 TIMEOUT_S = 120.0
 STDERR_TAIL = 500
+# The usage API can lag the warm-up request by over a minute (seen after an auto-chain), so
+# the window is polled again after these delays before `window_not_started` (ADR-0022).
+CONFIRM_DELAYS_S = (10.0, 20.0, 30.0, 60.0, 60.0)
 
 # Failure reasons (besides `exit_<code>`).
 TIMEOUT = "timeout"
 WINDOW_NOT_STARTED = "window_not_started"
 CLAUDE_NOT_FOUND = "claude_not_found"
 SPAWN_FAILED = "spawn_failed"
+ERROR = "error"  # anything unexpected (a bug); `detail` names the exception
 
 
 @dataclass(frozen=True)
@@ -90,6 +94,7 @@ class WarmupRunner:
         poll: Poll,
         resolve_claude: Resolve,
         timeout_s: float = TIMEOUT_S,
+        confirm_delays: Sequence[float] = CONFIRM_DELAYS_S,
     ) -> None:
         self.clock = clock
         self.store = store
@@ -97,6 +102,7 @@ class WarmupRunner:
         self._poll = poll
         self._resolve = resolve_claude
         self.timeout_s = timeout_s
+        self.confirm_delays = tuple(confirm_delays)
         self._locks: dict[str, asyncio.Lock] = {}
 
     def _lock(self, profile_id: str) -> asyncio.Lock:
@@ -105,6 +111,17 @@ class WarmupRunner:
             lock = asyncio.Lock()
             self._locks[profile_id] = lock
         return lock
+
+    async def _confirm_window(self, pid: str) -> UsageSnapshot | None:
+        """Poll until the session window shows up (it can appear only after a delay)."""
+        for delay in (0.0, *self.confirm_delays):
+            if delay:
+                log.info("warm-up %s: window not visible yet; polling again in %ss", pid, delay)
+                await asyncio.sleep(delay)
+            snap = await self._poll(pid)
+            if session_window_active(snap, self.clock.now()):
+                return snap
+        return None
 
     def is_running(self, profile_id: str) -> bool:
         return self._lock(profile_id).locked()
@@ -150,10 +167,8 @@ class WarmupRunner:
                 reason: str | None = f"exit_{rc}"
                 detail = stderr_tail(done.stderr) or None
             else:
-                snap = await self._poll(pid)
-                now = self.clock.now()
-                if session_window_active(snap, now):
-                    assert snap is not None and snap.session is not None
+                snap = await self._confirm_window(pid)
+                if snap is not None and snap.session is not None:
                     resets_at = snap.session.resets_at
                     reason = None
                 else:
@@ -166,6 +181,10 @@ class WarmupRunner:
         except OSError as exc:
             reason = SPAWN_FAILED
             detail = str(exc)
+        except Exception as exc:  # the attempt is always finished and reported
+            log.exception("warm-up %s (%s) raised", pid, trigger)
+            reason = ERROR
+            detail = f"{type(exc).__name__}: {exc}"
         finished = self.clock.now()
         result = SUCCEEDED if reason is None else FAILED
         self.store.finish_attempt(

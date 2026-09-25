@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# `make upgrade`, after `install-dev` (pipx reinstall) and `app` ran (P13): restart the daemon
-# and the menu bar app on the new code, refresh statusline scripts that already exist, doctor.
+# `make upgrade`, after `install-dev` (pipx reinstall) and `app` ran (P13): reinstall the daemon's
+# LaunchAgent (so it gets the new plist, e.g. `run --launchd` and the `CCS_STATE_DIR` passthrough)
+# and restart it, restart the menu bar app, refresh statusline scripts that already exist, doctor.
 # Scripts are only regenerated where a previous `ccs --<flag>` / generate created them; nothing
 # new is written into Claude config dirs.
 #
@@ -24,7 +25,7 @@ fi
 
 step "Daemon"
 if [ -f "$PLIST" ]; then
-    "$CCS" daemon restart
+    "$CCS" daemon install # rewrites the plist, then bootout + bootstrap (idempotent)
 else
     echo "  not installed (run: ccs daemon install)"
 fi

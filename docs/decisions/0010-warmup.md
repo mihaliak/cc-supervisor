@@ -1,6 +1,6 @@
 # ADR-0010: Warm-up sessions
 
-- Status: accepted
+- Status: accepted; partly superseded by [ADR-0022](0022-review-hardening.md)
 - Date: 2026-09-24
 - Source: user decisions (all four triggers, per-profile model with Haiku default) + planner defaults (skip rules, cooldown)
 

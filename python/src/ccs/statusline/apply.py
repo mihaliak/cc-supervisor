@@ -1,8 +1,9 @@
 """Apply / revert the generated statusline in a profile's `settings.json` (P07).
 
-`apply` backs up `settings.json`, records the previous `statusLine` in
-`statusline/<profile_id>.json` and sets ours. `revert` restores the recorded value unless the
-user changed `statusLine` since (conflict). Key order, other keys and the file mode are kept.
+`apply` backs up `settings.json`, sets ours, then records the previous `statusLine` in
+`statusline/<profile_id>.json`. `revert` restores the recorded value in the `settings.json` it
+was applied to, unless the user changed `statusLine` since (conflict). Key order, other keys,
+the user's extra `statusLine` keys (e.g. `padding`) and the file mode are kept.
 """
 
 from __future__ import annotations
@@ -108,14 +109,29 @@ def read_settings(path: Path) -> dict[str, Any] | None:
     return data
 
 
-def _write_settings(path: Path, data: dict[str, Any]) -> None:
-    """Atomic write with key order kept, indent 2, UTF-8, trailing newline, same file mode."""
+def _settings_text(path: Path, data: dict[str, Any]) -> str:
+    """`data` as `settings.json` text (key order kept, indent 2, trailing newline).
+
+    Raises `ApplyError("invalid_settings")` when it can't be written back as UTF-8 (a lone
+    `\\ud83d`-style surrogate escape in the file).
+    """
+    text = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ApplyError(
+            "invalid_settings", f"{path} holds text that can't be written back as UTF-8: {exc}"
+        ) from exc
+    return text
+
+
+def _write_settings(path: Path, data: dict[str, Any], text: str | None = None) -> None:
+    """Atomic write of `data` (or its ready `text`), UTF-8, keeping the file mode."""
     try:
         mode = stat.S_IMODE(path.stat().st_mode)
     except OSError:
         mode = 0o644
-    text = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
-    atomic_write_text(path, text, mode)
+    atomic_write_text(path, text if text is not None else _settings_text(path, data), mode)
 
 
 def is_ours(value: Any, script: Path) -> bool:
@@ -148,6 +164,44 @@ def read_bookkeeping(profile_id: str) -> dict[str, Any] | None:
     return read_json(paths.statusline_file(profile_id))
 
 
+def recorded_settings_path(book: dict[str, Any], default: Path) -> Path:
+    """The `settings.json` a bookkeeping record was applied to (`default` if it has none)."""
+    value = book.get("settings_path")
+    return Path(value) if isinstance(value, str) and value else default
+
+
+def _write_bookkeeping(
+    profile: Profile,
+    path: Path,
+    command: str,
+    previous: Any,
+    now: datetime,
+    backup: Path | None,
+) -> None:
+    atomic_write_json(
+        paths.statusline_file(profile.id),
+        {
+            "schema": BOOKKEEPING_SCHEMA,
+            "profile_id": profile.id,
+            "config_dir": profile.config_dir_env,
+            "settings_path": str(path),
+            "command": command,
+            "previous_statusline": previous,
+            "applied_at": now.astimezone().isoformat(timespec="seconds"),
+            "backup_path": str(backup) if backup else None,
+        },
+    )
+
+
+def _is_command(value: Any, command: str) -> bool:
+    """`value` runs exactly `command` (extra keys such as `padding` don't matter)."""
+    return (
+        isinstance(value, dict)
+        and value.get("type") == "command"
+        and value.get("command") == command
+    )
+
+
 def is_applied(profile: Profile) -> bool:
     """`settings.json` currently points at this profile's generated script."""
     try:
@@ -169,58 +223,84 @@ def apply(profile: Profile, config: Config, *, clock: Clock | None = None) -> Ap
     now = (clock or SystemClock()).now()
     script = template.ensure_script(profile, config)
     command = template.statusline_command(script)
-    wanted = {"type": "command", "command": command}
     path = settings_path(profile)
-    settings = read_settings(path)  # validate before anything is written
-    if settings is not None and settings.get("statusLine") == wanted:
-        return ApplyResult(profile.id, path, ALREADY_APPLIED, None, command)
+    read_settings(path)  # validate before anything is written
+    book = read_bookkeeping(profile.id)
+    recorded = recorded_settings_path(book, path) if book is not None else path
+    if book is not None and recorded != path:
+        # Applied under another config dir before: put that statusLine back first, or its
+        # original value would be lost when this apply overwrites the bookkeeping.
+        try:
+            reverted = _revert_recorded(profile.id, book, recorded)
+        except ApplyError as exc:
+            raise ApplyError(
+                exc.code,
+                f"{exc}; the statusline applied there must be reverted first "
+                f"(its previous value is in {paths.statusline_file(profile.id)})",
+            ) from exc
+        if reverted.result == REVERTED:
+            book = None
     # Re-read right before writing to shrink the race with Claude Code's own writes.
     settings = read_settings(path)
     current = settings.get("statusLine") if settings is not None else None
-    if settings is not None and current == wanted:
+    if _is_command(current, command):
+        if book is None or recorded != path:  # no record for this file: nothing to restore
+            _write_bookkeeping(profile, path, command, None, now, None)
         return ApplyResult(profile.id, path, ALREADY_APPLIED, None, command)
-    previous_book = read_bookkeeping(profile.id)
-    if is_ours(current, script) and previous_book is not None:
-        previous = previous_book.get("previous_statusline")  # ours with another interpreter
+    # Ours with another interpreter, or the old dir's statusLine (the dir was moved): keep what
+    # it replaced. Ours without bookkeeping: nothing known, so revert removes the statusLine.
+    old_script = recorded.with_name(template.SCRIPT_NAME)
+    if is_ours(current, script) or (book is not None and is_ours(current, old_script)):
+        previous = book.get("previous_statusline") if book is not None else None
     else:
         previous = current
-    backup = _backup(path, now) if settings is not None else None
     data: dict[str, Any] = dict(settings) if settings is not None else {}
-    data["statusLine"] = wanted
-    atomic_write_json(
-        paths.statusline_file(profile.id),
-        {
-            "schema": BOOKKEEPING_SCHEMA,
-            "profile_id": profile.id,
-            "config_dir": profile.config_dir_env,
-            "settings_path": str(path),
-            "command": command,
-            "previous_statusline": previous,
-            "applied_at": now.astimezone().isoformat(timespec="seconds"),
-            "backup_path": str(backup) if backup else None,
-        },
-    )
-    _write_settings(path, data)
+    extra = current if isinstance(current, dict) else {}
+    data["statusLine"] = {**extra, "type": "command", "command": command}
+    text = _settings_text(path, data)
+    backup = _backup(path, now) if settings is not None else None
+    try:
+        _write_settings(path, data, text)
+    except BaseException:
+        if backup is not None:
+            with contextlib.suppress(OSError):
+                backup.unlink()
+        raise
+    # Settings first: the bookkeeping must never claim "applied" while settings are unchanged.
+    try:
+        _write_bookkeeping(profile, path, command, previous, now, backup)
+    except BaseException:
+        _rollback(path, settings)
+        raise
     return ApplyResult(profile.id, path, APPLIED, backup, command)
 
 
-def revert(profile: Profile) -> RevertResult:
-    """Restore the `statusLine` recorded by `apply`; the script file is kept (launcher uses it)."""
-    book = read_bookkeeping(profile.id)
-    if book is None:
-        return RevertResult(profile.id, NOT_APPLIED, None)
-    path = settings_path(profile)
+def _rollback(path: Path, settings: dict[str, Any] | None) -> None:
+    """Put `settings.json` back as it was before `apply` (best effort; the backup remains)."""
+    try:
+        if settings is None:
+            path.unlink()
+        else:
+            _write_settings(path, settings)
+    except (OSError, ApplyError):
+        log.warning("could not roll back %s", path, exc_info=True)
+
+
+def _revert_recorded(profile_id: str, book: dict[str, Any], path: Path) -> RevertResult:
+    """Restore `book`'s previous statusLine in `path` and drop the bookkeeping.
+
+    A conflict (the user changed `statusLine` since) changes nothing and keeps the bookkeeping.
+    """
     settings = read_settings(path)
-    script = template.script_path(profile)
     current = settings.get("statusLine") if settings is not None else None
-    if settings is None or not is_ours(current, script):
+    if settings is None or not is_ours(current, path.with_name(template.SCRIPT_NAME)):
         return RevertResult(
-            profile.id,
+            profile_id,
             CONFLICT,
             None,
             hint=(
                 f"{path} no longer points at the ccs statusline; edit statusLine manually "
-                f"(previous value is in {paths.statusline_file(profile.id)})"
+                f"(previous value is in {paths.statusline_file(profile_id)})"
             ),
         )
     previous = book.get("previous_statusline")
@@ -231,8 +311,20 @@ def revert(profile: Profile) -> RevertResult:
         data["statusLine"] = previous
     _write_settings(path, data)
     with contextlib.suppress(FileNotFoundError):
-        os.unlink(paths.statusline_file(profile.id))
-    return RevertResult(profile.id, REVERTED, previous)
+        os.unlink(paths.statusline_file(profile_id))
+    return RevertResult(profile_id, REVERTED, previous)
+
+
+def revert(profile: Profile) -> RevertResult:
+    """Restore the `statusLine` recorded by `apply`; the script file is kept (launcher uses it).
+
+    Works on the `settings.json` recorded at apply time, even if the profile's config dir
+    changed since.
+    """
+    book = read_bookkeeping(profile.id)
+    if book is None:
+        return RevertResult(profile.id, NOT_APPLIED, None)
+    return _revert_recorded(profile.id, book, recorded_settings_path(book, settings_path(profile)))
 
 
 def ensure_statusline(profile: Profile, config: Config | None = None) -> str | None:

@@ -17,7 +17,10 @@ def format_reset_absolute(reset: datetime, now: datetime, tz: tzinfo) -> str:
     The clock time is rounded to the nearest minute: Claude reports resets a moment off the
     minute (`07:59:59.9` for 08:00), which must not show as `07:59`.
     """
-    r = (reset + timedelta(seconds=30)).astimezone(tz)
+    try:
+        r = (reset + timedelta(seconds=30)).astimezone(tz)
+    except OverflowError:  # at the edge of the datetime range: shown as given, unrounded
+        r = reset
     n = now.astimezone(tz)
     hm = f"{r.hour:02d}:{r.minute:02d}"
     days = (r.date() - n.date()).days

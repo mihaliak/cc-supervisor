@@ -92,8 +92,11 @@ What `apply` does:
 2. Backs up `settings.json` to `<config dir>/settings.json.ccs-backup-<YYYYmmddHHMMSS>`.
 3. Sets `statusLine` in `<config dir>/settings.json` to run that script with CC Supervisor's Python. All your other settings stay untouched.
 
-- Running `apply` again when it's already applied changes nothing and makes no new backup.
-- If `settings.json` isn't valid JSON, `apply` refuses and leaves it untouched.
+- Running `apply` again when it's already applied changes nothing and makes no new backup. Extra keys you added to `statusLine` (such as `padding`) are kept, also when `apply` replaces an older command.
+- If the profile's config dir changed since the last `apply`, `apply` first restores the old dir's `statusLine`, then applies to the new one. It refuses if the old `settings.json` can't be read, and the error says where the old value is kept.
+- `settings.json` is written before the bookkeeping, and a failed bookkeeping write rolls it back, so the two never disagree.
+- If `settings.json` isn't valid JSON, or can't be written back as UTF-8, `apply` refuses (`invalid_settings`) and leaves it untouched.
+- If `settings.json` is a symlink (for example into a dotfiles repo), the link stays and its target is updated.
 - If the profile's statusline is disabled (`statusline.enabled: false`), `apply` refuses and `ccs` doesn't add it to sessions.
 
 In plain `claude` sessions, the statusline shows usage but never shows ⏸: only `ccs` sessions are supervised.
@@ -102,7 +105,7 @@ In plain `claude` sessions, the statusline shows usage but never shows ⏸: only
 - **App:** Settings → Profiles → *profile* → Statusline → **Revert** (enabled only while it's applied)
 - **Terminal:** `ccs statusline revert --profile work`
 
-This restores the `statusLine` you had before `apply`, or removes it if there was none. The script file stays, because `ccs` sessions still use it.
+This restores the `statusLine` you had before `apply`, or removes it if there was none. It works on the `settings.json` it was applied to, even if the profile's config dir changed since. The script file stays, because `ccs` sessions still use it. If the bookkeeping file was lost, the previous value counts as "no statusLine". `ccs profile remove` runs the same revert first.
 
 If you changed `statusLine` yourself after applying, revert refuses (a conflict) and changes nothing. Edit `settings.json` by hand in that case; the previous value is kept in `~/.local/state/ccs/statusline/<profile>.json`.
 
@@ -118,4 +121,4 @@ ccs statusline generate --profile work   # rewrite the script only (settings.jso
   - The supervisor never creates new scripts and never edits `settings.json`.
 
 ## Performance
-The script uses only the Python standard library and starts without site packages (`-S -E`). It is designed to finish in under 60 ms, so it never slows Claude Code down; about 42 ms at p95 was measured on Apple silicon. If anything goes wrong it still prints a minimal line (`💼 Work ~ ?%`) and never an error.
+The script uses only the Python standard library and starts without site packages (`-S -E`). It is designed to finish in under 60 ms, so it never slows Claude Code down; about 42 ms at p95 was measured on Apple silicon. If anything goes wrong it still prints a minimal line (`💼 Work ~ ?%`) and never an error. Control characters in text it gets from Claude Code or the usage file (a folder name, a model name) are removed, so they can't reach your terminal. A reset time that can't be read is simply left out.

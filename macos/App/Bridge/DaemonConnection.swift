@@ -127,7 +127,9 @@ final class DaemonConnection: @unchecked Sendable {
     private var connection: NWConnection?
     private var framer = JSONLinesFramer()
     private var backoff = ReconnectBackoff()
+    /// Request ids restart at 1 on every connection; `hello` is always the first request.
     private var nextID = 1
+    private var helloID: Int?
     private var isOnline = false
     private var connectedAt: Date?
     private var stopped = true
@@ -141,6 +143,35 @@ final class DaemonConnection: @unchecked Sendable {
 
     static func isValidSocketPath(_ path: String) -> Bool {
         !path.isEmpty && path.utf8.count <= maxSocketPathBytes
+    }
+
+    /// Why the socket must not be used, or nil (ADR-0022; same rules as
+    /// `ccs.daemon.client.socket_trust_error`). The socket (`lstat`: a symlink is refused) and
+    /// its directory must belong to `uid`, and the directory must not be group- or
+    /// world-writable. A missing path is not an error here: connecting then fails as usual.
+    static func socketTrustProblem(_ path: String, uid: uid_t = getuid()) -> String? {
+        let dir = (path as NSString).deletingLastPathComponent
+        var link = stat()
+        var folder = stat()
+        var sock = stat()
+        // A symlinked state dir is judged by its target, but the link must be ours too.
+        guard lstat(dir, &link) == 0, stat(dir, &folder) == 0, lstat(path, &sock) == 0 else {
+            let error = errno
+            return error == ENOENT ? nil : "cannot inspect \(path): \(String(cString: strerror(error)))"
+        }
+        if link.st_uid != uid || folder.st_uid != uid {
+            return "\(dir) is not owned by the current user"
+        }
+        if folder.st_mode & 0o022 != 0 {
+            return "\(dir) is group- or world-writable"
+        }
+        if sock.st_mode & mode_t(S_IFMT) != mode_t(S_IFSOCK) {
+            return "\(path) is not a socket"
+        }
+        if sock.st_uid != uid {
+            return "\(path) is not owned by the current user"
+        }
+        return nil
     }
 
     func start() {
@@ -191,7 +222,17 @@ final class DaemonConnection: @unchecked Sendable {
             log.error("socket path too long (\(self.socketPath.utf8.count) bytes): \(self.socketPath, privacy: .public)")
             return
         }
+        if let problem = Self.socketTrustProblem(socketPath) {
+            // Another user could be listening there; stay offline and retry with backoff.
+            log.error("refusing the daemon socket: \(problem, privacy: .public)")
+            dropAndScheduleReconnect()
+            return
+        }
         framer.reset()
+        // A reconnect (e.g. `reconnectNow()` while a `hello` reply was pending) starts a new
+        // conversation; a leftover id would never match the `hello` reply and keep us offline.
+        nextID = 1
+        helloID = nil
         let conn = NWConnection(to: .unix(path: socketPath), using: .tcp)
         connection = conn
         conn.stateUpdateHandler = { [weak self] state in
@@ -204,7 +245,7 @@ final class DaemonConnection: @unchecked Sendable {
         guard conn === connection else { return }
         switch state {
         case .ready:
-            write(["op": "hello", "client": "app", "version": appVersion])
+            helloID = write(["op": "hello", "client": "app", "version": appVersion])
             write(["op": "subscribe", "topics": ["events", "snapshot"]])
             receive(on: conn)
         case .failed(let error):
@@ -238,7 +279,8 @@ final class DaemonConnection: @unchecked Sendable {
     private func dispatch(_ message: DaemonMessage) {
         switch message {
         case .reply(let id, let ok, let error):
-            if id == 1 {
+            if id == helloID {
+                helloID = nil
                 if ok {
                     connectedAt = Date()
                     setOnline(true)
@@ -258,17 +300,21 @@ final class DaemonConnection: @unchecked Sendable {
         }
     }
 
-    private func write(_ message: [String: Any]) {
-        guard let conn = connection else { return }
+    /// Send one request; returns its id (nil when nothing was sent).
+    @discardableResult
+    private func write(_ message: [String: Any]) -> Int? {
+        guard let conn = connection else { return nil }
+        let id = nextID
+        nextID += 1
         var framed = message
         framed["proto"] = 1
-        framed["id"] = nextID
-        nextID += 1
-        guard var data = try? JSONSerialization.data(withJSONObject: framed) else { return }
+        framed["id"] = id
+        guard var data = try? JSONSerialization.data(withJSONObject: framed) else { return nil }
         data.append(0x0A)
         conn.send(content: data, completion: .contentProcessed { [weak self] error in
             if let error { self?.log.debug("send failed: \(error.localizedDescription, privacy: .public)") }
         })
+        return id
     }
 
     private func dropAndScheduleReconnect() {
@@ -276,7 +322,6 @@ final class DaemonConnection: @unchecked Sendable {
         connection = nil
         if let connectedAt { backoff.connected(for: Date().timeIntervalSince(connectedAt)) }
         connectedAt = nil
-        nextID = 1
         setOnline(false)
         guard !stopped else { return }
         reconnectItem?.cancel()

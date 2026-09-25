@@ -42,6 +42,8 @@ After installing, review the new profiles in **Settings… → Profiles**: warm-
 | Background supervisor | LaunchAgent `~/Library/LaunchAgents/local.ccsupervisor.daemon.plist` |
 | Your settings | `~/.config/ccs/config.json` |
 | Runtime data (usage, sessions, logs) | `~/.local/state/ccs/` |
+
+If your shell sets `XDG_CONFIG_HOME`, `XDG_STATE_HOME` or `CCS_STATE_DIR`, `ccs daemon install` saves them in the LaunchAgent, and the app reads them from there when it launches, so the app, the supervisor and `ccs` use the same folders. Restart the app after reinstalling the daemon with different folders. Widgets can only read `~/.local/state/ccs/`, so they need the default state folder (`ccs doctor` warns otherwise).
 | Statusline script (per profile) | `<config dir>/ccs-statusline.py`, for example `~/.claude-work/ccs-statusline.py` |
 
 Make sure `~/.local/bin` is on your `PATH` (`pipx ensurepath`).
@@ -79,7 +81,7 @@ make upgrade
 It:
 - reinstalls `ccs` (pipx)
 - rebuilds and reinstalls the app
-- restarts the supervisor and the menu bar app on the new code
+- reinstalls the supervisor's LaunchAgent (`ccs daemon install`, so it picks up new LaunchAgent settings) and restarts the menu bar app on the new code
 - regenerates the statusline scripts that already exist (it doesn't create new ones)
 - runs `ccs doctor`
 
@@ -108,13 +110,14 @@ It:
 make uninstall
 ```
 - Asks for confirmation first.
-- Restores the previous `statusLine` in every profile where `ccs statusline apply` set one. If you changed that `statusLine` since, it reports a conflict and leaves the file alone.
+- Restores the previous `statusLine` everywhere `ccs statusline apply` set one, working from the records in `~/.local/state/ccs/statusline/` (so removed profiles are covered too). If `ccs` can't run, it restores them with plain `python3`. If you changed that `statusLine` since, it reports a conflict and leaves the file alone.
+- Finds `ccs` in `~/.local/bin` or on your `PATH`.
 - Stops and removes the LaunchAgent.
 - Turns off Launch at login, quits the app, and removes `~/Applications/CC Supervisor.app`.
 - Uninstalls `ccs` from pipx.
 - **Asks** before deleting `~/.config/ccs/` (your settings), `~/.local/state/ccs/` (runtime data), and the generated `ccs-statusline.py` files in your config dirs. Answer "no" to keep them for a later reinstall.
 - **Never** touches your Claude Code logins, conversations, or other settings in your config dirs.
 
-For scripted runs: `make uninstall YES=1` answers the first question with yes and keeps config and state; add `PURGE=1` to delete them too.
+For scripted runs: `make uninstall YES=1` answers the first question with yes and keeps config and state; add `PURGE=1` to delete them too. A record of a `statusLine` that couldn't be restored is never deleted, even with `PURGE=1`; its path is printed so you can fix `settings.json` by hand.
 
 If an old login item stays behind (for example after deleting the app by hand), remove it in **System Settings › General › Login Items**.

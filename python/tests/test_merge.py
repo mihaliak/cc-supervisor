@@ -61,10 +61,56 @@ def test_weekly_from_report() -> None:
     assert merged.weekly.percent == 77 and merged.session == base().session
 
 
-def test_older_report_loses() -> None:
+def test_older_report_of_another_window_loses() -> None:
     later = dataclasses.replace(base())
-    merged = merge(later, [report(-1, five=99)], now=T0 + timedelta(minutes=1))
+    older = report(-1, five=99)
+    assert older.five_hour is not None
+    other = dataclasses.replace(
+        older,
+        five_hour=dataclasses.replace(older.five_hour, resets_at=RESET + timedelta(hours=1)),
+    )
+    merged = merge(later, [other], now=T0 + timedelta(minutes=1))
     assert merged == later
+
+
+def test_newer_report_of_another_window_wins_with_a_lower_percent() -> None:
+    newer = report(1, five=3)
+    assert newer.five_hour is not None
+    fresh = dataclasses.replace(
+        newer,
+        five_hour=dataclasses.replace(newer.five_hour, resets_at=RESET + timedelta(hours=5)),
+    )
+    merged = merge(base(), [fresh], now=T0 + timedelta(minutes=2))
+    assert merged is not None and merged.session is not None
+    assert (merged.session.percent, merged.session.resets_at) == (3, RESET + timedelta(hours=5))
+
+
+def test_same_window_higher_percent_wins_even_when_older() -> None:
+    # ADR-0022: usage only rises within a window instance
+    merged = merge(base(), [report(-1, five=99)], now=T0 + timedelta(minutes=1))
+    assert merged is not None and merged.session is not None
+    assert (merged.session.percent, merged.session.source) == (99, "statusline")
+    assert merged.session.observed_at == T0 - timedelta(minutes=1)
+
+
+def test_same_window_stale_redraw_cannot_lower_the_poll() -> None:
+    polled = merge(base(), [report(1, five=40)], now=T0 + timedelta(minutes=2))
+    assert polled is not None and polled.session is not None
+    # a statusline redraw with an old, lower percent (resets_at jittered by seconds)
+    lower = report(3, five=20)
+    assert lower.five_hour is not None
+    jitter = dataclasses.replace(
+        lower,
+        five_hour=dataclasses.replace(lower.five_hour, resets_at=RESET + timedelta(seconds=2)),
+    )
+    merged = merge(polled, [jitter], now=T0 + timedelta(minutes=4))
+    assert merged is not None and merged.session == polled.session
+
+
+def test_same_window_equal_percent_keeps_newest_observation() -> None:
+    merged = merge(base(), [report(1, five=15)], now=T0 + timedelta(minutes=2))
+    assert merged is not None and merged.session is not None
+    assert merged.session.observed_at == T0 + timedelta(minutes=1)
 
 
 def test_newest_of_several_reports_wins() -> None:

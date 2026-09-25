@@ -4,10 +4,11 @@ Steps (P06 design):
 1. data gate: only `status == ok` data creates warns and holds
 2. spill: with credits enabled and `spill` on, session/weekly holds are suppressed/released
 3. windows: warn once per window instance, pause once per instance (hysteresis)
-4. extra usage: warn at `warn` % of the monthly cap; with spill, hold at `pause` %
+4. extra usage: warn at `warn` % of the monthly cap; with spill, hold at `pause` %; the
+   instance is the cap plus an arm counter, re-armed when `percent` drops below warn
 5. reset confirmation: force a poll at `resets_at + 15 s`, clear on an advanced window or
    `percent < warn`, re-poll every 30 s, time-based clear after 10 min
-6. apply holds to sessions → pause / resume / update / mark-running actions
+6. apply holds to sessions → pause / resume / update / mark-running / adopt-override actions
 7. events (`limit.warn|pause|resume`) carry data only; `EventBus.emit` adds the text.
 
 Every threshold comes from `profile.limits` — no literals.
@@ -17,9 +18,9 @@ from __future__ import annotations
 
 import dataclasses
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Container, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 from ccs.config.models import Profile
 from ccs.events import Event
@@ -37,6 +38,7 @@ from ccs.supervisor.model import (
     ProfileSupervisorState,
     SessionView,
     bounded,
+    extra_instance,
 )
 from ccs.usage.model import STATUS_OK, UsageSnapshot, format_iso
 from ccs.usage.normalize import window_key_time
@@ -81,6 +83,15 @@ class MarkRunning:
 
 
 @dataclass(frozen=True)
+class AdoptOverride:
+    """A started-anyway session's model now matches model-scoped instances it was started
+    against before its model was known: they become overridden (ADR-0022)."""
+
+    wrapper_id: str
+    instances: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class ForcePoll:
     at: datetime
 
@@ -90,7 +101,15 @@ class LogWarning:
     message: str
 
 
-Action = PauseSession | ResumeSession | UpdateHolds | MarkRunning | ForcePoll | LogWarning
+Action = (
+    PauseSession
+    | ResumeSession
+    | UpdateHolds
+    | MarkRunning
+    | AdoptOverride
+    | ForcePoll
+    | LogWarning
+)
 
 
 @dataclass(frozen=True)
@@ -119,12 +138,6 @@ def instance_key(kind: str, resets_at: datetime, name: str | None = None) -> str
     return f"{kind}:{name}:{k}" if kind == MODEL_SCOPED and name else f"{kind}:{k}"
 
 
-def extra_instance(now: datetime, limit: float | None) -> str:
-    """`extra_usage:<YYYY-MM>:<cap>` (a raised cap re-arms the instance)."""
-    cap = "none" if limit is None else f"{limit:g}"
-    return f"{EXTRA_USAGE}:{now.astimezone(UTC).strftime('%Y-%m')}:{cap}"
-
-
 def model_matches(scope: str | None, model_id: str | None) -> bool:
     """Whether a session's model belongs to a model-scoped bucket (unknown model → no)."""
     if not scope or not model_id:
@@ -143,6 +156,11 @@ def applies(hold: Hold, session: SessionView) -> bool:
 
 def applicable_holds(holds: Sequence[Hold], session: SessionView) -> list[Hold]:
     return [h for h in holds if applies(h, session)]
+
+
+def undecided_holds(holds: Sequence[Hold], session: SessionView) -> list[Hold]:
+    """Model-scoped holds whose match can't be decided yet (the model is still unknown)."""
+    return [h for h in holds if h.kind == MODEL_SCOPED and not session.model_id]
 
 
 def latest_resume(holds: Sequence[Hold]) -> datetime | None:
@@ -323,9 +341,14 @@ def evaluate(
                 paused_inst.append(instance)
                 active_instances.add(instance)
 
-    # 4. extra usage (credits)
+    # 4. extra usage (credits): the instance is the cap plus an arm counter (ADR-0022)
+    extra_arm = state.extra_usage_arm
     if fresh and extra is not None and extra.enabled and extra.percent is not None:
-        instance = extra_instance(now, extra.limit)
+        instance = extra_instance(extra.limit, extra_arm)
+        fired = f"warn:{instance}" in warned or instance in paused_inst or instance in released
+        if extra.percent < lim.extra_usage.warn and fired:
+            extra_arm += 1  # a monthly reset or a raised cap: the next rise fires again
+            instance = extra_instance(extra.limit, extra_arm)
         percents[instance] = extra.percent
         extra_base: dict[str, object] = {
             "window": EXTRA_USAGE,
@@ -410,6 +433,14 @@ def evaluate(
         sup = s.supervision
         applicable = applicable_holds(holds, s)
         overridden = set(sup.overridden_instances)
+        # started anyway before the model was known: matching instances become overridden
+        pending = set(sup.pending_override_instances)
+        adopted = tuple(
+            h.instance for h in applicable if h.instance in pending and h.instance not in overridden
+        )
+        if adopted:
+            actions.append(AdoptOverride(s.wrapper_id, adopted))
+            overridden.update(adopted)
         # an override covers only the instances present when the user overrode (ADR-0007)
         effective = [h for h in applicable if h.instance not in overridden]
         ids = _hold_ids(effective)
@@ -482,6 +513,7 @@ def evaluate(
         paused_instances=bounded(paused_inst),
         released_instances=bounded(released),
         ledger=ledger.append(state.ledger, entries),
+        extra_usage_arm=extra_arm,
     )
     return Decision(tuple(actions), new_state, tuple(events))
 
@@ -547,6 +579,35 @@ def release_holds(
         ledger=ledger.append(state.ledger, entries),
     )
     return new, cleared
+
+
+def release_orphaned_holds(
+    state: ProfileSupervisorState, now: datetime, live_wrappers: Container[str]
+) -> tuple[ProfileSupervisorState, list[Hold]]:
+    """Drop session-scoped manual holds whose session ended (ADR-0022)."""
+    dropped = [
+        h
+        for h in state.holds
+        if h.kind == MANUAL and h.scope is not None and h.scope not in live_wrappers
+    ]
+    if not dropped:
+        return state, []
+    entries = [
+        ledger.entry(
+            now,
+            "release",
+            instance=h.instance,
+            wrapper_ids=[h.scope] if h.scope else [],
+            detail="session_ended",
+        )
+        for h in dropped
+    ]
+    new = dataclasses.replace(
+        state,
+        holds=tuple(h for h in state.holds if h not in dropped),
+        ledger=ledger.append(state.ledger, entries),
+    )
+    return new, dropped
 
 
 def supervisor_state_label(

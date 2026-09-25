@@ -125,9 +125,10 @@ Thresholds in percent ([Limits & supervisor](07-limits-and-supervisor.md)).
 | `work` | `work` | Work | 💼 | `~/.claude-work` |
 
 ## Validation rules
+- `version` and `profiles` must be present.
 - `version` is `1`. A file with a higher version is rejected with a message to upgrade `ccs`. `revision` is a whole number ≥ 0.
 - `default_profile` must be the `id` of an existing profile (checked only while at least one profile exists).
-- `ccs_path` and `claude_path` are `null` or a non-empty path.
+- `ccs_path` and `claude_path` are `null` or an absolute path (or one starting with `~`). A relative path would depend on the folder you run `ccs` in.
 - Profile `id` and `flag`:
   - each must be unique
   - both use lowercase letters, digits, and `-`, start with a letter or digit, and are at most 32 characters
@@ -136,11 +137,15 @@ Thresholds in percent ([Limits & supervisor](07-limits-and-supervisor.md)).
   - any `claude` long option (e.g. `model`, `resume`, `continue`, `print`, `effort`)
 - `config_dir` must be unique across profiles (after `~` expansion), and absolute or starting with `~`.
 - `emoji` is required, at most 8 characters (code points).
+- `name` and `emoji` can't be blank. `name`, `emoji`, `config_dir` and the paths can't contain control characters (such as a newline).
 - Thresholds are whole numbers from 1 to 100, and each `warn` must be lower than its `pause`.
 - Colors: `0 < yellow_from < red_from ≤ 100`.
 - `name`, `warmup.model`, `warmup.prompt`, and `supervisor.resume_prompt` are non-empty strings; toggles are `true`/`false`.
+- `warmup.prompt` and `supervisor.resume_prompt` can contain newlines and tabs but no other control characters. `warmup.prompt` can't start with `-` (`claude` would read it as an option).
+- `warmup.model` is a model name or id: letters, digits and `._:@/[]-`, for example `haiku`, `opus[1m]`, `claude-opus-5-5`.
 - Times are `HH:MM` (24h). Each schedule entry needs at least one weekday; weekdays are `mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun`, with no duplicates.
-- `cooldown_minutes` is 0–1440. Polling intervals are 5–3600 seconds.
+- `cooldown_minutes` is 0–1440. Polling intervals are 5–240 seconds, so the supervisor's files are always rewritten well within the 5-minute offline limit.
+- Every pattern (ids, flags, `HH:MM`) must match the whole value. A trailing newline or non-ASCII digits make it invalid.
 - `display.menu_bar` is `letter_percent` or `icon_only` (the older `emoji_percent` is accepted and means `letter_percent`). `display.time_format` is `24h`.
 - Unknown keys are kept as they are, so newer settings survive older tools.
 - The file is written with sorted keys, 2-space indentation, and literal emoji, by both the app and `ccs`. `ccs` never adds defaults to the file: keys you leave out keep following the defaults.

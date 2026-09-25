@@ -33,6 +33,14 @@ private final class LockedFlag: @unchecked Sendable {
         flag = true
     }
 
+    /// Set the flag; true only for the call that set it.
+    func setOnce() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard !flag else { return false }
+        flag = true
+        return true
+    }
+
     var value: Bool {
         lock.lock(); defer { lock.unlock() }
         return flag
@@ -40,21 +48,24 @@ private final class LockedFlag: @unchecked Sendable {
 }
 
 /// Owns a `Process` so it can cross into `@Sendable` closures (all access is to
-/// thread-safe members: `isRunning`, `terminate`, `processIdentifier`).
+/// thread-safe members: `isRunning`, `interrupt`, `terminate`, `processIdentifier`).
 private final class ProcessBox: @unchecked Sendable {
     let process: Process
+    /// Set by the first stop request (timeout or cancel), so the signals are sent once.
+    let stopping = LockedFlag()
     init(_ process: Process) { self.process = process }
 }
 
 enum ProcessRunner {
-    /// Run `executable` off the main actor, capturing stdout/stderr; terminate
-    /// (SIGTERM, then SIGKILL after 2 s) when `timeout` elapses or the calling task is
-    /// cancelled (e.g. the user cancels a long sign-in).
+    /// Run `executable` off the main actor, capturing stdout/stderr; stop it (see
+    /// `terminate`) when `timeout` elapses or the calling task is cancelled (e.g. the user
+    /// cancels a long sign-in). `grace` is the wait between the escalating signals.
     static func run(
         executable: URL,
         arguments: [String],
         environment: [String: String],
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        grace: TimeInterval = 2
     ) async throws -> ProcessResult {
         let process = Process()
         process.executableURL = executable
@@ -88,20 +99,24 @@ enum ProcessRunner {
                         ))
                     }
                 }
+                // Enter the group before the child can exit: a fast child's termination
+                // handler must not find an empty group and return before its output is read.
+                readers.enter()
+                readers.enter()
                 do {
                     try process.run()
                 } catch {
                     process.terminationHandler = nil
+                    readers.leave()
+                    readers.leave()
                     continuation.resume(throwing: CcsError.launch(error.localizedDescription))
                     return
                 }
-                if cancelled.value { terminate(box) }
-                readers.enter()
+                if cancelled.value { terminate(box, grace: grace) }
                 DispatchQueue.global().async {
                     stdoutBuf.set(outPipe.fileHandleForReading.readDataToEndOfFile())
                     readers.leave()
                 }
-                readers.enter()
                 DispatchQueue.global().async {
                     stderrBuf.set(errPipe.fileHandleForReading.readDataToEndOfFile())
                     readers.leave()
@@ -109,21 +124,27 @@ enum ProcessRunner {
                 DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
                     guard box.process.isRunning else { return }
                     timedOut.set()
-                    terminate(box)
+                    terminate(box, grace: grace)
                 }
             }
         } onCancel: {
             cancelled.set()
-            terminate(box)
+            terminate(box, grace: grace)
         }
     }
 
-    /// SIGTERM now, SIGKILL after 2 s if it is still running.
-    private static func terminate(_ box: ProcessBox) {
-        guard box.process.isRunning else { return }
-        box.process.terminate()
-        DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
-            if box.process.isRunning { kill(box.process.processIdentifier, SIGKILL) }
+    /// SIGINT first: `ccs` treats it as Ctrl-C and stops its own child's process group (e.g.
+    /// `claude auth login`), which SIGTERM/SIGKILL would orphan. Then SIGTERM after `grace`,
+    /// and SIGKILL after another `grace`, while it is still running.
+    private static func terminate(_ box: ProcessBox, grace: TimeInterval) {
+        guard box.process.isRunning, box.stopping.setOnce() else { return }
+        box.process.interrupt()
+        DispatchQueue.global().asyncAfter(deadline: .now() + grace) {
+            guard box.process.isRunning else { return }
+            box.process.terminate()
+            DispatchQueue.global().asyncAfter(deadline: .now() + grace) {
+                if box.process.isRunning { kill(box.process.processIdentifier, SIGKILL) }
+            }
         }
     }
 }

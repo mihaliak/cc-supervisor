@@ -13,6 +13,7 @@ import pytest
 from schema_check import validate
 from sl_helpers import NOW, SESSION_RESET, load_fixture, strip_ansi, usage_doc
 
+from ccs import paths
 from ccs.fsio import atomic_write_json
 from ccs.statusline import runtime
 
@@ -183,3 +184,52 @@ def test_unwritable_state_dir_still_prints(tmp_path: Path) -> None:
 def test_usage_file_directory_is_tolerated(tmp_path: Path) -> None:
     (tmp_path / "usage" / "work.json").mkdir(parents=True)
     assert "45%" in run(tmp_path, stdin_json(45.0))
+
+
+@pytest.mark.parametrize(
+    ("value", "ok"),
+    [
+        ("w1", True),
+        ("A-z_0-9", True),
+        ("a" * 64, True),
+        ("a" * 65, False),
+        ("", False),
+        ("../x", False),
+        ("a/b", False),
+        ("..", False),
+        ("x\n", False),
+        ("ä", False),
+        (None, False),
+        (7, False),
+    ],
+)
+def test_safe_id(value: Any, ok: bool) -> None:
+    assert runtime.safe_id(value) == (value if ok else None)
+    assert paths.is_valid_id(value) is ok  # the same rule as the daemon's
+
+
+def test_id_pattern_matches_paths() -> None:
+    assert runtime.ID_RE.pattern == paths.ID_RE.pattern
+
+
+@pytest.mark.parametrize("wrapper", ["../../escaped", "a/b", "x\n"])
+def test_unsafe_wrapper_id_builds_no_path(tmp_path: Path, wrapper: str) -> None:
+    state = tmp_path / "state"
+    (state / "sessions").mkdir(parents=True)
+    # what `sessions/../../escaped.json` would read: a paused record outside the state dir
+    atomic_write_json(
+        tmp_path / "escaped.json",
+        {"wrapper_id": wrapper, "supervision": {"state": "paused", "holds": ["session"]}},
+    )
+    line = run(state, stdin_json(45.0), wrapper=wrapper)
+    assert "45% ▓▓▓▓▓░░░░░" in line and "⏸" not in line
+    assert not (state / "live").exists()
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["escaped.json", "state"]
+
+
+@pytest.mark.parametrize("session_id", ["../../escaped", "a/b", "..", "x" * 129])
+def test_unsafe_session_id_builds_no_path(tmp_path: Path, session_id: str) -> None:
+    state = tmp_path / "state"
+    line = run(state, stdin_json(45.0, session_id=session_id), wrapper=None)
+    assert "45% ▓▓▓▓▓░░░░░" in line
+    assert list(tmp_path.iterdir()) == []  # nothing written anywhere

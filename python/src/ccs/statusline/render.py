@@ -34,6 +34,15 @@ CURRENCY_SYMBOLS = {"EUR": "€", "USD": "$", "GBP": "£"}
 
 USAGE_FRESH_FOR = timedelta(minutes=10)
 
+# Times beyond these can't be shifted into a local zone or rounded without `OverflowError`:
+# garbage, never a real reset.
+TIME_MIN = datetime.min.replace(tzinfo=UTC) + timedelta(days=2)
+TIME_MAX = datetime.max.replace(tzinfo=UTC) - timedelta(days=2)
+
+# C0 and C1 control characters (ESC, BEL, CR, LF, CSI, …): stripped from text that comes
+# from stdin or state files, so it can't inject terminal escapes or break the line.
+_CONTROLS = dict.fromkeys([*range(0x20), *range(0x7F, 0xA0)])
+
 STATE_PAUSED = "paused"
 STATE_OVERRIDDEN = "overridden"
 
@@ -242,21 +251,25 @@ def display_percent(value: Any) -> int | None:
 
 
 def parse_time(value: Any) -> datetime | None:
-    """Epoch seconds or ISO 8601 → aware UTC; `None` when missing or unparseable."""
+    """Epoch seconds or ISO 8601 → aware UTC; `None` when missing, unparseable or out of range."""
     if value is None or isinstance(value, bool):
         return None
-    if isinstance(value, int | float):
-        try:
-            return datetime.fromtimestamp(float(value), UTC)
-        except (OverflowError, OSError, ValueError):
-            return None
-    if isinstance(value, str) and value.strip():
-        try:
+    try:
+        if isinstance(value, int | float):
+            dt = datetime.fromtimestamp(float(value), UTC)
+        elif isinstance(value, str) and value.strip():
             dt = datetime.fromisoformat(value.strip())
-        except ValueError:
+            dt = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+        else:
             return None
-        return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
-    return None
+    except (OverflowError, OSError, ValueError):
+        return None
+    return dt if TIME_MIN <= dt <= TIME_MAX else None
+
+
+def clean(text: str) -> str:
+    """`text` without C0/C1 control characters (terminal escapes, newlines)."""
+    return text.translate(_CONTROLS)
 
 
 def level_for(percent: int | None, yellow_from: int = 50, red_from: int = 80) -> str:
@@ -282,7 +295,7 @@ def currency_symbol(code: Any) -> str:
     """`€`, `$`, `£`, else the ISO code itself (empty when unknown)."""
     if not isinstance(code, str):
         return ""
-    return CURRENCY_SYMBOLS.get(code, code)
+    return CURRENCY_SYMBOLS.get(code) or clean(code)
 
 
 def _dict(value: Any) -> dict[str, Any]:
@@ -291,6 +304,11 @@ def _dict(value: Any) -> dict[str, Any]:
 
 def _str(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
+
+
+def _text(value: Any) -> str | None:
+    """A non-empty string to display (control characters stripped), else `None`."""
+    return _str(clean(value)) if isinstance(value, str) else None
 
 
 def _basename(path: str) -> str:
@@ -359,7 +377,7 @@ def model_scoped_windows(ctx: RenderContext) -> list[tuple[str, Win]]:
     raw_list = _dict(ctx.usage.get("windows")).get("model_scoped")
     for raw in raw_list if isinstance(raw_list, list) else []:
         item = _dict(raw)
-        name = _str(item.get("name"))
+        name = _text(item.get("name"))
         percent = display_percent(item.get("percent"))
         if name is None or percent is None:
             continue
@@ -384,20 +402,23 @@ def active_holds(ctx: RenderContext) -> set[str]:
 
 
 def _head(ctx: RenderContext) -> list[Segment]:
-    """`{emoji} {name}`, `{folder}`, `{model} / {effort}` as separate parts (empty ones dropped)."""
+    """`{emoji} {name}`, `{folder}`, `{model} / {effort}` as separate parts (empty ones dropped).
+
+    Control characters are stripped from every part: stdin is untrusted terminal output.
+    """
     parts: list[Segment] = []
-    title = f"{ctx.emoji} {ctx.name}" if ctx.emoji else ctx.name
+    title = clean(f"{ctx.emoji} {ctx.name}" if ctx.emoji else ctx.name)
     if title.strip():
         parts.append(Segment(title.strip()))
     workspace = _dict(ctx.stdin.get("workspace"))
-    path = _str(workspace.get("current_dir")) or _str(ctx.stdin.get("cwd"))
+    path = _text(workspace.get("current_dir")) or _text(ctx.stdin.get("cwd"))
     if path is not None:
         folder = _basename(path)
         if folder:
             parts.append(Segment(folder))
-    model = _str(_dict(ctx.stdin.get("model")).get("display_name"))
+    model = _text(_dict(ctx.stdin.get("model")).get("display_name"))
     if model is not None:
-        effort = _str(_dict(ctx.stdin.get("effort")).get("level"))
+        effort = _text(_dict(ctx.stdin.get("effort")).get("level"))
         parts.append(Segment(f"{model} / {effort}" if effort else model))
     return parts
 

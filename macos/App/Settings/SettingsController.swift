@@ -91,6 +91,7 @@ final class SettingsController {
             return await self.runValidation()
         }
         store.onSaved = { [weak app] in app?.reloadConfig() }
+        app.onQuit { [weak self] in self?.saveBeforeQuit() }
     }
 
     /// The client for the current `ccs_path` (it can change while Settings is open).
@@ -124,6 +125,15 @@ final class SettingsController {
         watchTask?.cancel()
         watchTask = nil
         Task { await store.saveNow() }
+    }
+
+    /// The app is quitting (⌘Q, the menu's Quit, logout): end editing, commit what is typed
+    /// but not yet committed, then write pending edits synchronously.
+    func saveBeforeQuit() {
+        // Makes AppKit-backed fields (e.g. the % fields) commit their text.
+        for window in NSApp.windows { _ = window.makeFirstResponder(nil) }
+        UncommittedDrafts.shared.commitAll()
+        store.saveBeforeQuit()
     }
 
     /// A deep link (`ccsupervisor://profile/<id>`) or a card's ⚙ asked for a profile:
@@ -399,7 +409,7 @@ final class SettingsController {
                let entry = status.profiles?.first(where: { $0.id == id }) {
                 info.nextAt = entry.nextWarmupAt.flatMap(Self.parseDate)
             }
-            let file = StateLocation.stateDir().appendingPathComponent("warmup/\(id).json")
+            let file = LaunchAgentEnvironment.stateDir.appendingPathComponent("warmup/\(id).json")
             if let data = try? Data(contentsOf: file), let doc = try? JSONValue.parse(data),
                let last = doc["last_attempt"] {
                 info.lastAttemptAt = last["at"]?.stringValue.flatMap(Self.parseDate)
@@ -443,14 +453,13 @@ final class SettingsController {
         } catch {
             return error.localizedDescription
         }
-        store.load()
-        await store.validate()
+        await store.reloadKeepingEdits()
         app.selectedProfileID = new.id
         app.refresh()
         return nil
     }
 
-    /// `ccs profile remove <id> --json` (the Claude config dir is never touched).
+    /// `ccs profile remove <id> --json` (reverts an applied statusline; the Claude config dir is otherwise untouched).
     func removeProfile(_ id: String) {
         let others = store.profiles.map(\.id).filter { $0 != id }
         let newDefault = store.defaultProfileID == id ? others.first : nil
@@ -461,8 +470,7 @@ final class SettingsController {
             return "Removed profile \(id)"
         } after: { [weak self] in
             guard let self else { return }
-            self.store.load()
-            await self.store.validate()
+            await self.store.reloadKeepingEdits()
             if self.app.selectedProfileID == id {
                 self.app.selectedProfileID = self.store.defaultProfileID ?? self.store.profiles.first?.id
             }

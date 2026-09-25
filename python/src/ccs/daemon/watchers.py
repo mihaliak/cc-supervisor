@@ -140,6 +140,9 @@ class ConfigWatcher:
                 )
             )
             return {"ok": False, "changed": False, "issues": issues, "revision": revision}
+        except store.ConfigError as exc:
+            log.warning("cannot load config (keeping the last good config): %s", exc)
+            return {"ok": False, "changed": False, "issues": [{"path": "", "message": str(exc)}]}
         old = self.daemon.config
         if old is not None and old.to_dict() == cfg.to_dict():
             return {"ok": True, "changed": False, "revision": cfg.revision}

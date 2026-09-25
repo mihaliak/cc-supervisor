@@ -9,10 +9,11 @@ actor CcsClient {
         self.executablePath = executablePath
     }
 
-    /// Environment for the child: GUI apps get a minimal PATH, so prepend the
-    /// usual tool locations (`ccs` itself resolves `claude` via config/daemon).
+    /// Environment for the child: the daemon's path variables (ADR-0022,
+    /// `LaunchAgentEnvironment`), and since GUI apps get a minimal PATH, the usual tool
+    /// locations prepended (`ccs` itself resolves `claude` via config/daemon).
     static func childEnvironment(
-        base: [String: String] = ProcessInfo.processInfo.environment,
+        base: [String: String] = LaunchAgentEnvironment.resolved,
         home: URL = StateLocation.realHome()
     ) -> [String: String] {
         var env = base
@@ -115,7 +116,7 @@ actor CcsClient {
     }
 
     /// Blocks until the browser sign-in completes (P09: up to 600 s, so allow 610 s).
-    /// Cancelling the calling task terminates the `ccs` process.
+    /// Cancelling the calling task interrupts `ccs` (SIGINT), which stops `claude auth login`.
     func authLogin(profile: String) async throws -> AuthLoginResult {
         try await run(["auth", "login", "--profile", profile], timeout: .seconds(610), decodeOnFailure: true)
     }

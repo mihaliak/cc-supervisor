@@ -29,6 +29,11 @@ enum ConflictResolution: Sendable {
     case takeTheirs
 }
 
+/// Another writer held `.config.lock` for longer than `ConfigStore.lockTimeout`.
+struct ConfigLockTimeout: LocalizedError {
+    var errorDescription: String? { "another ccs process holds .config.lock. Your changes are kept and saved with the next edit." }
+}
+
 enum SaveResult: Sendable, Equatable {
     case saved(revision: Int)
     case nothingToSave
@@ -39,8 +44,9 @@ enum SaveResult: Sendable, Equatable {
 /// Reads and writes `config.json` for the Settings window (ADR-0004).
 ///
 /// - Edits go into the raw JSON tree, so unknown keys are never dropped.
-/// - Saves are debounced, revision-checked and atomic (temp file + replace). The file is
-///   written in exactly the format Python writes (`JSONValue.canonicalText()`).
+/// - Saves are debounced, revision-checked and atomic (temp file + replace), under the same
+///   `.config.lock` Python takes. The file is written in exactly the format Python writes
+///   (`JSONValue.canonicalText()`).
 /// - After a write, `ccs config validate --json` runs and its issues are shown inline. Swift
 ///   never validates by itself (ADR-0001); invalid values stay written and the daemon keeps
 ///   using its last good config until they are fixed.
@@ -69,6 +75,8 @@ final class ConfigStore {
     private(set) var isSaving = false
 
     @ObservationIgnored var saveDelay: Duration = .milliseconds(500)
+    /// How long a save waits for another writer (`ccs`) to release `.config.lock`.
+    @ObservationIgnored var lockTimeout: TimeInterval = 2
     @ObservationIgnored var validator: (@MainActor () async -> ValidationOutcome)?
     @ObservationIgnored var onSaved: (@MainActor () -> Void)?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
@@ -77,15 +85,17 @@ final class ConfigStore {
     @ObservationIgnored private var diskData: Data?
     @ObservationIgnored private let log = Logger(subsystem: "local.ccsupervisor.app", category: "config")
 
-    init(fileURL: URL = StateLocation.configFile()) {
+    init(fileURL: URL = LaunchAgentEnvironment.configFile) {
         self.fileURL = fileURL
         load()
     }
 
     // MARK: - Loading
 
-    /// Re-read the file. Pending edits are dropped; call only when there are none.
+    /// Re-read the file. Pending edits (and a conflict about them) are dropped; call only when
+    /// there are none, or use `reloadKeepingEdits()`.
     func load() {
+        conflict = nil
         guard let data = try? Data(contentsOf: fileURL) else {
             fileExists = FileManager.default.fileExists(atPath: fileURL.path)
             loadError = fileExists ? "config.json can't be read" : nil
@@ -121,6 +131,23 @@ final class ConfigStore {
         guard data != diskData || (data == nil && fileExists) else { return false }
         load()
         return true
+    }
+
+    /// Pick up a change we asked `ccs` to make (`profile add|remove`) without dropping edits
+    /// made meanwhile: edits of a profile that is gone are dropped, the rest are merged onto
+    /// the new file and saved like any save (a same-field change raises the conflict alert).
+    /// Validates the result.
+    func reloadKeepingEdits() async {
+        if !pending.isEmpty, let data = try? Data(contentsOf: fileURL), let disk = try? JSONValue.parse(data) {
+            pending.removeAll { $0.field.resolved(in: disk) == nil }
+        }
+        guard !pending.isEmpty else {
+            load()
+            await validate()
+            return
+        }
+        // `.saved` validated already; a conflict or failure keeps the edits (and says so).
+        if await saveNow() == .nothingToSave { await validate() }
     }
 
     func setDefaults(_ value: JSONValue?) {
@@ -207,6 +234,15 @@ final class ConfigStore {
         return result
     }
 
+    /// Quitting: write pending edits now, synchronously (no validation, the app is going away;
+    /// the daemon checks the file itself).
+    @discardableResult
+    func saveBeforeQuit() -> SaveResult {
+        saveTask?.cancel()
+        saveTask = nil
+        return write(resolution: nil)
+    }
+
     /// Answer the conflict alert.
     @discardableResult
     func resolveConflict(_ resolution: ConflictResolution) async -> SaveResult {
@@ -254,7 +290,17 @@ final class ConfigStore {
         }
         isSaving = true
         defer { isSaving = false }
+        do {
+            return try Self.withConfigLock(Self.lockURL(for: fileURL), timeout: lockTimeout) {
+                writeLocked(resolution: resolution)
+            }
+        } catch {
+            return fail("Couldn't save config.json: \(error.localizedDescription)")
+        }
+    }
 
+    /// Read → merge → replace, holding `.config.lock`.
+    private func writeLocked(resolution: ConflictResolution?) -> SaveResult {
         let currentData: Data
         do {
             currentData = try Data(contentsOf: fileURL)
@@ -337,6 +383,32 @@ final class ConfigStore {
         saveError = message
         log.error("\(message, privacy: .public)")
         return .failed(message)
+    }
+
+    /// `<config dir>/.config.lock`, the lock `ccs.config.store` holds while it reads, checks
+    /// the revision and replaces `config.json`.
+    nonisolated static func lockURL(for configFile: URL) -> URL {
+        configFile.deletingLastPathComponent().appendingPathComponent(".config.lock")
+    }
+
+    /// Run `body` holding `flock(LOCK_EX)` on `lockFile` (created 0600 if missing, like
+    /// Python's `FileLock`). Waits up to `timeout` for another holder, polling, so a stuck
+    /// `ccs` can't hang the UI.
+    nonisolated static func withConfigLock<T>(_ lockFile: URL, timeout: TimeInterval, _ body: () throws -> T) throws -> T {
+        let fd = open(lockFile.path, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        defer { close(fd) }
+        let deadline = Date().addingTimeInterval(timeout)
+        while flock(fd, LOCK_EX | LOCK_NB) != 0 {
+            let error = errno
+            guard error == EWOULDBLOCK || error == EINTR else {
+                throw POSIXError(POSIXErrorCode(rawValue: error) ?? .EIO)
+            }
+            guard Date() < deadline else { throw ConfigLockTimeout() }
+            usleep(10_000)
+        }
+        defer { flock(fd, LOCK_UN) }
+        return try body()
     }
 
     /// Temp file in the same directory, fsync, then replace; the original's permissions are kept.

@@ -83,7 +83,8 @@ def describe_control(cfg: Config, op: str, reply: dict[str, Any]) -> str:
         if not reply.get("created"):
             return f"{target}: already paused manually"
         noun = "session" if n == 1 else "sessions"
-        return f"{target}: paused ({n} {noun}) · resume with: ccs resume --profile {pid}"
+        how = f"--session {str(wid)[:SHORT_ID]}" if isinstance(wid, str) else f"--profile {pid}"
+        return f"{target}: paused ({n} {noun}) · resume with: ccs resume {how}"
     n = int(reply.get("sessions_resumed") or 0)
     cleared = reply.get("cleared") or []
     if not n and not cleared:

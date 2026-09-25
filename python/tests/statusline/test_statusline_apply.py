@@ -214,3 +214,170 @@ def test_ensure_statusline_failure_returns_none(tmp_path: Path) -> None:
     blocked.write_text("x")
     cfg = make_config(blocked)
     assert ap.ensure_statusline(cfg.profiles[0], cfg) is None
+
+
+# ---------------------------------------------------------------- P15 review fixes
+
+
+def test_revert_uses_the_recorded_settings_path(tmp_path: Path) -> None:
+    old_dir = tmp_path / "old"
+    old_dir.mkdir()
+    old = write_settings(old_dir, existing_settings())
+    cfg = make_config(old_dir)
+    ap.apply(cfg.profiles[0], cfg)
+    new_dir = tmp_path / "new"
+    new_dir.mkdir()
+    moved = make_config(new_dir)  # config_dir changed after apply
+    result = ap.revert(moved.profiles[0])
+    assert result.result == ap.REVERTED
+    assert json.loads(old.read_text()) == existing_settings()
+    assert not (new_dir / "settings.json").exists()
+    assert not paths.statusline_file("work").exists()
+
+
+def test_apply_on_new_dir_reverts_the_old_one_first(tmp_path: Path) -> None:
+    old_dir = tmp_path / "old"
+    old_dir.mkdir()
+    old = write_settings(old_dir, existing_settings())
+    cfg = make_config(old_dir)
+    ap.apply(cfg.profiles[0], cfg)
+    new_dir = tmp_path / "new"
+    new_dir.mkdir()
+    write_settings(new_dir, {"theme": "light"})
+    moved = make_config(new_dir)
+    result = ap.apply(moved.profiles[0], moved)
+    assert result.result == ap.APPLIED
+    assert json.loads(old.read_text()) == existing_settings()  # the original is back
+    book = json.loads(paths.statusline_file("work").read_text())
+    assert book["settings_path"] == str(new_dir / "settings.json")
+    assert book["previous_statusline"] is None
+    assert ap.revert(moved.profiles[0]).result == ap.REVERTED
+    assert json.loads((new_dir / "settings.json").read_text()) == {"theme": "light"}
+
+
+def test_apply_after_the_dir_moved_keeps_the_original_previous(tmp_path: Path) -> None:
+    old_dir = tmp_path / "old"
+    old_dir.mkdir()
+    write_settings(old_dir, existing_settings())
+    cfg = make_config(old_dir)
+    ap.apply(cfg.profiles[0], cfg)
+    new_dir = tmp_path / "new"
+    old_dir.rename(new_dir)  # `mv ~/.claude-a ~/.claude-b`, then config_dir updated
+    moved = make_config(new_dir)
+    assert ap.apply(moved.profiles[0], moved).result == ap.APPLIED
+    book = json.loads(paths.statusline_file("work").read_text())
+    assert book["previous_statusline"] == OLD_STATUSLINE
+    ap.revert(moved.profiles[0])
+    assert json.loads((new_dir / "settings.json").read_text()) == existing_settings()
+
+
+def test_apply_refuses_while_the_old_settings_are_broken(tmp_path: Path) -> None:
+    old_dir = tmp_path / "old"
+    old_dir.mkdir()
+    cfg = make_config(old_dir)
+    ap.apply(cfg.profiles[0], cfg)
+    (old_dir / "settings.json").write_text("{broken")
+    new_dir = new_config_dir(tmp_path)
+    moved = make_config(new_dir)
+    with pytest.raises(ap.ApplyError) as err:
+        ap.apply(moved.profiles[0], moved)
+    assert "reverted first" in str(err.value)
+    assert not (new_dir / "settings.json").exists()
+    assert paths.statusline_file("work").exists()
+
+
+def test_reapply_keeps_extra_keys_without_a_new_backup(tmp_path: Path) -> None:
+    config_dir = new_config_dir(tmp_path)
+    path = write_settings(config_dir, existing_settings())
+    cfg = make_config(config_dir)
+    ap.apply(cfg.profiles[0], cfg)
+    data = json.loads(path.read_text())
+    data["statusLine"]["padding"] = 0
+    path.write_text(json.dumps(data, indent=2))
+    backups = sorted(config_dir.glob("settings.json.ccs-backup-*"))
+    before = path.read_text()
+    assert ap.apply(cfg.profiles[0], cfg).result == ap.ALREADY_APPLIED
+    assert path.read_text() == before
+    assert sorted(config_dir.glob("settings.json.ccs-backup-*")) == backups
+
+
+def test_replacing_carries_over_extra_keys(tmp_path: Path) -> None:
+    config_dir = new_config_dir(tmp_path)
+    mine = {"type": "command", "command": "bash mine.sh", "padding": 2}
+    path = write_settings(config_dir, {"statusLine": mine})
+    cfg = make_config(config_dir)
+    result = ap.apply(cfg.profiles[0], cfg)
+    value = json.loads(path.read_text())["statusLine"]
+    assert value == {"type": "command", "command": result.command, "padding": 2}
+    assert list(value) == ["type", "command", "padding"]
+    # ours with an old interpreter: the new command keeps the user's padding too
+    value["command"] = template.statusline_command(config_dir / "ccs-statusline.py", "/old/py")
+    path.write_text(json.dumps({"statusLine": value}))
+    assert ap.apply(cfg.profiles[0], cfg).result == ap.APPLIED
+    assert json.loads(path.read_text())["statusLine"]["padding"] == 2
+    assert ap.revert(cfg.profiles[0]).restored == mine
+
+
+def test_ours_without_bookkeeping_records_no_previous(tmp_path: Path) -> None:
+    config_dir = new_config_dir(tmp_path)
+    path = write_settings(config_dir, {"theme": "dark"})
+    cfg = make_config(config_dir)
+    ap.apply(cfg.profiles[0], cfg)
+    paths.statusline_file("work").unlink()
+    data = json.loads(path.read_text())
+    script = config_dir / "ccs-statusline.py"
+    data["statusLine"]["command"] = template.statusline_command(script, "/usr/bin/python3")
+    path.write_text(json.dumps(data))
+    assert ap.apply(cfg.profiles[0], cfg).result == ap.APPLIED
+    assert json.loads(paths.statusline_file("work").read_text())["previous_statusline"] is None
+    assert ap.revert(cfg.profiles[0]).result == ap.REVERTED
+    assert json.loads(path.read_text()) == {"theme": "dark"}  # not our old command
+
+
+def test_already_applied_without_bookkeeping_records_it(tmp_path: Path) -> None:
+    config_dir = new_config_dir(tmp_path)
+    path = write_settings(config_dir, {"theme": "dark"})
+    cfg = make_config(config_dir)
+    ap.apply(cfg.profiles[0], cfg)
+    paths.statusline_file("work").unlink()
+    assert ap.apply(cfg.profiles[0], cfg).result == ap.ALREADY_APPLIED
+    book = json.loads(paths.statusline_file("work").read_text())
+    assert book["previous_statusline"] is None and book["backup_path"] is None
+    assert ap.revert(cfg.profiles[0]).result == ap.REVERTED
+    assert json.loads(path.read_text()) == {"theme": "dark"}
+
+
+def test_bookkeeping_failure_rolls_settings_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_dir = new_config_dir(tmp_path)
+    path = write_settings(config_dir, existing_settings())
+    cfg = make_config(config_dir)
+
+    def full_disk(*_: Any, **__: Any) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(ap, "atomic_write_json", full_disk)
+    with pytest.raises(OSError):
+        ap.apply(cfg.profiles[0], cfg)
+    assert json.loads(path.read_text()) == existing_settings()
+    assert not paths.statusline_file("work").exists()
+    fresh = tmp_path / "fresh"  # no settings.json yet: the new file is removed again
+    fresh.mkdir()
+    cfg = make_config(fresh)
+    with pytest.raises(OSError):
+        ap.apply(cfg.profiles[0], cfg)
+    assert not (fresh / "settings.json").exists()
+
+
+def test_unwritable_settings_write_nothing(tmp_path: Path) -> None:
+    config_dir = new_config_dir(tmp_path)
+    path = config_dir / "settings.json"
+    path.write_text('{"x": "\\ud83d"}')  # a lone surrogate: can't be written back as UTF-8
+    cfg = make_config(config_dir)
+    with pytest.raises(ap.ApplyError) as err:
+        ap.apply(cfg.profiles[0], cfg)
+    assert err.value.code == "invalid_settings"
+    assert path.read_text() == '{"x": "\\ud83d"}'
+    assert not paths.statusline_file("work").exists()
+    assert list(config_dir.glob("settings.json.ccs-backup-*")) == []

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import plistlib
+import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -83,8 +84,11 @@ def world(
     tmp_home: Path,
     fake_claude: Callable[[dict[str, Any]], Any],
     fake_claude_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> World:
     """A healthy installation: config, two profiles, daemon up, fresh data, statusline applied."""
+    # the default state dir (the only one widgets read), inside the temp HOME
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_home / ".local" / "state"))
     fake_claude({"auth_status": {"stdout": LOGGED_IN.read_text(encoding="utf-8"), "exit": 0}})
     raw = default_config_dict()
     raw["claude_path"] = str(fake_claude_path)
@@ -157,6 +161,7 @@ def test_healthy_installation_is_all_ok(world: World) -> None:
         "daemon.socket",
         "notifications.route",
         "app.installed",
+        "state.dir",
         "widget.snapshot",
         "config_dir.exists",
         "auth.status",
@@ -419,6 +424,36 @@ def test_missing_script_is_ok(world: World) -> None:
     assert by_id(checks, "statusline.interpreter", "profile:work").status == "ok"
 
 
+def test_applied_but_missing_script_fails(world: World) -> None:
+    script = world.profile_dir("work") / template.SCRIPT_NAME
+    script.unlink()
+    check = by_id(run(world.env), "statusline.applied", "profile:work")
+    assert check.status == "fail"
+    assert str(script) in check.message and "missing" in check.message
+    assert check.fix == "ccs statusline generate --profile work"
+
+
+def test_interpreter_path_with_spaces(world: World, tmp_path: Path) -> None:
+    spaced = tmp_path / "My Tools" / "python 3"
+    spaced.parent.mkdir()
+    spaced.symlink_to(sys.executable)
+    prof = world.config.profile("work")
+    assert prof is not None
+    template.generate(prof, world.config, python=str(spaced))
+    assert template.parse_shebang(template.script_path(prof).read_text()) == str(spaced)
+    check = by_id(run(world.env), "statusline.interpreter", "profile:work")
+    assert check.status == "ok"
+    assert check.message == str(spaced)
+
+
+def test_parse_shebang() -> None:
+    assert template.parse_shebang("#!/a b/python -S -E\nx") == "/a b/python"
+    assert template.parse_shebang("#!/usr/bin/python3 -S -E\r\n") == "/usr/bin/python3"
+    assert template.parse_shebang("#!/usr/bin/env python3\n") == "/usr/bin/env"
+    assert template.parse_shebang("# no shebang\n") is None
+    assert template.parse_shebang("#!\n") is None
+
+
 def test_missing_interpreter_fails(world: World) -> None:
     prof = world.config.profile("work")
     assert prof is not None
@@ -462,6 +497,45 @@ def test_statusline_disabled(world: World) -> None:
     assert by_id(checks, "statusline.script", "profile:work").message.startswith(
         "statusline disabled"
     )
+
+
+def test_model_scoped_pause_without_statusline_warns(world: World) -> None:
+    raw = json.loads(paths.config_file().read_text())
+    raw["profiles"][1]["statusline"]["enabled"] = False
+    paths.config_file().write_text(json.dumps(raw))
+    check = by_id(run(world.env), "statusline.model_scoped", "profile:work")
+    assert check.status == "warn"
+    assert "model-scoped pauses" in check.message
+    assert check.fix is not None and "statusline.enabled=true" in check.fix
+    assert "profile:personal|statusline.model_scoped" not in run(world.env)
+
+    # warn-only model-scoped limits, or no supervision at all: nothing to pause
+    raw["profiles"][1]["limits"]["model_scoped"]["warn_only"] = True
+    paths.config_file().write_text(json.dumps(raw))
+    assert "profile:work|statusline.model_scoped" not in run(world.env)
+    raw["profiles"][1]["limits"]["model_scoped"]["warn_only"] = False
+    raw["profiles"][1]["supervisor"]["enabled"] = False
+    paths.config_file().write_text(json.dumps(raw))
+    assert "profile:work|statusline.model_scoped" not in run(world.env)
+
+
+@pytest.mark.parametrize("var", ["CCS_STATE_DIR", "XDG_STATE_HOME"])
+def test_non_default_state_dir_warns(
+    world: World, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, var: str
+) -> None:
+    other = tmp_path / "elsewhere"
+    monkeypatch.setenv(var, str(other))
+    check = by_id(run(world.env), "state.dir")
+    assert check.status == "warn"
+    assert var in check.message and "widgets" in check.message
+    assert check.fix == f"unset {var}, then: ccs daemon install"
+
+
+def test_default_state_dir_is_ok(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("XDG_STATE_HOME")
+    check = by_id(run(world.env), "state.dir")
+    assert check.status == "ok"
+    assert check.message == str(world.home / ".local" / "state" / "ccs")
 
 
 def test_overdue_hold_warns(world: World) -> None:

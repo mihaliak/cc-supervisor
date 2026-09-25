@@ -25,7 +25,10 @@ ccs                                # default profile (default_profile in config)
   - For the default dir `~/.claude`, `CLAUDE_CONFIG_DIR` is left **unset**, exactly like plain `claude`. Setting it explicitly would make Claude Code switch its global state from `~/.claude.json` to `~/.claude/.claude.json`, with different trust, MCP servers, and onboarding.
 - If the profile's statusline is enabled, `ccs` turns it on for this session, even if you never ran `ccs statusline apply`. It regenerates the script first if it is missing or outdated. If you pass your own `--settings`, `ccs` doesn't inject it and prints one line saying so (use `ccs statusline apply` instead).
 - The session is **supervised**: it can be paused and resumed ([Limits & supervisor](07-limits-and-supervisor.md)).
-- **Ctrl-Z** suspends the whole thing like any job (`fg` brings Claude back and it repaints).
+- **Ctrl-Z** suspends the whole thing like any job (`fg` brings Claude back and it repaints). A Ctrl-Z inside pasted text is pasted, not treated as suspend.
+- Terminal modes Claude turned on (kitty keyboard keys, modifyOtherKeys, focus and mouse reporting, bracketed paste, the alternate screen, a hidden cursor) are switched off while suspended and when Claude exits or crashes, so your shell gets normal keys. `fg` switches them back on.
+- Keys you type while `ccs` is still starting reach Claude.
+- `ccs` never writes its own diagnostics into the session. They go to `~/.local/state/ccs/logs/launcher.log`.
 - **Print mode and pipes:** with `-p`/`--print`, or when stdin or stdout isn't a terminal, `ccs` simply runs `claude` with the profile's config dir. There is no supervision, so scripts and pipes behave exactly like `claude`.
 - **Typos:** a flag that is close to a profile flag but isn't a Claude option is an error, e.g. `ccs --wrok` → `unknown profile '--wrok'. Did you mean --work?`. Other unknown flags go to `claude`.
 - Two profile flags (`ccs --work --personal`) is an error.
@@ -39,7 +42,7 @@ Options:
 ```
 Profile work is paused until 20:00 (in 42m). Start anyway? [y/N]
 ```
-If you answer `y`, or pass `--force`, the session starts as **overridden**: it runs freely for the rest of that window.
+If you answer `y`, or pass `--force`, the session starts as **overridden**: it runs freely for the rest of that window. Ctrl-C at the question, or while `ccs` is still connecting to the supervisor, means no: `ccs` exits with 130 and Claude never starts.
 
 If the profile is paused only by a manual `ccs pause`, the question reads `Profile work is paused (manual). Start anyway? [y/N]`.
 
@@ -120,7 +123,7 @@ The event history: warnings, pauses, resumes, warm-ups, sign-in problems, sessio
 ### `ccs pause (--profile <id> | --session <wrapper_id>) [--json]`
 Pause now, exactly like an automatic pause: a busy session is interrupted (Esc), an idle one is only marked paused.
 - `--profile` pauses every `ccs` session of the profile, and new `ccs` sessions ask before starting. `--session` pauses one session; the id can be the short id from `ccs sessions` (any unique prefix).
-- A manual pause has no end time: it lasts until `ccs resume`. Running it twice is harmless (`already paused manually`).
+- A manual pause has no end time: it lasts until `ccs resume`. A `--session` pause also ends when that session exits. Running it twice is harmless (`already paused manually`). The printed hint names the matching resume (`ccs resume --session <id>` for a session).
 - Needs the supervisor (`supervisor not running` otherwise, exit 1). Refused when the profile's supervision is off.
 - `--json` prints `{"ok", "profile_id", "wrapper_id", "created", "hold": {"id": "manual", "scope", …}, "sessions_paused"}`.
 
@@ -194,7 +197,7 @@ ccs profile set <id> <dotted.key>=<value> [<dotted.key>=<value>…]
 ccs profile remove <id> [--default <other>]
 ```
 - `add`: `--flag` defaults to the id and `--name` to the id in title case. `--default` also makes the new profile the default one (used by plain `ccs`); the first profile always becomes the default.
-- `remove` deletes only the profile entry. Your Claude config dir and its login stay untouched. To remove the default profile while others exist, name the new default with `--default <other>`.
+- `remove` first restores the profile's previous `statusLine` if `ccs statusline apply` set it. If `settings.json` changed since, the profile is still removed and a hint (on stderr, or `statusline` in `--json`) tells you what to fix by hand. Otherwise your Claude config dir and its login stay untouched. To remove the default profile while others exist, name the new default with `--default <other>`.
 `set` values are parsed as JSON when valid, otherwise as strings:
 ```sh
 ccs profile set work limits.weekly.pause=97 limits.model_scoped.warn_only=true
@@ -227,7 +230,7 @@ The background supervisor, a LaunchAgent labelled `local.ccsupervisor.daemon` (`
 | `restart` | Restarts it. Use this after upgrading `ccs`. |
 | `status` | Installed, loaded, responsive, pid, uptime, and socket round-trip time. |
 | `logs` | The last 200 lines of `~/.local/state/ccs/logs/daemon.log`. |
-| `run` | Runs the supervisor in the foreground. This is what launchd executes; you normally don't. A second copy exits right away with `daemon already running`. |
+| `run` | Runs the supervisor in the foreground. This is what launchd executes (as `ccs daemon run --launchd`); you normally don't. A second copy you start by hand exits right away with `daemon already running`. The launchd copy instead waits for the other one to exit, then takes over. |
 
 ```
 $ ccs daemon status

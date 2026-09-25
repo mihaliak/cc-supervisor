@@ -53,7 +53,8 @@ MIN_PYTHON = (3, 12)
 # "  --allowedTools, --allowed-tools <tools...>".
 _HELP_DEF_RE = re.compile(r"^\s+(?:-[A-Za-z], )?(--[A-Za-z][\w-]*(?:, --[A-Za-z][\w-]*)*)")
 _HELP_OPT_RE = re.compile(r"--([A-Za-z][\w-]*)")
-_SHEBANG_RE = re.compile(r"^#!(\S+)")
+# The only state dir the sandboxed widgets can read (ADR-0012, ADR-0022).
+DEFAULT_STATE_DIR = "~/.local/state/ccs"
 
 
 @dataclass(frozen=True)
@@ -517,6 +518,26 @@ def check_app(ctx: Ctx) -> list[Check]:
     return [Check("app.installed", G, "warn", f"not installed at {app}", "make app")]
 
 
+def check_state_dir(ctx: Ctx) -> list[Check]:
+    cid = "state.dir"
+    state = paths.state_dir()
+    default = Path(os.path.expanduser(DEFAULT_STATE_DIR))
+    if os.path.realpath(state) == os.path.realpath(default):
+        return [Check(cid, G, "ok", str(state))]
+    override = os.environ.get("CCS_STATE_DIR", "")
+    var = "CCS_STATE_DIR" if override and os.path.isabs(override) else "XDG_STATE_HOME"
+    return [
+        Check(
+            cid,
+            G,
+            "warn",
+            f"{state} (from ${var}) is not the default {default}: "
+            "widgets only read the default dir",
+            f"unset {var}, then: ccs daemon install",
+        )
+    ]
+
+
 def check_widget_snapshot(ctx: Ctx) -> list[Check]:
     cid = "widget.snapshot"
     path = paths.widget_snapshot()
@@ -696,10 +717,23 @@ def check_usage(ctx: Ctx, profile: Profile) -> list[Check]:
 def check_statusline(ctx: Ctx, profile: Profile) -> list[Check]:
     scope = f"profile:{profile.id}"
     generate = f"ccs statusline generate --profile {profile.id}"
-    if not profile.statusline.enabled:
-        return [Check("statusline.script", scope, "ok", "statusline disabled for this profile")]
-    script = template.script_path(profile)
     out: list[Check] = []
+    if not profile.statusline.enabled:
+        out.append(Check("statusline.script", scope, "ok", "statusline disabled for this profile"))
+        if profile.supervisor.enabled and not profile.limits.model_scoped.warn_only:
+            out.append(
+                Check(
+                    "statusline.model_scoped",
+                    scope,
+                    "warn",
+                    "model-scoped pauses can't work: a session's model is only known from "
+                    "its statusline, which is disabled",
+                    f"ccs profile set {profile.id} statusline.enabled=true  "
+                    "(or: limits.model_scoped.warn_only=true)",
+                )
+            )
+        return out
+    script = template.script_path(profile)
     try:
         text: str | None = script.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -764,8 +798,7 @@ def check_statusline(ctx: Ctx, profile: Profile) -> list[Check]:
                     f"current (generator {template.GENERATOR_VERSION})",
                 )
             )
-        match = _SHEBANG_RE.match(text)
-        python = match.group(1) if match else None
+        python = template.parse_shebang(text)
         if python and os.path.isfile(python) and os.access(python, os.X_OK):
             out.append(Check("statusline.interpreter", scope, "ok", python))
         else:
@@ -801,6 +834,14 @@ def _check_applied(profile: Profile, script: Path) -> Check:
             f"`{apply}` makes plain claude show it too",
         )
     if statusline_apply.is_ours(value, script):
+        if not script.is_file():
+            return Check(
+                cid,
+                scope,
+                "fail",
+                f"applied, but {script} is missing: plain claude shows no statusline",
+                f"ccs statusline generate --profile {profile.id}",
+            )
         if value.get("command") == template.statusline_command(script):
             return Check(cid, scope, "ok", "applied")
         return Check(cid, scope, "warn", "applied with an outdated command", apply)
@@ -865,6 +906,7 @@ GLOBAL_CHECKS: tuple[tuple[str, Callable[[Ctx], list[Check]]], ...] = (
     ("daemon.socket", check_daemon_socket),
     ("notifications.route", check_notifications),
     ("app.installed", check_app),
+    ("state.dir", check_state_dir),
     ("widget.snapshot", check_widget_snapshot),
 )
 

@@ -27,6 +27,7 @@ from ccs.usage.model import (
     round_percent,
     to_utc_seconds,
 )
+from ccs.usage.normalize import window_key_time
 
 LIVE_REPORT_SCHEMA = 1
 LIVE_MAX_AGE = timedelta(minutes=10)
@@ -95,16 +96,31 @@ def parse_live_report(d: Any) -> LiveReport | None:
     )
 
 
+def same_instance(a: datetime | None, b: datetime | None) -> bool:
+    """Whether two `resets_at` values name the same window instance (minute-rounded)."""
+    return a is not None and b is not None and window_key_time(a) == window_key_time(b)
+
+
 def _candidate(
     current: Window | None, live: LiveWindow | None, observed_at: datetime, now: datetime
 ) -> Window | None:
-    """Newer of the current window and a live one (strictly newer wins; ties keep current)."""
+    """The current window or a live one, whichever describes usage best (ADR-0022).
+
+    - Same window instance: the higher percent wins (usage only rises within a window, so a
+      stale statusline redraw can't lower fresher poll data); equal percents keep the newer.
+    - Different windows: strictly newer `observed_at` wins; ties keep current.
+    """
     if live is None:
         return current
     if live.resets_at is not None and live.resets_at <= now:
         return current  # that window already ended; its percent is meaningless now
-    if current is not None and observed_at <= current.observed_at:
-        return current
+    if current is not None:
+        if same_instance(current.resets_at, live.resets_at) and live.percent != current.percent:
+            keep = live.percent < current.percent
+        else:
+            keep = observed_at <= current.observed_at
+        if keep:
+            return current
     return Window(live.percent, live.resets_at, observed_at, SOURCE_STATUSLINE)
 
 
@@ -117,7 +133,8 @@ def merge(
 ) -> UsageSnapshot | None:
     """Overlay fresh live reports onto the polled snapshot.
 
-    - `session` / `weekly` only: the candidate with the newest `observed_at` wins.
+    - `session` / `weekly` only: within one window instance the higher percent wins,
+      otherwise the candidate with the newest `observed_at` (`_candidate`).
     - Reports older than 10 min, for another profile, or for an ended window are ignored.
     - `model_scoped` and `extra_usage` always come from the snapshot.
     - Without a snapshot, fresh reports alone produce an `ok` snapshot (no `fetched_at`);

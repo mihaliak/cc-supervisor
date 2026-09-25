@@ -21,7 +21,11 @@ from typing import Any
 from ccs import paths
 
 LABEL = "local.ccsupervisor.daemon"
-PASSTHROUGH_ENV = ("PATH", "HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME")
+PASSTHROUGH_ENV = ("PATH", "HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "CCS_STATE_DIR")
+# `ccs daemon run --launchd`: started by our LaunchAgent, so wait for the lock instead of
+# exiting while another daemon runs (ADR-0022). Plists written before the flag are detected
+# through `XPC_SERVICE_NAME`, which launchd sets to the job label.
+LAUNCHD_FLAG = "--launchd"
 
 
 @dataclass(frozen=True)
@@ -60,16 +64,33 @@ def service_target() -> str:
     return f"{domain()}/{LABEL}"
 
 
-def ccs_executable() -> str:
-    """Absolute path of the `ccs` entry point: `shutil.which("ccs")`, else `sys.argv[0]`."""
+def ccs_executable(argv0: str | None = None) -> str:
+    """Absolute path of the `ccs` entry point for the plist.
+
+    The running entry point (`sys.argv[0]`, when it is an executable named `ccs`) wins over
+    `shutil.which("ccs")`, which may find a different install earlier on `PATH`.
+    """
+    running = os.path.abspath(sys.argv[0] if argv0 is None else argv0)
+    if (
+        os.path.basename(running) == "ccs"
+        and os.path.isfile(running)
+        and os.access(running, os.X_OK)
+    ):
+        return running
     found = shutil.which("ccs")
     if found:
         return os.path.abspath(found)
-    return os.path.abspath(sys.argv[0])
+    return running
+
+
+def launched_by_agent(env: Mapping[str, str] | None = None) -> bool:
+    """True when launchd started this process as our LaunchAgent (`XPC_SERVICE_NAME`)."""
+    src = os.environ if env is None else env
+    return src.get("XPC_SERVICE_NAME") == LABEL
 
 
 def install_env(base: Mapping[str, str] | None = None) -> dict[str, str]:
-    """The env captured at install (`PATH`, `HOME`, and XDG homes if set)."""
+    """The env captured at install (`PATH`, `HOME`, XDG homes and `CCS_STATE_DIR` if set)."""
     src = os.environ if base is None else base
     return {k: src[k] for k in PASSTHROUGH_ENV if src.get(k)}
 
@@ -79,7 +100,7 @@ def render_plist(ccs_exec: str, env: Mapping[str, str], state_dir: Path) -> byte
     logs = Path(state_dir) / "logs"
     doc: dict[str, Any] = {
         "Label": LABEL,
-        "ProgramArguments": [ccs_exec, "daemon", "run"],
+        "ProgramArguments": [ccs_exec, "daemon", "run", LAUNCHD_FLAG],
         "EnvironmentVariables": dict(sorted(env.items())),
         "RunAtLoad": True,
         "KeepAlive": True,
@@ -101,12 +122,24 @@ def parse_print(output: str) -> dict[str, Any]:
     }
 
 
+# `bootstrap` right after `bootout` fails (`5: Input/output error`) while the old daemon is
+# still shutting down, so it is retried for a while.
+BOOTSTRAP_ATTEMPTS = 15
+BOOTSTRAP_RETRY_S = 1.0
+
+
 class Launchd:
     """install / uninstall / start / stop / restart / status of the LaunchAgent."""
 
-    def __init__(self, runner: Runner | None = None, plist: Path | None = None) -> None:
+    def __init__(
+        self,
+        runner: Runner | None = None,
+        plist: Path | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
         self.runner = runner or default_runner
         self.plist = Path(plist) if plist else plist_path()
+        self.sleep = sleep
 
     def _launchctl(self, *args: str) -> RunResult:
         return self.runner(["launchctl", *args])
@@ -120,6 +153,15 @@ class Launchd:
     def is_loaded(self) -> bool:
         return self.print_service().rc == 0
 
+    def _bootstrap(self) -> RunResult:
+        result = self._launchctl("bootstrap", domain(), str(self.plist))
+        for _ in range(BOOTSTRAP_ATTEMPTS - 1):
+            if result.rc == 0:
+                break
+            self.sleep(BOOTSTRAP_RETRY_S)
+            result = self._launchctl("bootstrap", domain(), str(self.plist))
+        return result
+
     def install(self, ccs_exec: str | None = None, env: Mapping[str, str] | None = None) -> None:
         """Write the plist, unload any old job, then bootstrap it (starts it: RunAtLoad)."""
         paths.ensure_state_layout()
@@ -129,7 +171,7 @@ class Launchd:
         tmp.write_bytes(data)
         os.replace(tmp, self.plist)
         self._launchctl("bootout", service_target())  # ignore errors: may not be loaded
-        result = self._launchctl("bootstrap", domain(), str(self.plist))
+        result = self._bootstrap()
         if result.rc != 0:
             raise LaunchdError(f"launchctl bootstrap failed: {result.stderr.strip() or result.rc}")
 
@@ -145,7 +187,7 @@ class Launchd:
         if self.is_loaded():
             result = self._launchctl("kickstart", service_target())
         else:
-            result = self._launchctl("bootstrap", domain(), str(self.plist))
+            result = self._bootstrap()
         if result.rc != 0:
             raise LaunchdError(f"launchctl failed: {result.stderr.strip() or result.rc}")
 

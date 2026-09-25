@@ -51,7 +51,7 @@ def test_render_plist_matches_golden() -> None:
     assert data == GOLDEN.read_bytes()
     doc = plistlib.loads(data)
     assert doc["Label"] == LABEL
-    assert doc["ProgramArguments"] == ["/Users/me/.local/bin/ccs", "daemon", "run"]
+    assert doc["ProgramArguments"] == ["/Users/me/.local/bin/ccs", "daemon", "run", "--launchd"]
     assert doc["KeepAlive"] is True and doc["RunAtLoad"] is True
     assert doc["ProcessType"] == "Interactive"
 
@@ -85,6 +85,41 @@ def test_install_writes_plist_and_bootstraps(ld: tuple[Launchd, FakeRunner]) -> 
         ["launchctl", "bootout", target()],
         ["launchctl", "bootstrap", f"gui/{os.getuid()}", str(launchd.plist)],
     ]
+
+
+class ShuttingDownRunner(FakeRunner):
+    """`bootstrap` fails with EIO a few times, like while the old daemon is still exiting."""
+
+    def __init__(self, failures: int) -> None:
+        super().__init__(loaded=True)
+        self.failures = failures
+
+    def __call__(self, argv: list[str]) -> RunResult:
+        if argv[1] == "bootstrap" and self.failures > 0:
+            self.failures -= 1
+            self.calls.append(argv)
+            return RunResult(5, "", "Bootstrap failed: 5: Input/output error")
+        return super().__call__(argv)
+
+
+def test_install_retries_bootstrap_while_the_old_daemon_exits(
+    tmp_path: Path, tmp_xdg: object
+) -> None:
+    runner = ShuttingDownRunner(failures=2)
+    sleeps: list[float] = []
+    launchd = Launchd(runner=runner, plist=tmp_path / f"{LABEL}.plist", sleep=sleeps.append)
+    launchd.install(ccs_exec="/x/ccs", env={})
+    assert [c[1] for c in runner.calls] == ["bootout", "bootstrap", "bootstrap", "bootstrap"]
+    assert sleeps == [1.0, 1.0]
+    assert runner.loaded
+
+
+def test_install_gives_up_after_the_last_attempt(tmp_path: Path, tmp_xdg: object) -> None:
+    runner = ShuttingDownRunner(failures=100)
+    launchd = Launchd(runner=runner, plist=tmp_path / f"{LABEL}.plist", sleep=lambda s: None)
+    with pytest.raises(LaunchdError, match="Input/output error"):
+        launchd.install(ccs_exec="/x/ccs", env={})
+    assert [c[1] for c in runner.calls].count("bootstrap") == 15
 
 
 def test_start_bootstraps_when_unloaded_else_kickstarts(ld: tuple[Launchd, FakeRunner]) -> None:

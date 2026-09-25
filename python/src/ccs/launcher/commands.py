@@ -2,7 +2,12 @@
 
 The daemon decides *when* (P06); the launcher only injects ESC (pause) or the resume
 prompt (resume) into the PTY and acks what happened. Input always passes through; a submit
-while paused is reported once as `input_submitted_while_paused` (manual override).
+while paused is reported once as `input_submitted_while_paused` (manual override), and resent
+after a re-register until the daemon accepted it.
+
+ADR-0022: a pause on `unknown` status still injects ESC but acks `was_busy: None` (no resume
+prompt on a guess); no ESC once the user submitted during the pause; no resume prompt when the
+user typed anything since the pause (it would merge with a draft).
 """
 
 from __future__ import annotations
@@ -21,7 +26,8 @@ from ccs.launcher.session_map import SessionInfo, is_busy, is_known_busy
 log = logging.getLogger(__name__)
 
 Lookup = Callable[[], Awaitable[SessionInfo]]
-Report = Callable[[str, dict[str, Any]], Awaitable[None]]
+# `wrapper_event` sender; True once the daemon accepted the event
+Report = Callable[[str, dict[str, Any]], Awaitable[bool | None]]
 
 
 @dataclass(frozen=True)
@@ -36,8 +42,8 @@ class Timings:
     typing_max_s: float = 30.0
 
 
-async def _no_report(kind: str, detail: dict[str, Any]) -> None:
-    return None
+async def _no_report(kind: str, detail: dict[str, Any]) -> bool:
+    return False
 
 
 class CommandHandler:
@@ -58,29 +64,67 @@ class CommandHandler:
         self.t = timings or Timings()
         self.monotonic = monotonic
         self.paused = False
-        self.override_reported = False
+        # per pause: the user submitted (override) / typed anything since the pause began
+        self.submitted = False
+        self.typed = False
+        self.override_reported = False  # the daemon accepted the override report
+        self._override_sending = False
+        self._pause_no = 0
         self._tasks: set[asyncio.Task[None]] = set()
 
     # ---------------------------------------------------------------- supervision state
 
     def apply_supervision(self, reply: dict[str, Any]) -> None:
-        """Sync the local paused flag from a `register_wrapper` reply."""
+        """Sync the local paused flag from a `register_wrapper` reply.
+
+        Still paused after a re-register: an override the daemon did not get yet is resent.
+        """
         sup = reply.get("supervision")
         if not isinstance(sup, dict):
             return
         state = sup.get("state")
         if state == "paused":
+            if not self.paused:
+                self._new_pause()
             self.paused = True
+            self._send_override()
         elif state in ("running", "overridden"):
             self.paused = False
             self.override_reported = state == "overridden"
 
+    def _new_pause(self) -> None:
+        self._pause_no += 1
+        self.submitted = False
+        self.typed = False
+        self.override_reported = False
+
+    def on_user_input(self) -> None:
+        """Proxy callback: the user typed something (not only terminal reports)."""
+        self.typed = True
+
     def on_user_submit(self) -> None:
         """Proxy callback: the user submitted input (Enter) — report an override once."""
-        if not self.paused or self.override_reported:
+        if not self.paused:
             return
-        self.override_reported = True
-        self._spawn(self.report("input_submitted_while_paused", {}))
+        self.submitted = True
+        self._send_override()
+
+    def _send_override(self) -> None:
+        """Report the override unless it is not due, already accepted or on its way."""
+        if not self.submitted or self.override_reported or self._override_sending:
+            return
+        self._override_sending = True
+        pause_no = self._pause_no
+
+        async def send() -> None:
+            try:
+                accepted = await self.report("input_submitted_while_paused", {})
+            finally:
+                self._override_sending = False
+            if accepted is True and pause_no == self._pause_no:
+                self.override_reported = True
+
+        self._spawn(send())
 
     def _spawn(self, coro: Awaitable[None]) -> None:
         async def run() -> None:
@@ -119,33 +163,44 @@ class CommandHandler:
         )
 
     async def _pause(self, cmd_id: Any) -> tuple[str, dict[str, Any]]:
+        self._new_pause()
         self.paused = True
-        self.override_reported = False
         info = await self.lookup()
         if not is_busy(info.status):
             return "skipped", {"was_busy": False, "session_id": info.session_id}
+        # `unknown` still gets an ESC, but only a known-busy session earns a resume prompt
+        was_busy = True if is_known_busy(info.status) else None
         await self._guard()
+        if self.submitted:
+            return self._overridden(info.session_id)
         self.io.write_to_child(inject.ESC)
         await self.report("injected", {"cmd_id": cmd_id, "what": "esc"})
         await asyncio.sleep(self.t.esc_verify_s)
         after = await self.lookup()
         if is_known_busy(after.status):
+            if self.submitted:  # the user's own turn is running now: leave it alone
+                return self._overridden(after.session_id or info.session_id)
             # still working: one more ESC (a lone ESC can be read as an escape-sequence prefix)
             self.io.write_to_child(inject.ESC)
             await self.report("injected", {"cmd_id": cmd_id, "what": "esc"})
             await asyncio.sleep(self.t.esc_verify_s)
             after = await self.lookup()
         return "injected", {
-            "was_busy": True,
+            "was_busy": was_busy,
             "interrupted": after.status == "idle",
             "status": after.status,
             "session_id": after.session_id or info.session_id,
         }
 
+    def _overridden(self, session_id: str | None) -> tuple[str, dict[str, Any]]:
+        return "skipped", {"reason": "overridden", "session_id": session_id}
+
     async def _resume(self, cmd_id: Any, prompt: str | None) -> tuple[str, dict[str, Any]]:
         self.paused = False
         if not prompt:
             return "skipped", {"reason": "no_prompt"}
+        if self.typed:
+            return "skipped", {"reason": "user_input"}
         deadline = self.monotonic() + self.t.resume_max_s
         info = await self.lookup()
         # `unknown` does not block the resume: a prompt typed into a busy TUI is queued.
@@ -155,6 +210,8 @@ class CommandHandler:
             await asyncio.sleep(self.t.resume_poll_s)
             info = await self.lookup()
         await self._guard()
+        if self.typed:  # typed while we waited for idle: never merge with a draft
+            return "skipped", {"reason": "user_input"}
         self.io.write_to_child(inject.paste(prompt))
         await asyncio.sleep(self.t.submit_delay_s)
         self.io.write_to_child(inject.SUBMIT)

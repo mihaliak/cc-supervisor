@@ -35,7 +35,7 @@ How saving works:
 
 **Add** (the **+** under the list): enter ID, launcher flag (defaults to the ID), name, emoji, config dir, and optionally make it the default. The app runs `ccs profile add`, so every other setting starts from the defaults.
 
-**Remove** (the **−**): after you confirm, the app runs `ccs profile remove`. Only the CC Supervisor profile is removed; the Claude config dir and its sign-in stay. If it was the default profile, the next profile becomes the default.
+**Remove** (the **−**): after you confirm, the app runs `ccs profile remove`. It first restores the previous `statusLine` in the profile's `settings.json` if CC Supervisor applied one. Otherwise only the CC Supervisor profile is removed; the Claude config dir and its sign-in stay. Unsaved edits to other profiles are kept. If it was the default profile, the next profile becomes the default.
 
 ## Same thing from the terminal
 ```sh

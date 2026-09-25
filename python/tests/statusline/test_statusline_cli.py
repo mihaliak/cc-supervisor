@@ -74,6 +74,27 @@ def test_apply_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> Non
     assert rc == 1 and data["issues"][0]["path"] == "statusline_disabled"
 
 
+@pytest.mark.parametrize("action", ["apply", "revert"])
+def test_value_errors_are_clean(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    action: str,
+) -> None:
+    write_config(make_config(new_config_dir(tmp_path)))
+
+    def bad_text(*_: Any, **__: Any) -> Any:
+        raise UnicodeEncodeError("utf-8", "\ud83d", 0, 1, "surrogates not allowed")
+
+    monkeypatch.setattr(commands.apply_mod, action, bad_text)
+    rc, data = run_json(capsys, action, "--profile", "work")
+    assert rc == 1 and data["ok"] is False
+    assert data["error"].startswith(f"{action} failed: ")
+    assert main(["statusline", action, "--profile", "work"]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith(f"ccs: {action} failed:") and "Traceback" not in err
+
+
 def test_unknown_or_missing_profile(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     config_dir = new_config_dir(tmp_path)
     write_config(make_config(config_dir))

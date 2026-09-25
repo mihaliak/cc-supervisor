@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://local.ccsupervisor/schema/config.schema.json",
   "title": "CC Supervisor config (ADR-0004)",
-  "description": "~/.config/ccs/config.json. Missing optional keys take the defaults from `ccs config defaults`. Unknown keys are preserved by every writer. Cross-field rules (warn < pause, unique ids/flags/config dirs, default_profile exists, reserved flags) are enforced by `ccs config validate`.",
+  "description": "~/.config/ccs/config.json. `version` and `profiles` are required; missing optional keys take the defaults from `ccs config defaults`. Unknown keys are preserved by every writer. Every pattern matches the whole string. Cross-field rules (warn < pause, unique ids/flags/config dirs, default_profile exists, reserved flags) are enforced by `ccs config validate`.",
   "type": "object",
   "required": [
     "version",
@@ -26,13 +26,17 @@
       "type": [
         "string",
         "null"
-      ]
+      ],
+      "pattern": "^[~/][^\\x00-\\x1f\\x7f-\\x9f]*$",
+      "description": "null = default; else an absolute or ~-prefixed path without control characters"
     },
     "claude_path": {
       "type": [
         "string",
         "null"
-      ]
+      ],
+      "pattern": "^[~/][^\\x00-\\x1f\\x7f-\\x9f]*$",
+      "description": "null = default; else an absolute or ~-prefixed path without control characters"
     },
     "display": {
       "type": "object",
@@ -73,12 +77,12 @@
         "interval_seconds": {
           "type": "integer",
           "minimum": 5,
-          "maximum": 3600
+          "maximum": 240
         },
         "fast_interval_seconds": {
           "type": "integer",
           "minimum": 5,
-          "maximum": 3600
+          "maximum": 240
         },
         "fast_when_percent_at_least": {
           "type": "integer",
@@ -88,7 +92,7 @@
         "idle_interval_seconds": {
           "type": "integer",
           "minimum": 5,
-          "maximum": 3600
+          "maximum": 240
         }
       }
     },
@@ -140,16 +144,18 @@
         },
         "name": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "pattern": "^(?=[\\s\\S]*\\S)[^\\x00-\\x1f\\x7f-\\x9f]+$"
         },
         "emoji": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 8
+          "maxLength": 8,
+          "pattern": "^(?=[\\s\\S]*\\S)[^\\x00-\\x1f\\x7f-\\x9f]+$"
         },
         "config_dir": {
           "type": "string",
-          "pattern": "^[~/]"
+          "pattern": "^[~/][^\\x00-\\x1f\\x7f-\\x9f]*$"
         },
         "limits": {
           "type": "object",
@@ -230,7 +236,9 @@
             },
             "resume_prompt": {
               "type": "string",
-              "minLength": 1
+              "minLength": 1,
+              "pattern": "^(?=[\\s\\S]*\\S)[^\\x00-\\x08\\x0b-\\x1f\\x7f-\\x9f]+$",
+              "description": "no control characters except newline and tab"
             }
           }
         },
@@ -250,11 +258,13 @@
             },
             "model": {
               "type": "string",
-              "minLength": 1
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/\\[\\]-]{0,127}$"
             },
             "prompt": {
               "type": "string",
-              "minLength": 1
+              "minLength": 1,
+              "pattern": "^(?!-)(?=[\\s\\S]*\\S)[^\\x00-\\x08\\x0b-\\x1f\\x7f-\\x9f]+$",
+              "description": "no control characters except newline and tab; must not start with -"
             },
             "triggers": {
               "type": "object",
@@ -270,7 +280,7 @@
                     "properties": {
                       "time": {
                         "type": "string",
-                        "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                        "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
                       },
                       "weekdays": {
                         "type": "array",
@@ -307,11 +317,11 @@
               "properties": {
                 "start": {
                   "type": "string",
-                  "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                  "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
                 },
                 "end": {
                   "type": "string",
-                  "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+                  "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
                 }
               }
             },

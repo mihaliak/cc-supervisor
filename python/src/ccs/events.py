@@ -237,6 +237,7 @@ _WARMUP_REASONS = {
     "window_not_started": "the session window did not start",
     "claude_not_found": "claude was not found",
     "spawn_failed": "claude could not be started",
+    "error": "unexpected error",
 }
 
 
@@ -332,7 +333,7 @@ class EventBus:
         payload = {"schema": SCHEMA, "keys": {k: format_iso(v) for k, v in self._seen.items()}}
         try:
             fsio.atomic_write_json(self.seen_path, payload)
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             log.warning("cannot persist event dedupe keys: %s", exc)
 
     def seen(self, key: str, now: datetime) -> bool:
@@ -374,26 +375,31 @@ class EventBus:
             if src.exists():
                 os.replace(src, dst)
 
-    def _append(self, record: dict[str, Any]) -> None:
+    def _append(self, record: dict[str, Any]) -> bool:
+        """Log one record; False when it could not be written (IO or encoding)."""
         try:
             self._rotate_if_needed()
             fsio.append_jsonl(self.events_path, record)
-        except OSError as exc:
+        except (OSError, TypeError, ValueError, RecursionError) as exc:
             log.warning("cannot append event %s: %s", record.get("type"), exc)
+            return False
+        return True
 
     # -- emit
 
     def emit(self, event: Event) -> dict[str, Any] | None:
-        """Process one event; returns the final dict, or `None` when deduped."""
+        """Process one event; returns the final dict, or `None` when deduped.
+
+        The dedupe key is remembered only once the record is logged, so an event that failed
+        to append is not silently suppressed next time.
+        """
         now = self.clock.now()
-        if event.key is not None:
-            if self.seen(event.key, now):
-                log.debug("event %s deduped (%s)", event.type, event.key)
-                return None
-            self._remember(event.key, now)
+        if event.key is not None and self.seen(event.key, now):
+            log.debug("event %s deduped (%s)", event.type, event.key)
+            return None
         cfg = self._config()
         profile = cfg.profile(event.profile_id) if cfg and event.profile_id else None
-        data = copy.deepcopy(event.data)
+        data = fsio.scrub_surrogates(copy.deepcopy(event.data))
         for reserved in ("title", "body", "notify"):
             data.pop(reserved, None)
         title, body = notification_text(event.type, profile, data, now)
@@ -405,7 +411,8 @@ class EventBus:
         )
         data["notify"] = enabled
         record = Event(event.type, event.profile_id, event.key, data, event.ts or now).to_dict()
-        self._append(record)
+        if self._append(record) and event.key is not None:
+            self._remember(event.key, now)
         for fn in list(self._subscribers):
             try:
                 fn(copy.deepcopy(record))
