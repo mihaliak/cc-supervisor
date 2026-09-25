@@ -8,7 +8,7 @@
 The first label, `💼 45%  🏠 12%` with each percent colored, was too loud. It also showed only the session window.
 
 ## Decision
-- **Mode `letter_percent`** (default) shows each profile as `{letter} {session %} {dot} - {weekly %} {dot}`, e.g. `P 2% ● - 63% ●   W 24% ● - 99% ●`.
+- **Mode `letter_percent`** (default) shows each profile as `{letter} {session %} {dot} {weekly %} {dot}`, e.g. `P 2% ● 63% ●   W 24% ● 99% ●`. The session dot separates the two numbers; there is no dash (user feedback 2026-09-25).
   - `letter`: first letter of the profile name, uppercased (the id if the name is blank).
   - Only the dots carry the level color (ADR-0009 green/yellow/red; gray = no data). Letters and percents use the plain menu bar text color.
   - Font: 11 pt medium, monospaced digits (smaller than the system menu bar font).

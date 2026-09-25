@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// Content of the menu bar label (ADR-0018):
-/// - `letter_percent`: `P 2% ● - 63% ●   W 24% ● - 99% ●`. Letter, session %, session
+/// - `letter_percent`: `P 2% ● 63% ●   W 24% ● 99% ●`. Letter, session %, session
 ///   dot, weekly %, weekly dot per profile; only the dots carry the level color.
 /// - `icon_only`: a gauge tinted by the worst level across profiles
 struct MenuLabelContent: View {
@@ -26,7 +26,6 @@ struct MenuLabelContent: View {
                             Text(profile.initial)
                             Text(Self.percentText(profile.sessionRow, profile: profile))
                             dot(Self.dotLevel(profile.sessionRow, profile: profile))
-                            Text("-")
                             Text(Self.percentText(profile.weeklyRow, profile: profile))
                             dot(Self.dotLevel(profile.weeklyRow, profile: profile))
                         }
