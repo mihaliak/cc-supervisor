@@ -14,7 +14,6 @@ struct IdentitySection: View {
             EmojiField(title: "Emoji", text: store.stringBinding(p("emoji")))
             IssueText(messages: store.issues(p("emoji")))
             TextField("Launcher flag", text: store.stringBinding(p("flag")), prompt: Text(profileID))
-                .font(.body.monospaced())
             IssueText(messages: store.issues(p("flag")) + store.issues(p("id")))
             DirectoryField(title: "Claude config dir", path: store.stringBinding(p("config_dir")), placeholder: "~/.claude")
             IssueText(messages: store.issues(p("config_dir")))
