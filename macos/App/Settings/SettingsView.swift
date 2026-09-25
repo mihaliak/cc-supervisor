@@ -11,16 +11,19 @@ struct SettingsView: View {
         let store = settings.store
         TabView(selection: $settings.selectedTab) {
             Tab("General", systemImage: "gearshape", value: SettingsTab.general) {
-                SettingsPane(width: 520, height: 320) { GeneralSettingsView() }
+                SettingsPane(width: 520, height: 400) { GeneralSettingsView() }
             }
             Tab("Profiles", systemImage: "person.2", value: SettingsTab.profiles) {
                 SettingsPane(width: 800, height: 580) { ProfilesSettingsView() }
             }
             Tab("Notifications", systemImage: "bell.badge", value: SettingsTab.notifications) {
-                SettingsPane(width: 520, height: 330) { NotificationsSettingsView() }
+                SettingsPane(width: 520, height: 360) { NotificationsSettingsView() }
             }
             Tab("Advanced", systemImage: "gearshape.2", value: SettingsTab.advanced) {
                 SettingsPane(width: 620, height: 560) { AdvancedSettingsView() }
+            }
+            Tab("About", systemImage: "info.circle", value: SettingsTab.about) {
+                SettingsPane(width: 660, height: 600) { AboutSettingsView() }
             }
         }
         .onAppear { settings.windowAppeared() }

@@ -19,6 +19,7 @@
 
 - **Dedupe:** by event `key` (ADR-0008 window instance). Error notifications at most once per hour per profile and type.
 - Model-scoped `warn_only` profiles get notifications at both warn (80) and pause-level (95) crossings.
+- **Test notification:** `ccs events --test` (Settings → Notifications → **Send Test Notification**) asks the daemon (op `notify_test`) to emit a `notify.test` event. It always has `notify: true`, ignoring the toggles, so the app posts it natively, or the osascript fallback does when the app isn't connected.
 
 ## Rules for implementers
 - Notification text is built in **Python**: events carry `data.title` and `data.body`. Swift posts them verbatim (ADR-0001).

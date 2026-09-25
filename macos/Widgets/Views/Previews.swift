@@ -36,6 +36,13 @@ enum PreviewEntries {
     PreviewEntries.notConfigured
 }
 
+#Preview("Small · gauge", as: .systemSmall) {
+    ProfileUsageWidget()
+} timeline: {
+    UsageEntry(date: PreviewEntries.ok.date, display: PreviewEntries.ok.display, smallStyle: .gauge)
+    UsageEntry(date: PreviewEntries.paused.date, display: PreviewEntries.paused.display, smallStyle: .gauge)
+}
+
 #Preview("Medium", as: .systemMedium) {
     ProfileUsageWidget()
 } timeline: {

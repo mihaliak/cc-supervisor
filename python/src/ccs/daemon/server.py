@@ -26,7 +26,7 @@ from ccs.config import store
 from ccs.config.models import Config, Profile
 from ccs.daemon import extensions as ext_mod
 from ccs.daemon.hooks import DaemonHooks, WrapperInfo
-from ccs.events import Event, EventBus
+from ccs.events import TEST_TYPE, Event, EventBus
 from ccs.snapshot import build_widget_snapshot, write_widget_snapshot
 from ccs.usage.merge import LiveReport, apply_staleness, merge
 from ccs.usage.model import UsageSnapshot, format_iso
@@ -239,6 +239,7 @@ class Daemon:
             "register_wrapper": self._op_register_wrapper,
             "unregister_wrapper": self._op_unregister_wrapper,
             "wrapper_event": self._op_wrapper_event,
+            "notify_test": self._op_notify_test,
         }
 
     # ------------------------------------------------------------ extension API
@@ -498,6 +499,13 @@ class Daemon:
             if doc is not None:
                 conn.push({"snapshot": doc})
         return reply
+
+    async def _op_notify_test(self, conn: Conn, msg: dict[str, Any]) -> dict[str, Any]:
+        """Send one test notification (posted by the app, or the osascript fallback)."""
+        record = self.emit(Event(TEST_TYPE, None, None, {}))
+        app = any(c.client == "app" and not c.closed for c in self.conns)
+        via = "app" if app else "osascript"
+        return {"ok": record is not None, "app_connected": app, "via": via}
 
     async def _op_reload_config(self, conn: Conn, msg: dict[str, Any]) -> dict[str, Any]:
         result = await self.config_watcher.check_once(force=True)

@@ -353,3 +353,29 @@ private extension Result {
         return nil
     }
 }
+
+final class SmallWidgetStyleTests: XCTestCase {
+    func testStyleParsing() {
+        XCTAssertEqual(SmallWidgetStyle(configValue: nil), .bar)
+        XCTAssertEqual(SmallWidgetStyle(configValue: "gauge"), .gauge)
+        XCTAssertEqual(SmallWidgetStyle(configValue: "bar"), .bar)
+        XCTAssertEqual(SmallWidgetStyle(configValue: "weird"), .bar)
+        XCTAssertEqual(SmallWidgetStyle.allCases.map(\.title), ["Progress bar", "Gauge"])
+    }
+
+    func testGaugeGeometry() {
+        XCTAssertEqual(GaugeGeometry.fraction(percent: -5), 0)
+        XCTAssertEqual(GaugeGeometry.fraction(percent: 45), 0.45, accuracy: 1e-9)
+        XCTAssertEqual(GaugeGeometry.fraction(percent: 140), 1)
+        XCTAssertEqual(GaugeGeometry.needleDegrees(percent: 0), 180)
+        XCTAssertEqual(GaugeGeometry.needleDegrees(percent: 50), 270)
+        XCTAssertEqual(GaugeGeometry.needleDegrees(percent: 100), 360)
+        let center = CGPoint(x: 50, y: 50)
+        let left = GaugeGeometry.needleTip(center: center, length: 10, percent: 0)
+        let top = GaugeGeometry.needleTip(center: center, length: 10, percent: 50)
+        let right = GaugeGeometry.needleTip(center: center, length: 10, percent: 100)
+        XCTAssertEqual(left.x, 40, accuracy: 1e-9); XCTAssertEqual(left.y, 50, accuracy: 1e-9)
+        XCTAssertEqual(top.x, 50, accuracy: 1e-9); XCTAssertEqual(top.y, 40, accuracy: 1e-9)   // y-down: up
+        XCTAssertEqual(right.x, 60, accuracy: 1e-9); XCTAssertEqual(right.y, 50, accuracy: 1e-9)
+    }
+}

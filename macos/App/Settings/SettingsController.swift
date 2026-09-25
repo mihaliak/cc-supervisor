@@ -26,6 +26,7 @@ enum SettingsTab: String, Hashable, CaseIterable {
     case profiles
     case notifications
     case advanced
+    case about
 }
 
 /// Pages of the profile editor (segmented control, ADR-0020).
@@ -224,6 +225,17 @@ final class SettingsController {
         } after: { [weak self] in
             self?.refreshDaemonStatus()
             await self?.app.refreshBanner()
+        }
+    }
+
+    /// Settings → Notifications → Send Test Notification (`ccs events --test`).
+    func sendTestNotification() {
+        perform("notify-test", key: "notifications") { client in
+            let result = try await client.run(["events", "--test"], as: TestNotificationResult.self)
+            guard result.ok == true else { return result.error ?? "The supervisor didn't send it." }
+            return result.via == "app"
+                ? "Sent. It appears in the top-right corner (check Focus if it doesn't)."
+                : "Sent as a plain script notification: the menu bar app isn't connected to the supervisor."
         }
     }
 

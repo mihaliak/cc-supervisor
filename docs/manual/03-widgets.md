@@ -12,11 +12,12 @@ Each widget shows **one profile**. Add as many as you like, for example one per 
 | Option | Sizes | Effect |
 |--------|-------|--------|
 | Profile | all | Which profile to show. The list comes from your profiles; a new widget starts with the first one. Widgets added before 2026-09-25 need their profile picked again once. |
+| Small widget style | small | **Progress bar** (default): big percent, a bar and the reset time. **Gauge**: a half-circle gauge like the app icon, colored green/yellow/red by the same thresholds, with its needle at the session %, the percent under it and the reset time. |
 | Show weekly | medium, large | Weekly row on or off |
 | Show model limits | medium, large | Fable (or other model) rows on or off |
 | Show extra usage | medium, large | Extra-usage row on or off |
 
-The small size always shows the session plus a one-line weekly summary; the toggles don't change it.
+Edit Widget only lists the options that apply to the widget's size. The small size always ends with a one-line weekly summary.
 
 Everything else (name, emoji, config dir, sign-in, thresholds) is a **profile** setting, changed in the app's Settings. Click a widget to open Settings on its profile.
 

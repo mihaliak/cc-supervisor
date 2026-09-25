@@ -107,6 +107,15 @@ def test_notify_follows_toggles(tmp_path: Path) -> None:
     assert started["data"]["notify"] is False  # never-notified type
 
 
+def test_test_notification_ignores_toggles(tmp_path: Path) -> None:
+    off = cfg(limit_warn=False, limit_pause=False, limit_resume=False, warmup=False, errors=False)
+    record = make_bus(tmp_path, off).emit(Event("notify.test", None, None, {}))
+    assert record is not None
+    assert record["data"]["notify"] is True
+    assert record["data"]["title"] == "CC Supervisor"
+    assert "working" in record["data"]["body"]
+
+
 def test_notify_false_without_config(tmp_path: Path) -> None:
     record = make_bus(tmp_path, None).emit(Event("auth.required", "work", "k", {}))
     assert record is not None and record["data"]["notify"] is False

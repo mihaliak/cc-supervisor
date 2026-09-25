@@ -95,6 +95,7 @@ ccs daemon install       # (re)install: rewrites the LaunchAgent with your curre
 | Supervisor can't find `claude` | `PATH` changed since `ccs daemon install` | Re-run `ccs daemon install`, or set `claude_path` in the config |
 | `ccs status` first line says `daemon: not running` | The supervisor is stopped or not installed; the numbers shown are the last saved ones | `ccs daemon start`, or `ccs daemon install` |
 | `ccs daemon start` says "not installed" | The LaunchAgent was never installed or was uninstalled | `ccs daemon install` |
+| Notifications or the widget gallery show a blank app icon (Finder shows the gauge) | macOS's icon cache still has the icon from before the app had one | Run once: `sudo rm -rf /Library/Caches/com.apple.iconservices.store && sudo killall -9 iconservicesd iconservicesagent; killall NotificationCenter`, then Settings → Notifications → **Send Test Notification** |
 | Every widget shows the same profile | The widget was added before the 2026-09-25 fix, or an old build copy is still registered | `make upgrade` (it unregisters stray app copies), then right-click each widget → **Edit Widget** → pick its profile |
 | Widgets missing from the gallery | App not in `~/Applications` or never opened; build signing (see [Installation](01-installation.md#signing-local-builds)) | Open the app once; rebuild with `make app` |
 | Ctrl-Z in a `ccs` session | `ccs` handles Ctrl-Z itself: it suspends the whole session and returns you to the shell | `fg` brings it back and repaints the screen |

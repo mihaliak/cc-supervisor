@@ -15,6 +15,8 @@ Follow the standard macOS Settings pattern (Mail, Safari, Xcode):
   - **Profiles**
   - **Notifications**
   - **Advanced:** `ccs` path and version, daemon controls and logs, diagnostics
+  - **About:** the app icon, name and versions, and a short description of every feature and the credits
+- The **General** pane opens with the app icon, name and versions. **Notifications** has **Send Test Notification** (ADR-0015).
 - **Fixed pane sizes.** The window isn't user-resizable and resizes per pane. The last viewed pane is restored.
 - **Profiles pane** uses the Mail "Accounts" pattern, never `NavigationSplitView`:
   - a fixed, bordered profile list with the standard + / − bar attached below it

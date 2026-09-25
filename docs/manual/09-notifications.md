@@ -42,6 +42,9 @@ Settings → Notifications, or in the config:
 ```
 These toggles apply to all profiles.
 
+## Test it
+Settings → Notifications → **Send Test Notification**, or `ccs events --test`. The banner says "Test notification: notifications are working." and ignores the toggles above.
+
 ## Permission
 macOS asks the first time the app starts. If you declined, enable it in System Settings → Notifications → **CC Supervisor**. Notifications also show while the menu is open or another app is in front (banner + Notification Center).
 

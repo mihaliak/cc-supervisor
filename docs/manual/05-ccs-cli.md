@@ -104,8 +104,10 @@ work: other sessions 1 interactive, 2 background
 - Without a running supervisor it shows the last saved state (`daemon: not running`).
 - `--json` prints `{"ok": true, "daemon_responsive": bool, "sessions": [{"wrapper_id", "profile_id", "cwd", "model_id", "activity", "session_id", "started_at", "state", "holds", "resume_at"}], "other_sessions": {"<profile>": {"interactive", "background"} | null}}`.
 
-### `ccs events [--follow] [--json]`
+### `ccs events [--follow] [--test] [--json]`
 The event history: warnings, pauses, resumes, warm-ups, sign-in problems, sessions starting and ending, and the supervisor starting and stopping. Without `--follow` it prints the last 50 events.
+
+`ccs events --test` sends a test notification through the supervisor, ignoring the notification toggles: `test notification sent via the menu bar app` (or via a script notification when the app isn't running). It needs the supervisor running.
 ```
 19:18:04  limit.pause  work  💼 Work paused at 90% — 2 sessions paused. Resumes 20:00 (in 42m)
 20:00:16  limit.resume  work  💼 Work resumed — 2 sessions continued

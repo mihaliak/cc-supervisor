@@ -60,6 +60,7 @@ def register(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
 
     e = sub.add_parser("events", help="recent events (or follow them live)")
     e.add_argument("--follow", action="store_true", help="keep printing new events")
+    e.add_argument("--test", action="store_true", help="send a test notification")
     e.add_argument("--json", action="store_true", help="one JSON event per line")
     e.set_defaults(func=cmd_events)
 
@@ -355,8 +356,42 @@ def _follow_file(as_json: bool) -> int:
         return EXIT_OK
 
 
+def _send_test_notification(as_json: bool) -> int:
+    """`ccs events --test`: the daemon emits a `notify.test` event (ADR-0015)."""
+    try:
+        client = DaemonClient(timeout=5.0)
+        client.connect()
+        try:
+            client.hello()
+            reply = client.request("notify_test")
+        finally:
+            client.close()
+    except DaemonUnavailable:
+        msg = "daemon not running: start it with `ccs daemon start`"
+        if as_json:
+            emit_json({"ok": False, "error": msg})
+        else:
+            eprint(msg)
+        return EXIT_ERROR
+    ok = reply.get("ok") is True
+    if as_json:
+        emit_json({"ok": ok, "via": reply.get("via"), "app_connected": reply.get("app_connected")})
+    elif ok:
+        via = (
+            "the menu bar app"
+            if reply.get("via") == "app"
+            else "a script notification (menu bar app not running)"
+        )
+        print(f"test notification sent via {via}")
+    else:
+        eprint(f"test notification failed: {reply.get('error', 'unknown error')}")
+    return EXIT_OK if ok else EXIT_ERROR
+
+
 def cmd_events(args: argparse.Namespace) -> int:
     as_json = bool(args.json)
+    if args.test:
+        return _send_test_notification(as_json)
     if not args.follow:
         events = read_tail(limit=EVENTS_TAIL)
         if as_json:

@@ -53,10 +53,12 @@ targets:
     sources:
       - path: Widgets
       - path: Shared
+      - path: App/Assets.xcassets
     info:
       path: Widgets/Info.plist
       properties:
         CFBundleDisplayName: CC Supervisor Widgets
+        CFBundleIconName: AppIcon
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
@@ -71,6 +73,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: local.ccsupervisor.app.widgets
         PRODUCT_NAME: CCSupervisorWidgets
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SKIP_INSTALL: YES
   CCSupervisorTests:
     type: bundle.unit-test

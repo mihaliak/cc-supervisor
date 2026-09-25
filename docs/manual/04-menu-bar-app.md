@@ -71,9 +71,10 @@ Standard macOS settings tabs in the toolbar; the window reopens on the tab you u
 
 | Tab | Contents |
 |-----|----------|
-| General | **Launch CC Supervisor at login**; **Menu bar** label mode; **Display**: color thresholds and time format (read-only) |
+| General | The app icon, name and versions; **Launch CC Supervisor at login**; **Menu bar** label mode; **Display**: color thresholds and time format (read-only) |
 | Profiles | Profile list (sign-in dot, ⚠ for invalid settings, **+** / **−** below it). The selected profile shows a header (emoji, name, `ccs --flag`, sign-in state) and four pages: **General** (name, emoji, launcher flag, config dir, default profile, Claude account sign-in/out), **Limits** (supervisor on/off, resume prompt, warn/pause grid, Fable warn-only, Spill into credits), **Warm-up** (model, prompt, triggers, active hours, cooldown, schedule, next/last run), **Statusline** (preview, apply/revert). See [Profiles & sign-in](02-profiles-and-sign-in.md). |
-| Notifications | One toggle per kind ([Notifications](09-notifications.md)) and a shortcut to System Settings › Notifications |
+| Notifications | One toggle per kind ([Notifications](09-notifications.md)), **Send Test Notification**, and a shortcut to System Settings › Notifications |
+| About | The app icon and versions, what every feature does, and credits |
 | Advanced | **ccs** path (`ccs_path`, **Browse…**, empty = `~/.local/bin/ccs`) and version; **Daemon** status with **Install / Start / Stop / Restart** and **Show Logs…**; **Diagnostics**: **Run Diagnostics** (`ccs doctor`), problems first, passing checks collapsed |
 
 Changes are saved about half a second after you stop typing and are then checked with `ccs config validate`. Invalid values are marked in red and a banner appears; they stay in the file until you fix them, and the supervisor keeps using the last valid config meanwhile. Settings that change elsewhere while the window is open show up within about 2 seconds; if you and another program changed the same setting, the app asks which to keep.

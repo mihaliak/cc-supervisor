@@ -43,9 +43,12 @@ TOGGLES: dict[str, str] = {
     "config.invalid": "errors",
 }
 NOTIFIED_TYPES = frozenset(TOGGLES)
+# Sent on request (Settings → Notifications → Send Test Notification); ignores the toggles.
+TEST_TYPE = "notify.test"
 
 TYPES = frozenset(
     {
+        TEST_TYPE,
         "limit.warn",
         "limit.pause",
         "limit.resume",
@@ -256,6 +259,11 @@ def _warmup_failed(profile: Profile | None, data: dict[str, Any], now: datetime)
     return f"{_prefix(profile)}: warm-up failed", body
 
 
+def _notify_test(profile: Profile | None, data: dict[str, Any], now: datetime) -> tuple[str, str]:
+    return "CC Supervisor", "Test notification: notifications are working."
+
+
+register_text(TEST_TYPE, _notify_test)
 register_text("auth.required", _auth_required)
 register_text("usage.source_error", _source_error)
 register_text("config.invalid", _config_invalid)
@@ -392,7 +400,9 @@ class EventBus:
         data["title"] = title
         data["body"] = body
         toggle = TOGGLES.get(event.type)
-        enabled = bool(cfg is not None and toggle and getattr(cfg.notifications, toggle, False))
+        enabled = event.type == TEST_TYPE or bool(
+            cfg is not None and toggle and getattr(cfg.notifications, toggle, False)
+        )
         data["notify"] = enabled
         record = Event(event.type, event.profile_id, event.key, data, event.ts or now).to_dict()
         self._append(record)

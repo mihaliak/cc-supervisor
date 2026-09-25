@@ -82,6 +82,20 @@ def test_status_via_daemon(env: Path, capsys: pytest.CaptureFixture[str]) -> Non
         capsys.readouterr()
 
 
+def test_events_test_notification(env: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    # No daemon: a clear error, exit 1.
+    assert main(["events", "--test", "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["ok"] is False
+    with ThreadedDaemon():
+        data = run_json(capsys, "events", "--test")
+        assert data["ok"] is True
+        assert data["via"] == "osascript"  # no menu bar app connected in tests (osascript stubbed)
+        assert main(["events", "--test"]) == 0
+        assert "test notification sent" in capsys.readouterr().out
+    events = [e for e in run_json(capsys, "events")["events"] if e["type"] == "notify.test"]
+    assert events and events[-1]["data"]["notify"] is True
+
+
 def test_events_tail_json_and_text(env: Path, capsys: pytest.CaptureFixture[str]) -> None:
     cfg = store.load()[0]
     bus = EventBus(config=lambda: cfg)

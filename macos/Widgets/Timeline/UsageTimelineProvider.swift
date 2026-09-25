@@ -13,13 +13,16 @@ struct UsageTimelineProvider: AppIntentTimelineProvider {
         let profileID = configuration.profileID
         // Widget gallery without real data for this profile: show the sample.
         if context.isPreview, snapshot?.profile(id: profileID ?? "") == nil {
-            return UsageEntry.sample(now: now)
+            var sample = UsageEntry.sample(now: now)
+            sample.smallStyle = configuration.style
+            return sample
         }
         return UsageEntry(
             date: now,
             display: WidgetDisplayBuilder.build(
                 snapshot: snapshot, profileID: profileID, options: configuration.options, now: now
-            )
+            ),
+            smallStyle: configuration.style
         )
     }
 
@@ -31,7 +34,7 @@ struct UsageTimelineProvider: AppIntentTimelineProvider {
             profileID: configuration.profileID,
             options: configuration.options,
             now: now
-        ).map(UsageEntry.init)
+        ).map { UsageEntry($0, smallStyle: configuration.style) }
         let reloadAt = entries.last?.date ?? now.addingTimeInterval(60 * 60)
         return Timeline(entries: entries, policy: .after(reloadAt))
     }

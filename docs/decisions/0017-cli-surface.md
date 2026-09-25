@@ -15,7 +15,7 @@ ccs [--<flag> | --profile <id>] [--force] [--no-supervise] [claude args…]
 ccs status    [--profile <id>] [--json]            # usage + supervisor state + daemon health
 ccs usage     [--profile <id>] [--refresh] [--json]
 ccs sessions  [--profile <id>] [--json]            # supervised + other sessions (claude agents --json)
-ccs events    [--follow] [--json]
+ccs events    [--follow] [--test] [--json]            # --test: send a test notification
 
 # control
 ccs pause     (--profile <id> | --session <wrapper_id>) [--json]

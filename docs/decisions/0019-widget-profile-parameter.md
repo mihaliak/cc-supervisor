@@ -14,7 +14,8 @@
 - The profile parameter is `profileID: String?` with a `DynamicOptionsProvider` (`ProfileOptionsProvider`).
   - Options come from `widget/snapshot.json`: value = profile id, title = `{emoji} {name}`.
   - The default is the first profile.
-- No `AppEntity` types are used in the widget while builds are ad-hoc signed.
+- No `AppEntity` or `AppEnum` types are used in the widget while builds are ad-hoc signed. Choice lists are `String` parameters with a `DynamicOptionsProvider`; that also covers **Small widget style** (`bar` default, `gauge`).
+- A `ParameterSummary` shows **Profile** and **Small widget style** for small widgets, and **Profile** plus the row toggles for medium and large.
 - `make app` unregisters every other `CC Supervisor.app` copy from LaunchServices (`scripts/lsclean.sh`), so macOS only sees the installed copy's metadata.
 
 ## Consequences

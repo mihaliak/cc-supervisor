@@ -169,6 +169,14 @@ struct AuthLoginResult: Decodable, Sendable {
 }
 
 /// `ccs doctor --json` (P13): `{"checks":[…],"summary":{"ok","warn","fail"}}`.
+/// `ccs events --test --json` (ADR-0015).
+struct TestNotificationResult: Decodable, Sendable {
+    var ok: Bool?
+    var via: String?
+    var appConnected: Bool?
+    var error: String?
+}
+
 struct DoctorResult: Decodable, Sendable {
     struct Check: Decodable, Sendable {
         var id: String?

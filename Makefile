@@ -9,6 +9,9 @@ XCODEPROJ   := macos/CCSupervisor.xcodeproj
 DERIVED     := build/xcode
 APP_NAME    := CC Supervisor.app
 APP_BUILT   := $(DERIVED)/Build/Products/Release/$(APP_NAME)
+# Build number = commit count, so every upgrade gets a new CFBundleVersion and macOS
+# refreshes its cached app icon (Notification Center, widget gallery).
+BUILD_NUMBER := $(shell git rev-list --count HEAD 2>/dev/null || echo 1)
 APP_DEST    := $(HOME)/Applications/$(APP_NAME)
 
 .PHONY: help icon venv install-dev test test-python test-swift test-live lint fmt \
@@ -66,7 +69,8 @@ project: xcodegen-check ## generate macos/CCSupervisor.xcodeproj
 
 app-build: project xcodebuild-check ## build the app (Release, ad-hoc signed) into build/xcode
 	xcodebuild -project $(XCODEPROJ) -scheme CCSupervisor -configuration Release \
-	  -derivedDataPath $(DERIVED) -destination 'generic/platform=macOS' -quiet build
+	  -derivedDataPath $(DERIVED) -destination 'generic/platform=macOS' -quiet \
+	  CURRENT_PROJECT_VERSION=$(BUILD_NUMBER) build
 
 app: app-build ## build and install to ~/Applications/CC Supervisor.app
 	mkdir -p "$(HOME)/Applications"

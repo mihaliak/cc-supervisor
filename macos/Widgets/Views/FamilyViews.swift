@@ -1,15 +1,35 @@
 import SwiftUI
 import WidgetKit
 
-/// Small: header, big session percent + bar + reset, weekly footer.
+/// Small: header, big session percent + bar (or gauge) + reset, weekly footer.
 struct SmallWidgetView: View {
     let display: WidgetDisplay
+    var style: SmallWidgetStyle = .bar
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HeaderView(display: display, compact: true)
             Spacer(minLength: 0)
-            if display.showsValues, let session = display.session {
+            if display.showsValues, let session = display.session, style == .gauge {
+                VStack(spacing: 2) {
+                    UsageGaugeView(percent: session.percent, level: session.level, percentText: session.percentText)
+                        .frame(maxWidth: 118)
+                    if let trailing = session.trailing {
+                        Text(trailing)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .opacity(display.dimmed ? 0.5 : 1)
+                Spacer(minLength: 0)
+                if let weekly = display.weeklyLine {
+                    WeeklyLineView(line: weekly)
+                        .opacity(display.dimmed ? 0.5 : 1)
+                }
+            } else if display.showsValues, let session = display.session {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(session.percentText)
                         .font(.system(size: 30, weight: .bold, design: .rounded).monospacedDigit())

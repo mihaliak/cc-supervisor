@@ -154,3 +154,64 @@ struct FooterView: View {
         }
     }
 }
+
+/// Half-circle usage gauge (small widget "Gauge" style, like the app icon): track, a
+/// progress arc and needle in the session's level color, percent under the hub.
+struct UsageGaugeView: View {
+    let percent: Int
+    let level: Level?
+    let percentText: String
+
+    var body: some View {
+        let color = LevelColor.color(level)
+        VStack(spacing: 0) {
+            GeometryReader { geo in
+                let width = geo.size.width
+                let line = width * 0.11
+                let radius = (width - line) / 2
+                let center = CGPoint(x: width / 2, y: radius + line / 2)
+                let fraction = GaugeGeometry.fraction(percent: percent)
+                ZStack {
+                    HalfArc(center: center, radius: radius)
+                        .stroke(color.opacity(0.22), style: StrokeStyle(lineWidth: line, lineCap: .round))
+                    HalfArc(center: center, radius: radius)
+                        .trim(from: 0, to: fraction)
+                        .stroke(color, style: StrokeStyle(lineWidth: line, lineCap: .round))
+                        .widgetAccentable()
+                    Path { p in
+                        p.move(to: center)
+                        p.addLine(to: GaugeGeometry.needleTip(center: center, length: radius * 0.72, percent: percent))
+                    }
+                    .stroke(Color.primary, style: StrokeStyle(lineWidth: line * 0.45, lineCap: .round))
+                    Circle()
+                        .fill(Color.primary)
+                        .frame(width: line * 1.1, height: line * 1.1)
+                        .position(center)
+                }
+            }
+            .aspectRatio(1.72, contentMode: .fit)
+            Text(percentText)
+                .font(.system(size: 22, weight: .bold, design: .rounded).monospacedDigit())
+                .foregroundStyle(color)
+                .minimumScaleFactor(0.6)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Session \(percent) percent")
+    }
+}
+
+/// The gauge's half circle, from the left end over the top to the right end.
+struct HalfArc: Shape {
+    let center: CGPoint
+    let radius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        Path { p in
+            p.addArc(
+                center: center, radius: radius,
+                startAngle: .degrees(GaugeGeometry.startDegrees), endAngle: .degrees(GaugeGeometry.endDegrees),
+                clockwise: false
+            )
+        }
+    }
+}

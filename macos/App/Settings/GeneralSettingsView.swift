@@ -10,6 +10,9 @@ struct GeneralSettingsView: View {
         let store = settings.store
         Form {
             Section {
+                AppIdentityHeader()
+            }
+            Section {
                 Toggle("Launch CC Supervisor at login", isOn: Binding(
                     get: { app.loginItemEnabled },
                     set: { app.setLoginItem($0) }
@@ -84,11 +87,18 @@ struct NotificationsSettingsView: View {
             .disabled(!store.canEdit)
 
             Section {
-                Button("Open Notification Settings…") {
-                    if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") {
-                        NSWorkspace.shared.open(url)
+                HStack {
+                    Button("Send Test Notification") { settings.sendTestNotification() }
+                        .disabled(settings.isBusy("notify-test"))
+                    if settings.isBusy("notify-test") { ProgressView().controlSize(.small) }
+                    Spacer()
+                    Button("Open Notification Settings…") {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") {
+                            NSWorkspace.shared.open(url)
+                        }
                     }
                 }
+                MessageLine(message: settings.message("notifications"))
             }
         }
         .formStyle(.grouped)

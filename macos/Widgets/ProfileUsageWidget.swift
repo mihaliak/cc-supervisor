@@ -32,7 +32,7 @@ struct ProfileUsageWidgetView: View {
         case .systemLarge, .systemExtraLarge:
             LargeWidgetView(display: entry.display)
         default:
-            SmallWidgetView(display: entry.display)
+            SmallWidgetView(display: entry.display, style: entry.smallStyle)
         }
     }
 }
