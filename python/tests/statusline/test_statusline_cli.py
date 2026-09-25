@@ -163,7 +163,7 @@ def test_daemon_refresh_only_existing_scripts(tmp_path: Path) -> None:
     assert daemon_ext.refresh_scripts(cfg) == []  # already current
     renamed = make_config(work, name="Job")
     assert daemon_ext.refresh_scripts(renamed) == ["work"]
-    assert "'name': 'Job'" in (work / "ccs-statusline.py").read_text()
+    assert '"name": "Job"' in (work / "ccs-statusline.py").read_text()
     fresh = make_config(other)
     assert daemon_ext.refresh_scripts(fresh) == []
     assert not (other / "ccs-statusline.py").exists()  # never created by the daemon
@@ -188,7 +188,7 @@ def test_daemon_hook_registration(tmp_path: Path) -> None:
     cfg = make_config(work)
     template.generate(cfg.profiles[0], cfg)
     asyncio.run(daemon_ext.on_config_changed(None, make_config(work, emoji="🛠")))
-    assert "'emoji': '🛠'" in (work / "ccs-statusline.py").read_text()
+    assert '"emoji": "🛠"' in (work / "ccs-statusline.py").read_text()
 
 
 def test_extension_is_listed() -> None:

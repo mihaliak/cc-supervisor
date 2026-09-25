@@ -117,7 +117,8 @@ def cmd_revert(args: argparse.Namespace) -> int:
     elif result.result == apply_mod.NOT_APPLIED:
         print(f"{profile.id}: statusline was not applied; nothing to revert")
     elif result.result == apply_mod.REVERTED:
-        print(f"{profile.id}: statusLine restored")
+        backup = f" (backup: {result.backup_path})" if result.backup_path else ""
+        print(f"{profile.id}: statusLine restored{backup}")
     else:
         print(f"ccs: {result.hint}")
     return EXIT_OK if ok else EXIT_ERROR

@@ -381,3 +381,150 @@ def test_unwritable_settings_write_nothing(tmp_path: Path) -> None:
     assert path.read_text() == '{"x": "\\ud83d"}'
     assert not paths.statusline_file("work").exists()
     assert list(config_dir.glob("settings.json.ccs-backup-*")) == []
+
+
+# --- concurrent writers (Claude Code rewrites settings.json itself; no shared lock) ----------
+
+
+def _race(monkeypatch: pytest.MonkeyPatch, path: Path, times: int = 1) -> list[dict[str, Any]]:
+    """Make "Claude Code" rewrite `path` right after ccs computed its new text (`times` times)."""
+    real = ap._settings_text
+    writes: list[dict[str, Any]] = []
+
+    def racing(*args: Any, **kwargs: Any) -> str:
+        text = real(*args, **kwargs)
+        if len(writes) < times:
+            data = json.loads(path.read_text())
+            data["claudeCodeWrite"] = len(writes) + 1
+            path.write_text(json.dumps(data, indent=2) + "\n")
+            writes.append(data)
+        return text
+
+    monkeypatch.setattr(ap, "_settings_text", racing)
+    return writes
+
+
+def test_apply_keeps_a_concurrent_claude_code_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_dir = new_config_dir(tmp_path)
+    path = write_settings(config_dir, existing_settings())
+    cfg = make_config(config_dir)
+    writes = _race(monkeypatch, path)
+    result = ap.apply(cfg.profiles[0], cfg)
+    assert result.result == ap.APPLIED and len(writes) == 1
+    data = json.loads(path.read_text())
+    assert data["claudeCodeWrite"] == 1  # not silently discarded
+    assert data["statusLine"]["command"] == result.command
+    assert result.backup_path is not None
+    assert json.loads(result.backup_path.read_text())["claudeCodeWrite"] == 1
+    assert len(list(config_dir.glob("settings.json.ccs-backup-*"))) == 1
+    book = json.loads(paths.statusline_file("work").read_text())
+    assert book["previous_statusline"] == OLD_STATUSLINE
+
+
+def test_apply_gives_up_when_settings_keep_changing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_dir = new_config_dir(tmp_path)
+    path = write_settings(config_dir, existing_settings())
+    cfg = make_config(config_dir)
+    _race(monkeypatch, path, times=100)
+    with pytest.raises(ap.ApplyError) as err:
+        ap.apply(cfg.profiles[0], cfg)
+    assert err.value.code == "settings_busy"
+    assert "try again" in str(err.value)
+    assert json.loads(path.read_text())["statusLine"] == OLD_STATUSLINE  # theirs, untouched
+    assert list(config_dir.glob("settings.json.ccs-backup-*")) == []
+    assert not paths.statusline_file("work").exists()
+
+
+def test_revert_keeps_a_concurrent_claude_code_write_and_backs_up(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_dir = new_config_dir(tmp_path)
+    path = write_settings(config_dir, existing_settings())
+    cfg = make_config(config_dir)
+    ap.apply(cfg.profiles[0], cfg)
+    backups = set(config_dir.glob("settings.json.ccs-backup-*"))
+    writes = _race(monkeypatch, path)
+    result = ap.revert(cfg.profiles[0])
+    assert result.result == ap.REVERTED and len(writes) == 1
+    data = json.loads(path.read_text())
+    assert data["claudeCodeWrite"] == 1
+    assert data["statusLine"] == OLD_STATUSLINE
+    (backup,) = set(config_dir.glob("settings.json.ccs-backup-*")) - backups
+    assert result.backup_path == backup
+    assert result.to_dict()["backup_path"] == str(backup)
+    assert json.loads(backup.read_text()) == writes[0]  # what revert replaced
+    assert not paths.statusline_file("work").exists()
+
+
+def test_revert_gives_up_when_settings_keep_changing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_dir = new_config_dir(tmp_path)
+    path = write_settings(config_dir, existing_settings())
+    cfg = make_config(config_dir)
+    ap.apply(cfg.profiles[0], cfg)
+    backups = set(config_dir.glob("settings.json.ccs-backup-*"))
+    _race(monkeypatch, path, times=100)
+    with pytest.raises(ap.ApplyError) as err:
+        ap.revert(cfg.profiles[0])
+    assert err.value.code == "settings_busy"
+    assert ap.is_ours(json.loads(path.read_text())["statusLine"], config_dir / "ccs-statusline.py")
+    assert set(config_dir.glob("settings.json.ccs-backup-*")) == backups
+    assert paths.statusline_file("work").exists()  # still revertable later
+
+
+# --- the old config dir's record must survive a conflicted apply ---------------------------
+
+
+@pytest.mark.parametrize("new_has_ours", [False, True])
+def test_apply_refuses_to_drop_the_old_dirs_record_on_conflict(
+    tmp_path: Path, new_has_ours: bool
+) -> None:
+    old_dir = tmp_path / "old"
+    old_dir.mkdir()
+    old = write_settings(old_dir, existing_settings())
+    cfg = make_config(old_dir)
+    ap.apply(cfg.profiles[0], cfg)
+    mine = {"type": "command", "command": "echo mine"}
+    data = json.loads(old.read_text())
+    data["statusLine"] = mine  # the user changed the old dir's statusLine by hand
+    old.write_text(json.dumps(data))
+    new_dir = tmp_path / "new"
+    new_dir.mkdir()
+    moved = make_config(new_dir)
+    new_settings: dict[str, Any] = {"theme": "light"}
+    if new_has_ours:
+        new_settings["statusLine"] = template.statusline_setting(new_dir / "ccs-statusline.py")
+    new = write_settings(new_dir, new_settings)
+    book_before = paths.statusline_file("work").read_text()
+    with pytest.raises(ap.ApplyError) as err:
+        ap.apply(moved.profiles[0], moved)
+    assert err.value.code == "conflict"
+    message = str(err.value)
+    assert str(old) in message and str(paths.statusline_file("work")) in message
+    assert paths.statusline_file("work").read_text() == book_before  # record kept
+    assert json.loads(new.read_text()) == new_settings
+    assert json.loads(old.read_text())["statusLine"] == mine
+    assert list(new_dir.glob("settings.json.ccs-backup-*")) == []
+
+
+def test_cli_apply_reports_the_old_dirs_conflict(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from ccs.cli import main
+
+    old_dir = tmp_path / "old"
+    old_dir.mkdir()
+    old = write_settings(old_dir, existing_settings())
+    cfg = make_config(old_dir)
+    ap.apply(cfg.profiles[0], cfg)
+    old.write_text(json.dumps({"statusLine": {"type": "command", "command": "echo mine"}}))
+    write_config(make_config(new_config_dir(tmp_path)))
+    assert main(["statusline", "apply", "--profile", "work", "--json"]) == 1
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["ok"] is False and str(old) in doc["error"]
+    assert doc["issues"][0]["path"] == "conflict"

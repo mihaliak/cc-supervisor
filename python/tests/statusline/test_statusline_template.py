@@ -90,7 +90,7 @@ def test_ensure_script_regenerates_on_any_difference(tmp_path: Path) -> None:
     assert template.script_is_current(cfg.profiles[0], cfg)
     renamed = make_config(config_dir, name="Job")
     assert not template.script_is_current(renamed.profiles[0], renamed)
-    assert "'name': 'Job'" in template.ensure_script(renamed.profiles[0], renamed).read_text()
+    assert '"name": "Job"' in template.ensure_script(renamed.profiles[0], renamed).read_text()
 
 
 def test_script_runs_standalone_and_matches_render(tmp_path: Path) -> None:
@@ -159,7 +159,7 @@ def test_config_dir_newline_cannot_escape_the_comment(tmp_path: Path) -> None:
     text = script.read_text()
     run_as = [line for line in text.splitlines() if line.startswith("# Run as: ")]
     assert len(run_as) == 1 and '\\nprint("INJECTED")\\n#\\x85' in run_as[0]
-    assert "\nprint(" not in text.split("\nCONSTANTS = ", 1)[0]
+    assert "\nprint(" not in text.split("\n_CONSTANTS_JSON = ", 1)[0]
     proc = subprocess.run(
         [sys.executable, "-S", "-E", str(script)],
         input="{}",
@@ -203,3 +203,16 @@ def test_embedded_dependency_order() -> None:
 
 def test_parse_header_rejects_foreign_text() -> None:
     assert template.parse_header("#!/bin/bash\necho hi\n") is None
+
+
+@pytest.mark.parametrize("bad", [float("inf"), float("nan")])
+def test_non_finite_constant_cannot_kill_the_script(tmp_path: Path, bad: float) -> None:
+    # `validate` rejects these, but a baked `inf`/`nan` must never become a NameError
+    config_dir = new_config_dir(tmp_path)
+    limits = {"session": {"warn": 80, "pause": 90, "note": bad}}
+    cfg = make_config(config_dir, limits=limits)
+    script = template.generate(cfg.profiles[0], cfg).path
+    proc = run_script(script, load_fixture("with_effort.json"), tmp_path / "state")
+    assert proc.returncode == 0, proc.stderr
+    assert "Error" not in proc.stderr
+    assert strip_ansi(proc.stdout).startswith("💼 Work ~ ")
