@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import errno
 import fcntl
 import json
 import logging
@@ -51,8 +52,9 @@ def _fsync_dir(directory: Path) -> None:
         os.close(fd)
 
 
-def atomic_write_text(path: Path, text: str, mode: int = 0o600) -> None:
-    """Write `text` to `path` atomically: temp file in the same dir, fsync, `os.replace`.
+def atomic_write_bytes(path: Path, data: bytes, mode: int = 0o600) -> None:
+    """Write `data` to `path` atomically: temp file in the same dir, fsync, `os.replace`,
+    then fsync the directory, so a crash or power loss leaves the old or the new file.
 
     A symlinked `path` stays a symlink: the link is resolved first and its target is replaced
     (dotfile managers link `settings.json` / `config.json`).
@@ -62,8 +64,8 @@ def atomic_write_text(path: Path, text: str, mode: int = 0o600) -> None:
     fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     tmp = Path(tmp_name)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(text)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
             fh.flush()
             os.fsync(fh.fileno())
         os.chmod(tmp, mode)
@@ -73,6 +75,11 @@ def atomic_write_text(path: Path, text: str, mode: int = 0o600) -> None:
             tmp.unlink()
         raise
     _fsync_dir(path.parent)
+
+
+def atomic_write_text(path: Path, text: str, mode: int = 0o600) -> None:
+    """Atomically write `text` as UTF-8 (see `atomic_write_bytes`)."""
+    atomic_write_bytes(path, text.encode("utf-8"), mode)
 
 
 def atomic_write_json(path: Path, obj: Any, *, mode: int = 0o600) -> None:
@@ -99,15 +106,51 @@ def read_json(path: Path) -> dict[str, Any] | None:
 
 
 def append_jsonl(path: Path, obj: Any) -> None:
-    """Append one JSON line with a single `O_APPEND` write."""
+    """Append one JSON line (`O_APPEND`, single writer), completely or not at all.
+
+    A short write is continued until the whole line is written. A write that fails midway
+    (e.g. `ENOSPC`) raises after truncating its fragment away. A file that doesn't end with a
+    newline (a fragment left by a crash mid-write) gets one first, so a torn record never
+    swallows the next one.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     line = (json.dumps(obj, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
-    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    fd = os.open(path, os.O_RDWR | os.O_APPEND | os.O_CREAT, 0o600)
     try:
-        os.write(fd, line)
+        start = os.fstat(fd).st_size
+        if start and os.pread(fd, 1, start - 1) != b"\n":
+            line = b"\n" + line
+        _write_all(fd, line, rollback_to=start)
     finally:
         os.close(fd)
+
+
+def _write_all(fd: int, data: bytes, *, rollback_to: int) -> None:
+    """`os.write` until all of `data` is written; on failure truncate back to `rollback_to`."""
+    view = memoryview(data)
+    done = 0
+    try:
+        while done < len(view):
+            n = os.write(fd, view[done:])
+            if n <= 0:
+                raise OSError(errno.EIO, "write made no progress")
+            done += n
+    except BaseException:
+        if done:
+            with contextlib.suppress(OSError):
+                os.ftruncate(fd, rollback_to)
+        raise
+
+
+def _same_file(fd: int, path: Path) -> bool:
+    """Whether `path` currently names the file open as `fd`."""
+    try:
+        st = os.stat(path)
+        held = os.fstat(fd)
+    except OSError:
+        return False
+    return (st.st_dev, st.st_ino) == (held.st_dev, held.st_ino)
 
 
 class FileLock:
@@ -123,22 +166,37 @@ class FileLock:
         return self._fd is not None
 
     def acquire(self, blocking: bool = True) -> bool:
-        """Take the lock. Non-blocking mode returns False when another holder has it."""
+        """Take the lock. Non-blocking mode returns False when another holder has it.
+
+        After `flock` succeeds the path must still name the locked file: when it was removed
+        or replaced meanwhile, the lock is on an orphan and the current file is locked instead.
+        """
         if self._fd is not None:
             return True
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600)
         flags = fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB
-        try:
-            fcntl.flock(fd, flags)
-        except BlockingIOError:
-            os.close(fd)
-            return False
-        except BaseException:
-            os.close(fd)
-            raise
-        self._fd = fd
-        return True
+        while True:
+            fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600)
+            try:
+                fcntl.flock(fd, flags)
+            except BlockingIOError:
+                os.close(fd)
+                return False
+            except BaseException:
+                os.close(fd)
+                raise
+            if _same_file(fd, self.path):
+                self._fd = fd
+                return True
+            os.close(fd)  # releases the orphan's lock; retry on the file there now
+
+    def is_current(self) -> bool:
+        """Whether the lock is held and its path still names the locked file.
+
+        False once the lock file was removed or replaced: a second process could then
+        create and lock a fresh file at the same path.
+        """
+        return self._fd is not None and _same_file(self._fd, self.path)
 
     def release(self) -> None:
         """Release the lock if held."""

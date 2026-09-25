@@ -5,12 +5,14 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import socket
 from pathlib import Path
 from typing import Any
 
 import pytest
 from daemon_helpers import (
     calls,
+    make_daemon,
     run_with_daemon,
     scenario,
     short_state_dir,
@@ -18,7 +20,7 @@ from daemon_helpers import (
     write_config,
 )
 
-from ccs import paths
+from ccs import fsio, paths
 from ccs.daemon.client import AsyncDaemonClient
 from ccs.daemon.hooks import WrapperInfo
 from ccs.daemon.server import Conn, Daemon
@@ -310,3 +312,121 @@ def test_second_daemon_refuses_lock(env: dict[str, Any]) -> None:
             await other.start()
 
     run_with_daemon(body)
+
+
+def _listening_socket(path: Path) -> socket.socket:
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.bind(str(path))
+    sock.listen()
+    return sock
+
+
+def _lock_is_held() -> bool:
+    probe = fsio.try_lock(paths.daemon_lock())
+    if probe is None:
+        return True
+    probe.release()
+    return False
+
+
+def test_deleted_lock_does_not_allow_a_second_daemon(env: dict[str, Any]) -> None:
+    """A second daemon never steals the socket of one whose lock file was deleted."""
+    from ccs.daemon.server import DaemonAlreadyRunning
+
+    async def body(daemon: Daemon) -> None:
+        paths.daemon_lock().unlink()
+        other = Daemon(extensions=[], enable_sampler=False, enable_reaper=False)
+        try:
+            with pytest.raises(DaemonAlreadyRunning):
+                await other.start()
+        finally:
+            if other._server is not None:
+                await other.stop()
+        c = await connect()  # the first daemon still serves its socket
+        assert (await c.request("status"))["ok"] is True
+        await c.close()
+
+    run_with_daemon(body)
+
+
+def test_daemon_retakes_a_deleted_lock(env: dict[str, Any]) -> None:
+    async def body(daemon: Daemon) -> None:
+        paths.daemon_lock().unlink()
+        await wait_until(lambda: paths.daemon_lock().exists() and _lock_is_held())
+        assert daemon._lock is not None and daemon._lock.is_current()
+
+    run_with_daemon(body, tick_s=0.05)
+
+
+def test_daemon_stops_when_another_took_lock_and_socket(env: dict[str, Any]) -> None:
+    async def main() -> None:
+        daemon = make_daemon(tick_s=0.05)
+        await daemon.start()
+        thief = None
+        other_sock = None
+        try:
+            paths.daemon_lock().unlink()
+            thief = fsio.try_lock(paths.daemon_lock())  # a newer daemon's fresh lock file
+            paths.daemon_sock().unlink()
+            other_sock = _listening_socket(paths.daemon_sock())
+            await asyncio.wait_for(daemon._stop.wait(), 5)
+        finally:
+            await daemon.stop()
+            assert paths.daemon_sock().exists()  # the newer daemon's socket is kept
+            if other_sock is not None:
+                other_sock.close()
+            if thief is not None:
+                thief.release()
+
+    asyncio.run(main())
+
+
+def test_stop_keeps_a_socket_that_is_not_ours(env: dict[str, Any]) -> None:
+    held: list[socket.socket] = []
+
+    async def body(daemon: Daemon) -> None:
+        paths.daemon_sock().unlink()
+        held.append(_listening_socket(paths.daemon_sock()))
+
+    try:
+        run_with_daemon(body)
+        assert paths.daemon_sock().exists()
+    finally:
+        for sock in held:
+            sock.close()
+
+
+def test_notify_test_routes_by_events_subscription(
+    env: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An app that hasn't subscribed to `events` never gets the event: the reported route
+    and the osascript fallback both treat it as absent."""
+    from ccs import notify
+
+    posted: list[list[str]] = []
+
+    async def fake_osascript(argv: list[str]) -> int:
+        posted.append(argv)
+        return 0
+
+    monkeypatch.setattr(notify, "run_osascript", fake_osascript)
+
+    async def body(daemon: Daemon) -> None:
+        app = await connect("app")  # connected, not listening for events yet
+        reply = await app.request("notify_test")
+        assert reply["ok"] is True
+        assert (reply["via"], reply["app_connected"]) == ("osascript", False)
+        await wait_until(lambda: len(posted) == 1)
+        status = await app.request("status")
+        assert status["daemon"]["app_connected"] is False
+        await app.request("subscribe", topics=["events"])
+        reply = await app.request("notify_test")
+        assert (reply["via"], reply["app_connected"]) == ("app", True)
+        push = await app.next_push(5)
+        assert push is not None and push["event"]["type"] == "notify.test"
+        await asyncio.sleep(0.1)
+        assert len(posted) == 1  # posted by the app, not the fallback
+        assert (await app.request("status"))["daemon"]["app_connected"] is True
+        await app.close()
+
+    run_with_daemon(body, extensions=[notify.install])

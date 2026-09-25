@@ -199,3 +199,77 @@ def test_failed_poll_keeps_windows_and_bumps_polled_at(
     assert [e["type"] for e in events if e["type"] == "usage.source_error"] == [
         "usage.source_error"
     ]
+
+
+def test_loop_survives_unexpected_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, state: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A bug outside `poll_once` is logged, fails the waiting polls, and the loop keeps going."""
+    from ccs.daemon import poller as poller_mod
+
+    log = scenario(tmp_path, monkeypatch, {"stream": {"get_usage": {"mode": "ok"}}})
+    write_config(tmp_path)
+    monkeypatch.setattr(poller_mod, "ERROR_BACKOFF_S", (0.05,), raising=False)
+    real = poller_mod.interval_for
+    failures = {"left": 0}
+
+    def flaky(*args: object) -> int:
+        if failures["left"]:
+            failures["left"] -= 1
+            raise RuntimeError("boom")
+        return real(*args)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(poller_mod, "interval_for", flaky)
+
+    async def body(daemon: Daemon) -> None:
+        await wait_until(lambda: len(calls(log, "stream")) == 1)
+        failures["left"] = 3  # a few consecutive failures: backoff, not a hot loop
+        assert await asyncio.wait_for(daemon.request_poll("work"), 5) is None  # not hanging
+        await wait_until(lambda: failures["left"] == 0)
+        snap = await asyncio.wait_for(daemon.request_poll("work"), 5)  # loop still alive
+        assert snap is not None
+
+    with caplog.at_level("ERROR", logger="ccs.daemon.poller"):
+        run_with_daemon(body)
+    assert "poll loop of work failed" in caplog.text
+    assert len(calls(log, "stream")) == 2
+
+
+class _Escaped(BaseException):
+    """Not an `Exception`: escapes the loop's own guard and ends the task."""
+
+
+def test_dead_loop_fails_waiters_and_restarts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, state: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A loop task that dies anyway is logged, resolves its waiters, and is started again."""
+    from ccs.daemon import poller as poller_mod
+
+    log = scenario(tmp_path, monkeypatch, {"stream": {"get_usage": {"mode": "ok"}}})
+    write_config(tmp_path)
+    monkeypatch.setattr(poller_mod, "RESTART_DELAY_S", 0.05, raising=False)
+    real = poller_mod.interval_for
+    escape = {"now": False}
+
+    def fatal(*args: object) -> int:
+        if escape["now"]:
+            escape["now"] = False
+            raise _Escaped()
+        return real(*args)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(poller_mod, "interval_for", fatal)
+
+    async def body(daemon: Daemon) -> None:
+        await wait_until(lambda: len(calls(log, "stream")) == 1)
+        st = daemon.poller._states["work"]
+        first_task = st.task
+        later = daemon.request_poll("work", daemon.clock.now().replace(year=2099))
+        escape["now"] = True
+        await wait_until(lambda: first_task is not None and first_task.done())
+        assert await asyncio.wait_for(later, 5) is None  # not left hanging
+        await wait_until(lambda: st.task is not first_task and st.task is not None)
+        assert await asyncio.wait_for(daemon.request_poll("work"), 5) is not None
+
+    with caplog.at_level("ERROR", logger="ccs.daemon.poller"):
+        run_with_daemon(body)
+    assert "poll loop of work died" in caplog.text

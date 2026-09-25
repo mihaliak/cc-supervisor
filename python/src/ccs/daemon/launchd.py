@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ccs import paths
+from ccs import fsio, paths
 
 LABEL = "local.ccsupervisor.daemon"
 PASSTHROUGH_ENV = ("PATH", "HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "CCS_STATE_DIR")
@@ -166,10 +166,8 @@ class Launchd:
         """Write the plist, unload any old job, then bootstrap it (starts it: RunAtLoad)."""
         paths.ensure_state_layout()
         data = render_plist(ccs_exec or ccs_executable(), install_env(env), paths.state_dir())
-        self.plist.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.plist.with_suffix(".plist.tmp")
-        tmp.write_bytes(data)
-        os.replace(tmp, self.plist)
+        # temp + fsync + rename + dir fsync: power loss can't leave a truncated LaunchAgent
+        fsio.atomic_write_bytes(self.plist, data, mode=0o644)
         self._launchctl("bootout", service_target())  # ignore errors: may not be loaded
         result = self._bootstrap()
         if result.rc != 0:

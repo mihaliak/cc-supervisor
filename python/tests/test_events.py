@@ -6,10 +6,16 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
+
+import pytest
+from schema_check import load_schema, validate
 
 from ccs.clock import FakeClock
 from ccs.config.models import Config
 from ccs.events import (
+    TEST_TYPE,
+    TYPES,
     Event,
     EventBus,
     hour_bucket,
@@ -186,9 +192,32 @@ def test_register_text_overrides_template(tmp_path: Path) -> None:
             register_text("warmup.failed", previous)  # restore the P06 template
 
 
-def test_hour_bucket_uses_given_zone() -> None:
+def test_hour_bucket_is_utc() -> None:
     now = datetime(2026, 9, 24, 23, 30, tzinfo=UTC)
-    assert hour_bucket(now, UTC) == "2026092423"
+    assert hour_bucket(now) == "2026092423"
+
+
+def test_hour_bucket_distinct_across_dst_fall_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The repeated local hour at fall-back is two real hours, so two buckets."""
+    monkeypatch.setenv("TZ", "Europe/Bratislava")
+    zone = ZoneInfo("Europe/Bratislava")
+    first = datetime(2026, 10, 25, 2, 30, tzinfo=zone, fold=0)  # 02:30 CEST = 00:30Z
+    second = datetime(2026, 10, 25, 2, 30, tzinfo=zone, fold=1)  # 02:30 CET = 01:30Z
+    assert first.utcoffset() != second.utcoffset()  # two distinct instants
+    assert hour_bucket(first) != hour_bucket(second)
+
+
+def test_every_event_type_matches_the_schema(tmp_path: Path) -> None:
+    """`event.schema.json` lists exactly the emitted types; each emitted record validates."""
+    schema = load_schema("event.schema.json")
+    assert set(schema["properties"]["type"]["enum"]) == TYPES
+    bus = make_bus(tmp_path, cfg())
+    for event_type in sorted(TYPES):
+        record = bus.emit(Event(event_type, "work", None, {}))
+        assert record is not None
+        assert validate(record, "event.schema.json") == [], event_type
+    test = bus.emit(Event(TEST_TYPE, None, None, {}))
+    assert validate(test, "event.schema.json") == []
 
 
 def test_read_tail(tmp_path: Path) -> None:

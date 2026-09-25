@@ -14,7 +14,7 @@ import os
 from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, tzinfo
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -105,9 +105,13 @@ class Event:
         )
 
 
-def hour_bucket(now: datetime, tz: tzinfo | None = None) -> str:
-    """`YYYYmmddHH` in local time: error keys carry it so they notify ≤ once per hour."""
-    return now.astimezone(tz or local_tz()).strftime("%Y%m%d%H")
+def hour_bucket(now: datetime) -> str:
+    """`YYYYmmddHH` in UTC: error keys carry it so they notify ≤ once per hour.
+
+    UTC, not local time: the hour repeated at a DST fall-back would map two real hours to one
+    bucket (and a naive `now` is taken as local time by `astimezone`).
+    """
+    return now.astimezone(UTC).strftime("%Y%m%d%H")
 
 
 # ---------------------------------------------------------------- notification text

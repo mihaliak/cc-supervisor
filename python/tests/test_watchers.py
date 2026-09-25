@@ -89,6 +89,38 @@ def test_live_report_updates_merged_snapshot(env: Path) -> None:
     asyncio.run(scan_scenario())
 
 
+def test_live_report_turning_invalid_is_dropped(env: Path) -> None:
+    """An unreadable live file no longer feeds its last good report into the merge."""
+
+    async def scan_scenario() -> None:
+        daemon = make_daemon()
+        daemon.config = store.load()[0]
+        now = daemon.clock.now().replace(microsecond=0)
+        old = now - timedelta(minutes=2)
+        daemon.polled["work"] = UsageSnapshot(
+            profile_id="work",
+            status="ok",
+            fetched_at=old,
+            polled_at=old,
+            session=Window(40, now + timedelta(hours=2), old),
+        )
+        path = paths.live_file(wrapper_id="w1")
+        atomic_write_json(path, live(now, 77))
+        assert await daemon.live_watcher.scan_once() == {"work"}
+        assert daemon.snapshots["work"].session.percent == 77  # type: ignore[union-attr]
+        path.write_text('{"schema": 1, "profile_id": "work"}', encoding="utf-8")
+        assert await daemon.live_watcher.scan_once() == {"work"}
+        assert path.name not in daemon.live_reports
+        assert daemon.snapshots["work"].session.percent == 40  # type: ignore[union-attr]
+        # a later valid rewrite is picked up again
+        atomic_write_json(path, live(now, 81))
+        assert await daemon.live_watcher.scan_once() == {"work"}
+        assert daemon.snapshots["work"].session.percent == 81  # type: ignore[union-attr]
+
+    paths.ensure_state_layout()
+    asyncio.run(scan_scenario())
+
+
 def test_old_live_files_are_garbage_collected(env: Path) -> None:
     async def scan() -> None:
         daemon = make_daemon()

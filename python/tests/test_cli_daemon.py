@@ -199,3 +199,33 @@ def test_events_follow_via_daemon(env: Path) -> None:
         finally:
             proc.terminate()
             proc.wait(10)
+
+
+def test_follow_file_drops_a_stale_partial_on_rotation(
+    env: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A partial line read from the old file must not be glued onto the new file's first."""
+    from ccs.daemon import cli as daemon_cli
+
+    log_path = paths.events_file()
+    log_path.write_text(json.dumps({"type": "old", "n": 0}) + "\n", encoding="utf-8")
+
+    def torn() -> None:  # read mid-write: the rest lands in the file after rotation
+        with log_path.open("a", encoding="utf-8") as fh:
+            fh.write('{"type": "torn", "n')
+
+    def rotate() -> None:
+        os.replace(log_path, f"{log_path}.1")
+        log_path.write_text(json.dumps({"type": "new", "n": 2}) + "\n", encoding="utf-8")
+
+    steps = [torn, rotate]
+
+    def fake_sleep(_: float) -> None:
+        if not steps:
+            raise KeyboardInterrupt
+        steps.pop(0)()
+
+    monkeypatch.setattr(daemon_cli.time, "sleep", fake_sleep)
+    assert daemon_cli._follow_file(True) == 0
+    printed = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert printed == [{"type": "new", "n": 2}]

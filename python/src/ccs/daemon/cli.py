@@ -11,6 +11,7 @@ import sys
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from ccs import fsio, paths
@@ -330,23 +331,35 @@ def _print_event(event: dict[str, Any], as_json: bool) -> None:
         print(format_event(event), flush=True)
 
 
+def _log_state(path: Path) -> tuple[tuple[int, int] | None, int]:
+    """`((dev, inode), size)` of the event log, or `(None, 0)` while it doesn't exist."""
+    try:
+        st = path.stat()
+    except OSError:
+        return None, 0
+    return (st.st_dev, st.st_ino), st.st_size
+
+
 def _follow_file(as_json: bool) -> int:
     path = paths.events_file()
-    pos = path.stat().st_size if path.exists() else 0
+    ident, pos = _log_state(path)
     buf = ""
     try:
         while True:
-            try:
-                size = path.stat().st_size
-            except FileNotFoundError:
-                size = 0
-            if size < pos:
-                pos = 0  # rotated
+            current, size = _log_state(path)
+            if current != ident or size < pos:
+                # rotated (a new file) or truncated: read it from the start, and drop the
+                # partial line read from the old file, or it would swallow the first record
+                ident, pos, buf = current, 0, ""
             if size > pos:
-                with open(path, encoding="utf-8", errors="replace") as fh:
-                    fh.seek(pos)
-                    buf += fh.read()
-                    pos = fh.tell()
+                try:
+                    with open(path, encoding="utf-8", errors="replace") as fh:
+                        fh.seek(pos)
+                        buf += fh.read()
+                        pos = fh.tell()
+                except OSError:  # rotated between stat and open: next round
+                    time.sleep(1.0)
+                    continue
                 *lines, buf = buf.split("\n")
                 for line in lines:
                     try:

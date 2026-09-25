@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
@@ -15,6 +15,7 @@ from ccs import notify
 class FakeConn:
     client: str | None
     closed: bool = False
+    topics: set[str] = field(default_factory=lambda: {"events", "snapshot"})
 
 
 def record(notify_flag: bool = True, title: str = 'Work "x"', body: str = "a\\b") -> dict[str, Any]:
@@ -56,6 +57,13 @@ def test_not_posted_when_notify_false_or_no_title() -> None:
 def test_app_connected() -> None:
     assert notify.app_connected([FakeConn("launcher"), FakeConn("app")])
     assert not notify.app_connected([FakeConn("app", closed=True), FakeConn("cli")])
+
+
+def test_app_without_events_subscription_does_not_count() -> None:
+    """Only an app that listens for events can post them; otherwise the fallback does."""
+    assert not notify.app_connected([FakeConn("app", topics=set())])
+    assert not notify.app_connected([FakeConn("app", topics={"snapshot"})])
+    assert notify.app_connected([FakeConn("app", topics={"events"})])
 
 
 def test_applescript_string() -> None:

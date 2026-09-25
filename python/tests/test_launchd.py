@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import plistlib
+import stat
 from pathlib import Path
 
 import pytest
@@ -85,6 +86,27 @@ def test_install_writes_plist_and_bootstraps(ld: tuple[Launchd, FakeRunner]) -> 
         ["launchctl", "bootout", target()],
         ["launchctl", "bootstrap", f"gui/{os.getuid()}", str(launchd.plist)],
     ]
+
+
+def test_install_writes_plist_durably(
+    ld: tuple[Launchd, FakeRunner], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The plist is fsynced (file and directory) before the rename, so power loss can't
+    leave a truncated LaunchAgent."""
+    launchd, _ = ld
+    synced: list[int] = []
+    real_fsync = os.fsync
+
+    def spy(fd: int) -> None:
+        synced.append(fd)
+        real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", spy)
+    launchd.install(ccs_exec="/x/ccs", env={"PATH": "/p", "HOME": "/h"})
+    assert len(synced) >= 2  # the plist and its directory
+    assert stat.S_IMODE(launchd.plist.stat().st_mode) == 0o644
+    assert sorted(p.name for p in launchd.plist.parent.iterdir()) == [launchd.plist.name]
+    assert plistlib.loads(launchd.plist.read_bytes())["Label"] == LABEL
 
 
 class ShuttingDownRunner(FakeRunner):

@@ -26,6 +26,10 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 MAX_WAIT_S = 1.0  # loops re-evaluate at least this often (cheap; keeps them responsive)
+# An unexpected error in a poll loop is retried after these delays (the last one repeats), so a
+# persistent bug is logged at a sane rate instead of spinning.
+ERROR_BACKOFF_S = (1.0, 2.0, 5.0, 10.0, 30.0, 60.0)
+RESTART_DELAY_S = 5.0  # a loop task that died anyway is started again after this delay
 
 
 def max_percent(snapshot: UsageSnapshot | None) -> int | None:
@@ -55,10 +59,26 @@ def interval_for(
     return polling.interval_seconds
 
 
-@dataclass
+def _error_backoff(failures: int) -> float:
+    """Delay before retrying after `failures` consecutive loop errors (1-based)."""
+    return ERROR_BACKOFF_S[min(max(failures, 1), len(ERROR_BACKOFF_S)) - 1]
+
+
+@dataclass(eq=False)  # identity: two requests for the same time stay distinct
 class _Waiter:
     at: datetime | None
     future: asyncio.Future[UsageSnapshot | None]
+
+    def due(self, now: datetime) -> bool:
+        """Whether this request is due at `now` (an incomparable `at` counts as due)."""
+        try:
+            return self.at is None or self.at <= now
+        except TypeError:
+            return True
+
+    def resolve(self, snap: UsageSnapshot | None) -> None:
+        if not self.future.done():
+            self.future.set_result(snap)
 
 
 @dataclass
@@ -99,7 +119,7 @@ class Poller:
         for p in new.profiles:
             st = self._state(p.id)
             if st.task is None or st.task.done():
-                st.task = asyncio.ensure_future(self._loop(p.id))
+                self._start_loop(p.id, st)
             if old is not None and old_dirs.get(p.id) not in (None, p.config_dir):
                 self.request_poll(p.id)  # config dir changed: the old data is someone else's
 
@@ -110,8 +130,7 @@ class Poller:
         if st.task is not None:
             st.task.cancel()
         for w in st.waiters:
-            if not w.future.done():
-                w.future.set_result(None)
+            w.resolve(None)
 
     def stop_all(self) -> None:
         for pid in list(self._states):
@@ -120,7 +139,7 @@ class Poller:
     async def shutdown(self, timeout: float = 20.0) -> None:
         """Let in-flight probes finish (their children exit cleanly), then stop every loop."""
         self._stopping = True
-        tasks = [st.task for st in self._states.values() if st.task is not None]
+        tasks = [st.task for st in self._states.values() if st.task and not st.task.done()]
         for st in self._states.values():
             st.wake.set()
         if tasks:
@@ -161,38 +180,110 @@ class Poller:
             str(rec.get("activity") or "unknown") for rec in self.daemon.sessions_for(profile_id)
         ]
 
-    async def _loop(self, profile_id: str) -> None:
-        st = self._state(profile_id)
+    def _start_loop(self, profile_id: str, st: _ProfileState) -> None:
+        task = asyncio.ensure_future(self._loop(profile_id, st))
+        st.task = task
+        task.add_done_callback(lambda t: self._on_loop_done(profile_id, st, t))
+
+    def _on_loop_done(self, profile_id: str, st: _ProfileState, task: asyncio.Task[None]) -> None:
+        """A loop that died (not cancelled, not a normal return): log it, fail its waiters,
+        and start it again after `RESTART_DELAY_S` (only `BaseException`s get this far)."""
+        if task.cancelled() or task.exception() is None:
+            return
+        log.error(
+            "poll loop of %s died; restarting in %.0fs",
+            profile_id,
+            RESTART_DELAY_S,
+            exc_info=task.exception(),
+        )
+        waiters, st.waiters = st.waiters, []
+        for w in waiters:
+            w.resolve(None)
+        if not self._stopping:
+            task.get_loop().call_later(RESTART_DELAY_S, self._restart, profile_id, st)
+
+    def _restart(self, profile_id: str, st: _ProfileState) -> None:
+        if self._stopping or self._states.get(profile_id) is not st:
+            return
+        if st.task is not None and not st.task.done():
+            return  # `sync` already started a new one
+        if self.daemon.profile(profile_id) is not None:
+            self._start_loop(profile_id, st)
+
+    def _fail_due_waiters(self, st: _ProfileState) -> None:
+        """Resolve the requests that are due with `None` (a poll we can't promise now)."""
+        now = self.daemon.clock.now()
+        due = [w for w in st.waiters if w.due(now)]
+        st.waiters = [w for w in st.waiters if w not in due]
+        for w in due:
+            w.resolve(None)
+
+    async def _backoff(self, st: _ProfileState, delay: float) -> None:
+        """Sleep `delay` s; only shutdown ends it early (new requests wait for the retry)."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + delay
         while not self._stopping:
-            cfg = self.daemon.config
-            if cfg is None or cfg.profile(profile_id) is None:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
                 return
-            now = self.daemon.clock.now()
-            interval = interval_for(
-                cfg.polling, self.daemon.snapshots.get(profile_id), self._activities(profile_id)
-            )
-            due = now if st.last_poll_at is None else st.last_poll_at + timedelta(seconds=interval)
-            forced = [w.at or now for w in st.waiters]
-            next_at = min([due, *forced])
-            delay = (next_at - now).total_seconds()
-            if delay > 0:
-                st.wake.clear()
-                with contextlib.suppress(TimeoutError):
-                    await asyncio.wait_for(st.wake.wait(), min(delay, MAX_WAIT_S))
-                continue
-            batch = [w for w in st.waiters if w.at is None or w.at <= now]
-            st.waiters = [w for w in st.waiters if not (w.at is None or w.at <= now)]
+            st.wake.clear()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(st.wake.wait(), remaining)
+
+    async def _loop(self, profile_id: str, st: _ProfileState) -> None:
+        """Run `_step` until the profile is gone or the poller stops.
+
+        An unexpected error is logged, fails the due requests (they resolve `None`), and is
+        retried after a growing backoff, so one bug can't silently end polling.
+        """
+        failures = 0
+        while not self._stopping:
             try:
-                snap = await self.poll_once(profile_id)
+                if not await self._step(profile_id, st):
+                    return
+                failures = 0
             except asyncio.CancelledError:
                 raise
             except Exception:
-                log.exception("poll of %s failed", profile_id)
-                snap = None
-                st.last_poll_at = self.daemon.clock.now()
-            for w in batch:
-                if not w.future.done():
-                    w.future.set_result(snap)
+                failures += 1
+                delay = _error_backoff(failures)
+                log.exception("poll loop of %s failed; retrying in %.1fs", profile_id, delay)
+                with contextlib.suppress(Exception):
+                    self._fail_due_waiters(st)
+                await self._backoff(st, delay)
+
+    async def _step(self, profile_id: str, st: _ProfileState) -> bool:
+        """Wait (≤ `MAX_WAIT_S`) or poll once. False when the profile is gone."""
+        cfg = self.daemon.config
+        if cfg is None or cfg.profile(profile_id) is None:
+            return False
+        now = self.daemon.clock.now()
+        interval = interval_for(
+            cfg.polling, self.daemon.snapshots.get(profile_id), self._activities(profile_id)
+        )
+        due = now if st.last_poll_at is None else st.last_poll_at + timedelta(seconds=interval)
+        forced = [w.at or now for w in st.waiters]
+        next_at = min([due, *forced])
+        delay = (next_at - now).total_seconds()
+        if delay > 0:
+            st.wake.clear()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(st.wake.wait(), min(delay, MAX_WAIT_S))
+            return True
+        batch = [w for w in st.waiters if w.due(now)]
+        st.waiters = [w for w in st.waiters if w not in batch]
+        snap: UsageSnapshot | None = None
+        try:
+            snap = await self.poll_once(profile_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("poll of %s failed", profile_id)
+            st.last_poll_at = self.daemon.clock.now()
+        finally:
+            for w in batch:  # also on cancel: `_stop` no longer sees these
+                w.resolve(snap)
+        return True
 
     async def poll_once(self, profile_id: str) -> UsageSnapshot | None:
         """One probe: fetch → store → merge → write usage file (always) → events → hooks."""

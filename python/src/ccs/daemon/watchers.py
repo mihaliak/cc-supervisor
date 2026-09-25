@@ -57,6 +57,10 @@ class LiveWatcher:
             self._stats[name] = key
             report = parse_live_report(fsio.read_json(path))
             if report is None:
+                # unreadable now: its last good report must not keep feeding the merge
+                stale = daemon.live_reports.pop(name, None)
+                if stale is not None and stale.profile_id:
+                    affected.add(stale.profile_id)
                 continue
             old = daemon.live_reports.get(name)
             daemon.live_reports[name] = report

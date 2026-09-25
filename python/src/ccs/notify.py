@@ -2,8 +2,8 @@
 
 `EventBus.emit` has already computed `data.title`, `data.body` and `data.notify` (toggles,
 dedupe, hour buckets). This dispatcher computes nothing: for `notify == true` events it
-posts through `osascript` only when no connected client identified itself as `app`
-(the app posts natively, P10).
+posts through `osascript` only when no client that identified itself as `app` is subscribed
+to `events` (the app posts natively, P10).
 
 `CCS_OSASCRIPT` overrides the osascript binary (tests point it at `true`).
 """
@@ -30,6 +30,7 @@ Runner = Callable[[list[str]], Coroutine[Any, Any, int]]
 class _Client(Protocol):
     client: str | None
     closed: bool
+    topics: set[str]
 
 
 def applescript_string(text: str) -> str:
@@ -73,8 +74,9 @@ async def run_osascript(argv: list[str]) -> int:
 
 
 def app_connected(conns: Iterable[_Client]) -> bool:
-    """Whether a menu bar app is connected (it posts notifications itself)."""
-    return any(c.client == "app" and not c.closed for c in conns)
+    """Whether a menu bar app is connected **and subscribed to `events`**, so it posts
+    notifications itself. An app that hasn't subscribed never receives them."""
+    return any(c.client == "app" and not c.closed and "events" in c.topics for c in conns)
 
 
 class Dispatcher:

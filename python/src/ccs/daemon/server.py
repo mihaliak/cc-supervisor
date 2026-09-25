@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import signal
+import socket
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Iterable
@@ -28,6 +29,7 @@ from ccs.daemon import extensions as ext_mod
 from ccs.daemon.hooks import DaemonHooks, WrapperInfo
 from ccs.daemon.reaper import valid_pid
 from ccs.events import TEST_TYPE, Event, EventBus
+from ccs.notify import app_connected
 from ccs.snapshot import build_widget_snapshot, write_widget_snapshot
 from ccs.usage.merge import LiveReport, apply_staleness, merge
 from ccs.usage.model import UsageSnapshot, format_iso
@@ -46,7 +48,32 @@ ACTIVITIES = ("busy", "idle", "shell", "waiting", "unknown")
 
 
 class DaemonAlreadyRunning(Exception):
-    """Another daemon holds `daemon.lock`."""
+    """Another daemon holds `daemon.lock` (or still serves the socket)."""
+
+
+def socket_in_use(path: Path, timeout: float = 1.0) -> bool:
+    """Whether a process listens on the unix socket `path` (a running daemon).
+
+    Connect only, no request: the kernel accepts into the backlog even while the other
+    daemon's loop is busy (or is this very thread, in tests).
+    """
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.settimeout(timeout)
+    try:
+        sock.connect(str(path))
+    except (OSError, ValueError):
+        return False
+    finally:
+        sock.close()
+    return True
+
+
+def _file_id(path: Path) -> tuple[int, int] | None:
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return None
+    return (st.st_dev, st.st_ino)
 
 
 def new_session_record(
@@ -255,6 +282,7 @@ class Daemon:
         self._config_scan_s = config_scan_s
         self._reaper_s = reaper_s
         self._lock: fsio.FileLock | None = None
+        self._sock_id: tuple[int, int] | None = None  # (dev, inode) of the socket we bound
         self._server: asyncio.AbstractServer | None = None
         self._tasks: list[asyncio.Task[Any]] = []
         self._extra_tasks: list[Callable[[], Awaitable[Any]]] = []
@@ -442,7 +470,8 @@ class Daemon:
                 "started_at": format_iso(self.started_at),
                 "uptime_s": int((now - self.started_at).total_seconds()),
                 "responsive": True,
-                "app_connected": any(c.client == "app" and not c.closed for c in self.conns),
+                # the notification route: an app subscribed to events (as the fallback uses)
+                "app_connected": app_connected(self.conns),
             },
             "profiles": profiles,
         }
@@ -557,9 +586,12 @@ class Daemon:
         return reply
 
     async def _op_notify_test(self, conn: Conn, msg: dict[str, Any]) -> dict[str, Any]:
-        """Send one test notification (posted by the app, or the osascript fallback)."""
+        """Send one test notification (posted by the app, or the osascript fallback).
+
+        The route is the fallback's own rule: an app counts only when it listens for events.
+        """
+        app = app_connected(self.conns)
         record = self.emit(Event(TEST_TYPE, None, None, {}))
-        app = any(c.client == "app" and not c.closed for c in self.conns)
         via = "app" if app else "osascript"
         return {"ok": record is not None, "app_connected": app, "via": via}
 
@@ -795,12 +827,12 @@ class Daemon:
     async def start(self) -> None:
         paths.ensure_state_layout()
         if self._lock is None:
-            lock = fsio.try_lock(paths.daemon_lock())
+            lock = self._claim_lock()
             if lock is None:
                 raise DaemonAlreadyRunning(str(paths.daemon_lock()))
             self._lock = lock
         with contextlib.suppress(FileNotFoundError):
-            self.sock_path.unlink()
+            self.sock_path.unlink()  # a stale socket: `_claim_lock` found nobody listening
         self.started_at = self.clock.now()
         self.events.subscribe(self._on_event)
         cfg = self._load_config()
@@ -818,6 +850,7 @@ class Daemon:
             )
         finally:
             os.umask(old_umask)
+        self._sock_id = _file_id(self.sock_path)
         for install in self._extensions:
             try:
                 install(self)
@@ -829,6 +862,7 @@ class Daemon:
         self.emit(Event("daemon.started", None, None, {"pid": os.getpid(), "version": __version__}))
         self._spawn(self._snapshot_loop())
         self._spawn(self._tick_loop())
+        self._spawn(self._lock_watch_loop())
         self._spawn(self.live_watcher.loop(self._live_scan_s))
         self._spawn(self.config_watcher.loop(self._config_scan_s))
         if self._enable_sampler:
@@ -862,8 +896,10 @@ class Daemon:
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(self._server.wait_closed(), 2.0)
             self._server = None
-        with contextlib.suppress(FileNotFoundError):
-            self.sock_path.unlink()
+        if self._owns_socket():  # never unlink a newer daemon's socket that replaced ours
+            with contextlib.suppress(FileNotFoundError):
+                self.sock_path.unlink()
+        self._sock_id = None
         if self._lock is not None:
             self._lock.release()
             self._lock = None
@@ -871,6 +907,50 @@ class Daemon:
 
     def request_stop(self) -> None:
         self._stop.set()
+
+    # ------------------------------------------------------------ single instance
+
+    def _claim_lock(self) -> fsio.FileLock | None:
+        """`daemon.lock`, or `None` while another daemon runs.
+
+        A daemon that still listens on the socket counts as running even if its lock file
+        was deleted: the fresh file we could lock is not the one it holds.
+        """
+        lock = fsio.try_lock(paths.daemon_lock())
+        if lock is not None and socket_in_use(self.sock_path):
+            log.debug("%s was not held, but a daemon still serves %s", lock.path, self.sock_path)
+            lock.release()
+            return None
+        return lock
+
+    def _owns_socket(self) -> bool:
+        return self._sock_id is not None and _file_id(self.sock_path) == self._sock_id
+
+    def check_lock(self) -> None:
+        """Re-take `daemon.lock` when its file was deleted or replaced under us.
+
+        When another process holds the new file and has also replaced our socket, a newer
+        daemon took over: stop. While the socket is still ours, retry on the next check.
+        """
+        lock = self._lock
+        if lock is None or lock.is_current():
+            return
+        fresh = fsio.try_lock(lock.path)
+        if fresh is not None:
+            log.warning("%s was removed or replaced; locked it again", lock.path)
+            self._lock = fresh
+            lock.release()
+        elif not self._owns_socket():
+            log.error("another daemon took over %s and the socket; stopping", lock.path)
+            self.request_stop()
+
+    async def _lock_watch_loop(self) -> None:
+        while True:
+            await asyncio.sleep(self._tick_s)
+            try:
+                self.check_lock()
+            except Exception:
+                log.exception("daemon lock check failed")
 
     async def wait_for_lock(self, retry_s: float = LOCK_RETRY_S) -> bool:
         """Take `daemon.lock`, waiting while another daemon holds it (ADR-0022).
@@ -881,7 +961,7 @@ class Daemon:
         paths.ensure_state_layout()
         waiting = False
         while not self._stop.is_set():
-            lock = fsio.try_lock(paths.daemon_lock())
+            lock = self._claim_lock()
             if lock is not None:
                 self._lock = lock
                 if waiting:
