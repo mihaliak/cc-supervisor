@@ -209,6 +209,60 @@ def test_is_typing_ignores_terminal_reports() -> None:
         assert is_typing(typed) is True, typed
 
 
+def feed_reads(*chunks: bytes) -> tuple[list[str], float]:
+    """Each chunk as one stdin read of a proxy (no child); `(typing callbacks, last input at)`."""
+    r, w = os.pipe()
+    proxy = PtyProxy(["true"], {}, stdin_fd=r)
+    typed: list[str] = []
+    proxy.on_user_input = lambda: typed.append("typed")
+
+    async def body() -> None:
+        proxy._loop = asyncio.get_running_loop()
+        for chunk in chunks:
+            os.write(w, chunk)
+            proxy._on_stdin()
+        await asyncio.sleep(0.1)  # held bytes flush after INPUT_HOLD_S
+
+    try:
+        asyncio.run(body())
+    finally:
+        os.close(r)
+        os.close(w)
+    return typed, proxy.last_user_input_at
+
+
+@pytest.mark.parametrize(
+    "chunks",
+    [
+        (b"\x1b[<64;1", b"0;5M"),  # SGR mouse report cut by a read boundary
+        (b"\x1b[<0;3;4M\x1b[<0;3", b";4m"),
+        (b"\x1b[M", b" !!"),  # X10 mouse
+        (b"\x1b]11;rgb:ffff/ff", b"ff/ffff\x1b\\"),  # OSC color reply
+        (b"\x1b]11;rgb:ffff/ffff/ffff\x1b", b"\\"),  # … cut inside its ST
+        (b"\x1b[?62;2", b"2c"),  # device attributes reply
+        (b"\x1b[I",),  # focus
+    ],
+)
+def test_reports_split_across_reads_are_not_typing(chunks: tuple[bytes, ...]) -> None:
+    typed, last_input = feed_reads(*chunks)
+    assert typed == [] and last_input == 0.0  # the typing guard ignores them too
+
+
+@pytest.mark.parametrize(
+    "chunks",
+    [
+        (b"a",),
+        (b"\x1b",),  # a lone Esc key (flushed after the hold)
+        (b"\x1b[<64;1", b"0;5Mx"),  # a key after a split report
+        (b"\x1b[<6", b"zz"),  # never became a report
+        (b"\x1b]",),  # Alt+] alone: counted once the hold ends
+    ],
+)
+def test_keys_still_count_as_typing(chunks: tuple[bytes, ...]) -> None:
+    typed, last_input = feed_reads(*chunks)
+    assert typed == ["typed"] and last_input > 0
+
+
 # ---------------------------------------------------------------- 6. submit detection
 
 
@@ -450,6 +504,71 @@ def test_child_crash_resets_terminal_modes() -> None:
     assert code == 128 + signal.SIGKILL
     # kitty flags were pushed on the main screen: popped after leaving the alternate one
     assert bytes(tty.out).endswith(b"\x1b[?2004l\x1b[?25h\x1b[?1049l\x1b[<1u")
+
+
+def test_stuck_terminal_never_blocks_signals() -> None:
+    """A terminal that stops reading must not freeze the loop: SIGTERM still reaches claude,
+    and the TTY is restored without waiting for the terminal forever."""
+    child = [sys.executable, "-c", "import os\nb = b'x' * 65536\nwhile True: os.write(1, b)"]
+    tty = UserTty()  # its reader starts only when the watchdog below gives up
+    released: list[float] = []
+
+    def release() -> None:
+        released.append(time.monotonic())
+        tty.start()
+
+    watchdog = threading.Timer(8.0, release)
+    killer = threading.Timer(0.7, os.kill, (os.getpid(), signal.SIGTERM))
+    try:
+        attrs = termios.tcgetattr(tty.slave)
+        proxy = PtyProxy(child, dict(os.environ), stdin_fd=tty.slave, stdout_fd=tty.slave)
+        proxy.spawn()
+
+        async def main() -> int:
+            watchdog.start()
+            killer.start()
+            return await proxy.run()
+
+        started = time.monotonic()
+        code = asyncio.run(main())
+        took = time.monotonic() - started
+        now = termios.tcgetattr(tty.slave)
+        now[3] &= ~termios.PENDIN  # the kernel's own "retype pending input" marker
+        assert now == attrs  # restored even though nobody reads
+    finally:
+        killer.cancel()
+        watchdog.cancel()
+        tty.close()
+    assert code == 128 + signal.SIGTERM
+    assert not released, f"the proxy only finished once the terminal read again ({took:.1f} s)"
+    assert took < 5
+
+
+def test_slow_terminal_gets_all_output_in_order() -> None:
+    """Backpressure pauses claude's output while the terminal doesn't read; nothing is lost
+    or reordered once it reads again."""
+    child = [
+        sys.executable,
+        "-c",
+        "import os\nfor i in range(0, 200000, 1000):\n"
+        "    os.write(1, b''.join(b'%07d,' % j for j in range(i, i + 1000)))",
+    ]
+    tty = UserTty()
+    starter = threading.Timer(1.0, tty.start)
+    try:
+        proxy = PtyProxy(child, dict(os.environ), stdin_fd=tty.slave, stdout_fd=tty.slave)
+        proxy.spawn()
+
+        async def main() -> int:
+            starter.start()
+            return await asyncio.wait_for(proxy.run(), 30)
+
+        assert asyncio.run(main()) == 0
+    finally:
+        starter.cancel()
+        tty.close()
+    expected = b"".join(b"%07d," % j for j in range(200000))
+    assert bytes(tty.out).startswith(expected)
 
 
 def test_master_read_error_is_logged_not_raised(

@@ -8,7 +8,10 @@ Bytes pass through unchanged in both directions, except:
   fullscreen TUI repaints.
 - Daemon-requested injections (`write_to_child`).
 The user's TTY attrs (and the terminal modes, ADR-0022) are restored on every exit path. Raw
-mode is entered with `TCSANOW` and left with `TCSADRAIN`, so typeahead is never discarded.
+mode is entered with `TCSANOW` and left with `TCSADRAIN`, so typeahead is never discarded
+(`TCSANOW` when the terminal stopped reading, so exit never hangs on it).
+Terminal output goes through a non-blocking buffer (`OUT_HIGH`/`OUT_LOW`), so a terminal that
+stops reading pauses claude's output instead of the event loop (signals keep working).
 """
 
 from __future__ import annotations
@@ -50,7 +53,19 @@ _REPORTS = re.compile(
     rb"\x1b\[[IO]|\x1b\[<[0-9;]*[Mm]|\x1b\[M[\x20-\xff]{3}"
     rb"|\x1b\[[?>][0-9;:$]*[A-Za-z]|\x1b[\]P][^\x07\x1b]*(?:\x07|\x1b\\)"
 )
+# A report cut off by the end of a read (its rest comes with the next read).
+_PARTIAL_REPORT = re.compile(
+    rb"\x1b(?:\[(?:<[0-9;]*|M[\x20-\xff]{0,2}|[?>][0-9;:$]*)?|[\]P][^\x07\x1b]*\x1b?)?"
+)
+REPORT_HOLD_MAX = 4096  # a longer "report" is not one
 FORWARDED_SIGNALS = (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)
+# Output to the user's terminal is buffered, never written blocking from the event loop: above
+# OUT_HIGH buffered bytes the proxy stops reading claude's output (backpressure, like a slow
+# terminal), below OUT_LOW it reads again. Suspend and exit give up on the rest once the
+# terminal took nothing for OUT_DRAIN_S, so signals and the TTY restore always work.
+OUT_HIGH = 256 * 1024
+OUT_LOW = 64 * 1024
+OUT_DRAIN_S = 1.0
 
 
 def get_winsize(fd: int) -> tuple[int, int, int, int] | None:
@@ -87,6 +102,38 @@ def exit_code_from_status(status: int) -> int:
 def is_typing(data: bytes) -> bool:
     """True when user input holds more than terminal reports (focus, mouse, query replies)."""
     return bool(_REPORTS.sub(b"", data))
+
+
+def _partial_report_start(buf: bytes) -> int | None:
+    """Where a report cut off at the end of `buf` starts, if it ends in one."""
+    last = buf.rfind(b"\x1b")
+    if last < 0:
+        return None
+    # an OSC/DCS string cut inside its `ESC \\` terminator ends in a second ESC
+    for k in (buf.rfind(b"\x1b", 0, last), last):
+        if k >= 0 and len(buf) - k <= REPORT_HOLD_MAX and _PARTIAL_REPORT.fullmatch(buf, k):
+            return k
+    return None
+
+
+class TypingDetector:
+    """Whether input for the child holds real keystrokes, not only terminal reports (ADR-0022).
+
+    Stateful across reads: a report cut by a read boundary is kept in `held` until the next
+    read (or `final`), so neither half counts as typing.
+    """
+
+    def __init__(self) -> None:
+        self.held = b""
+
+    def feed(self, data: bytes, *, final: bool = False) -> bool:
+        buf = self.held + data
+        self.held = b""
+        if not final:
+            k = _partial_report_start(buf)
+            if k is not None:
+                buf, self.held = buf[:k], buf[k:]
+        return is_typing(buf)
 
 
 class InputFilter:
@@ -165,18 +212,25 @@ class InputFilter:
         return False
 
 
-def _write_all(fd: int, data: bytes) -> None:
-    """Blocking write of all of `data` (waits if the fd is non-blocking)."""
-    view = memoryview(data)
-    while view:
-        try:
-            n = os.write(fd, view)
-        except BlockingIOError:
-            select.select([], [fd], [], 1.0)
-            continue
-        except InterruptedError:
-            continue
-        view = view[n:]
+def _open_nonblocking_out(fd: int) -> int:
+    """A private non-blocking write fd for the terminal behind `fd`, or -1.
+
+    A new open file description of the same tty: `O_NONBLOCK` on the inherited one would also
+    hit stdin and the shell that shares it (and outlive a SIGKILL).
+    """
+    try:
+        return os.open(os.ttyname(fd), os.O_WRONLY | os.O_NONBLOCK | os.O_NOCTTY)
+    except OSError:
+        return -1
+
+
+def _output_queued(fd: int) -> int:
+    """Bytes the kernel still holds for the terminal (0 when unknown)."""
+    try:
+        raw = fcntl.ioctl(fd, termios.TIOCOUTQ, b"\0\0\0\0")
+    except (OSError, AttributeError):
+        return 0
+    return int(struct.unpack("i", raw)[0])
 
 
 class PtyProxy:
@@ -203,6 +257,7 @@ class PtyProxy:
         self.on_user_input: Callable[[], None] | None = None
         self.modes = TermModes()
         self._input = InputFilter()
+        self._typing = TypingDetector()
         self._hold_timer: asyncio.TimerHandle | None = None
         self._saved: list[Any] | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -212,6 +267,12 @@ class PtyProxy:
         self._stdin_on = False
         self._master_on = False
         self._stdout_dead = False
+        self._obuf = bytearray()  # output for the user's terminal, not yet written
+        self._out_fd = -1  # non-blocking fd for it (while running)
+        self._own_out = False  # `_out_fd` is our own description (closed at teardown)
+        self._shared_blocking: bool | None = None  # fallback: inherited fd's flag to restore
+        self._out_writer_on = False
+        self._master_paused = False  # reading the child stopped for backpressure
         self._kill_timer: asyncio.TimerHandle | None = None
         self._signals: list[int] = []
 
@@ -251,6 +312,7 @@ class PtyProxy:
         self._exit = loop.create_future()
         os.set_blocking(self.master, False)
         try:
+            self._open_out()
             if os.isatty(self.stdin_fd):
                 self._saved = termios.tcgetattr(self.stdin_fd)
                 tty.setraw(self.stdin_fd, termios.TCSANOW)  # keep typeahead
@@ -277,6 +339,7 @@ class PtyProxy:
 
     def _teardown(self) -> None:
         loop = self._loop
+        self._loop = None  # nothing may be scheduled from here on
         if loop is not None:
             for sig in self._signals:
                 with contextlib.suppress(Exception):
@@ -291,20 +354,27 @@ class PtyProxy:
             if self._writer_on:
                 loop.remove_writer(self.master)
                 self._writer_on = False
+            if self._out_writer_on:
+                loop.remove_writer(self._out_fd)
+                self._out_writer_on = False
         if self._kill_timer is not None:
             self._kill_timer.cancel()
         self._cancel_hold()
         self._to_stdout(self.modes.reset())  # e.g. claude crashed with kitty keys still on
-        self._restore_tty()
+        self._restore_tty(self._drain_stdout(OUT_DRAIN_S))
+        self._close_out()
         if self.master >= 0:
             with contextlib.suppress(OSError):
                 os.close(self.master)
             self.master = -1
 
-    def _restore_tty(self) -> None:
+    def _restore_tty(self, drained: bool = True) -> None:
+        """Back to the saved attrs: after the output drained, or at once if the terminal is
+        stuck (`TCSADRAIN` would wait for it forever)."""
         if self._saved is not None:
+            when = termios.TCSADRAIN if drained else termios.TCSANOW
             with contextlib.suppress(termios.error):
-                termios.tcsetattr(self.stdin_fd, termios.TCSADRAIN, self._saved)
+                termios.tcsetattr(self.stdin_fd, when, self._saved)
 
     # ---------------------------------------------------------------- IO callbacks
 
@@ -321,27 +391,28 @@ class PtyProxy:
             self._stdin_on = False
             self._flush_held()
             return
-        self.last_user_input_at = time.monotonic()
         self._cancel_hold()
         data, submit, suspend = self._input.feed(data)
         self._pass_input(data, submit)
-        if self._input.held and self._loop is not None:
+        if (self._input.held or self._typing.held) and self._loop is not None:
             self._hold_timer = self._loop.call_later(INPUT_HOLD_S, self._flush_held)
         if suspend:
             self._suspend()
 
-    def _pass_input(self, data: bytes, submit: bool) -> None:
-        if not data:
-            return
-        if self.on_user_input is not None and is_typing(data):
-            self.on_user_input()
+    def _pass_input(self, data: bytes, submit: bool, *, final: bool = False) -> None:
+        """Forward input; only real keystrokes (not terminal reports) count as typing."""
+        if (data or final) and self._typing.feed(data, final=final):
+            self.last_user_input_at = time.monotonic()  # the typing guard (ADR-0007)
+            if self.on_user_input is not None:
+                self.on_user_input()
         if submit and self.on_user_submit is not None:
             self.on_user_submit()
-        self.write_to_child(data)
+        if data:
+            self.write_to_child(data)
 
     def _flush_held(self) -> None:
         self._hold_timer = None
-        self._pass_input(self._input.flush(), False)
+        self._pass_input(self._input.flush(), False, final=True)
 
     def _cancel_hold(self) -> None:
         if self._hold_timer is not None:
@@ -369,13 +440,102 @@ class PtyProxy:
         self.modes.feed(data)
         self._to_stdout(data)
 
-    def _to_stdout(self, data: bytes) -> None:
-        if self._stdout_dead:
+    # ---------------------------------------------------------------- terminal output
+
+    def _open_out(self) -> None:
+        """Set up the non-blocking terminal output (own description, else the inherited fd)."""
+        fd = _open_nonblocking_out(self.stdout_fd)
+        if fd >= 0:
+            self._out_fd, self._own_out = fd, True
             return
+        self._out_fd, self._own_out = self.stdout_fd, False
+        with contextlib.suppress(OSError):
+            self._shared_blocking = os.get_blocking(self.stdout_fd)
+            os.set_blocking(self.stdout_fd, False)
+
+    def _share_blocking(self, restore: bool) -> None:
+        """Fallback mode only: the inherited fd's blocking flag back (suspend/exit) or off."""
+        if self._own_out or self._shared_blocking is None or self._out_fd < 0:
+            return
+        with contextlib.suppress(OSError):
+            os.set_blocking(self._out_fd, self._shared_blocking if restore else False)
+
+    def _close_out(self) -> None:
+        self._share_blocking(restore=True)
+        if self._own_out and self._out_fd >= 0:
+            with contextlib.suppress(OSError):
+                os.close(self._out_fd)
+        self._out_fd, self._own_out, self._shared_blocking = -1, False, None
+        self._obuf.clear()
+
+    def _to_stdout(self, data: bytes) -> None:
+        """Queue bytes for the user's terminal (in order) and write what it takes now."""
+        if self._stdout_dead or not data or self._out_fd < 0:
+            return
+        self._obuf += data
+        self._flush_stdout()
+
+    def _write_stdout(self) -> bool:
+        """One non-blocking write of the buffer; False when the terminal takes nothing now."""
         try:
-            _write_all(self.stdout_fd, data)
-        except OSError:
+            n = os.write(self._out_fd, self._obuf)
+        except (BlockingIOError, InterruptedError):
+            return False
+        except OSError:  # the terminal is gone
             self._stdout_dead = True
+            self._obuf.clear()
+            return False
+        del self._obuf[:n]
+        return n > 0
+
+    def _flush_stdout(self) -> None:
+        while self._obuf and self._write_stdout():
+            pass
+        loop = self._loop
+        if loop is None:
+            return
+        if self._obuf and not self._out_writer_on:
+            loop.add_writer(self._out_fd, self._flush_stdout)
+            self._out_writer_on = True
+        elif not self._obuf and self._out_writer_on:
+            loop.remove_writer(self._out_fd)
+            self._out_writer_on = False
+        if len(self._obuf) > OUT_HIGH and self._master_on:
+            loop.remove_reader(self.master)  # backpressure: claude waits for the terminal
+            self._master_on, self._master_paused = False, True
+        elif len(self._obuf) <= OUT_LOW and self._master_paused and self.master >= 0:
+            loop.add_reader(self.master, self._on_master)
+            self._master_on, self._master_paused = True, False
+
+    def _drain_stdout(self, stall_s: float) -> bool:
+        """Write the buffer synchronously; give up once the terminal took nothing for
+        `stall_s` (a slow terminal that keeps reading gets everything).
+
+        True once everything reached the terminal (the kernel's queue included).
+        """
+        deadline = time.monotonic() + stall_s
+        while self._obuf:
+            if self._write_stdout():
+                deadline = time.monotonic() + stall_s
+                continue
+            left = deadline - time.monotonic()
+            if not self._obuf or left <= 0:
+                break
+            with contextlib.suppress(OSError, ValueError):
+                select.select([], [self._out_fd], [], min(left, 0.05))
+        if self._obuf:
+            return False
+        tty_fd = self.stdin_fd if self._saved is not None else self.stdout_fd
+        queued = _output_queued(tty_fd)
+        while queued:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.005)
+            now_queued = _output_queued(tty_fd)
+            if now_queued < queued:
+                deadline = time.monotonic() + stall_s
+            queued = now_queued
+        return True
 
     def write_to_child(self, data: bytes) -> None:
         """Queue bytes for the child (user input and injections share one ordered buffer)."""
@@ -410,6 +570,10 @@ class PtyProxy:
             return
         deadline = time.monotonic() + budget_s
         while time.monotonic() < deadline:
+            if len(self._obuf) > OUT_HIGH:  # the terminal can't keep up: stop copying
+                self._drain_stdout(max(0.0, deadline - time.monotonic()))
+                if len(self._obuf) > OUT_HIGH:
+                    return
             try:
                 data = os.read(self.master, 65536)
             except BlockingIOError:
@@ -460,13 +624,15 @@ class PtyProxy:
         """Hand the terminal back to the shell (job stops); on `fg` re-raw and repaint."""
         loop = self._loop
         self._to_stdout(self.modes.reset())
-        self._restore_tty()
+        self._restore_tty(self._drain_stdout(OUT_DRAIN_S))
+        self._share_blocking(restore=True)  # the shell gets its terminal as it left it
         if loop is not None and signal.SIGTSTP in self._signals:
             with contextlib.suppress(Exception):
                 loop.remove_signal_handler(signal.SIGTSTP)
             self._signals.remove(signal.SIGTSTP)
         os.kill(os.getpid(), signal.SIGTSTP)  # default action: stop; returns after SIGCONT
         # resumed (`fg`)
+        self._share_blocking(restore=False)
         if self._saved is not None:
             with contextlib.suppress(termios.error):
                 tty.setraw(self.stdin_fd, termios.TCSANOW)

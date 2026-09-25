@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,7 @@ from daemon_helpers import (
 )
 
 from ccs import paths
+from ccs.config import store
 from ccs.daemon.server import Daemon
 from ccs.launcher.daemon_link import DaemonLink, Registration
 
@@ -208,3 +210,69 @@ def test_wrapper_event_reaches_hooks(env: Path) -> None:
     run_with_daemon(body, extensions=[install])
     assert events[0]["kind"] == "input_submitted_while_paused"
     assert events[0]["wrapper_id"] == "w-6"
+
+
+def test_refused_registration_is_retried(env: Path, tmp_path: Path) -> None:
+    """A refused `register_wrapper` (here: the profile isn't in the config yet) no longer ends
+    supervision: the link drops that connection and registers on a later attempt."""
+    late_dir = tmp_path / "profile-late"
+    late_dir.mkdir()
+
+    def add_profile(raw: dict[str, Any]) -> None:
+        raw["profiles"].append(
+            {
+                "id": "late",
+                "flag": "late",
+                "name": "Late",
+                "emoji": "L",
+                "config_dir": str(late_dir),
+            }
+        )
+
+    async def body(daemon: Daemon) -> None:
+        link = DaemonLink("late", "w-late", **FAST)
+        assert await link.connect()
+        registration = Registration(
+            wrapper_id="w-late",
+            profile_id="late",
+            wrapper_pid=111,
+            claude_pid=222,
+            cwd="/tmp",
+            started_overridden=False,
+        )
+        link.start(registration, no_cmd)
+        await wait_until(lambda: link.state == "retrying")
+        assert not link.registered
+        store.save(add_profile)
+        await wait_until(lambda: link.registered, timeout=5)
+        assert "w-late" in daemon.sessions and link.state == "connected"
+        await link.close(0)
+
+    run_with_daemon(body, config_scan_s=3600)
+
+
+def test_permanent_refusal_closes_the_connection(
+    env: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    async def body(daemon: Daemon) -> None:
+        link = DaemonLink("work", "w-bad", **FAST)
+        assert await link.connect()
+        bad = Registration(
+            wrapper_id="w-bad",
+            profile_id="work",
+            wrapper_pid=111,
+            claude_pid=0,  # not a pid: `bad_request`, the same request can never succeed
+            cwd="/tmp",
+            started_overridden=False,
+        )
+        link.start(bad, no_cmd)
+        await wait_until(lambda: link.state == "unsupervised")
+        assert link.client is None and not link.connected_event.is_set()
+        await wait_until(lambda: not any(c.client == "launcher" for c in daemon.conns))
+        await asyncio.sleep(0.3)  # no retries
+        assert not any(c.client == "launcher" for c in daemon.conns)
+        await link.close(0)
+
+    with caplog.at_level(logging.WARNING, logger="ccs.launcher.daemon_link"):
+        run_with_daemon(body)
+    assert "bad_request" in caplog.text and "unsupervised" in caplog.text

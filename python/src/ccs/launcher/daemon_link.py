@@ -8,6 +8,10 @@
   and are acked on the connection that delivered them.
 - On EOF: back off 0.5/1/2/4/8/10 s, then re-`hello` and re-`register_wrapper` with the
   same `wrapper_id`.
+- A refused `register_wrapper` drops that connection and retries with the same backoff (e.g. the
+  profile is back in the config later). Only `bad_request` is final: the same request can never
+  succeed, so the session runs unsupervised. Claude owns the terminal by then, so refusals are
+  reported in the launcher log only (ADR-0006).
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ log = logging.getLogger(__name__)
 
 BACKOFF_S = (0.5, 1.0, 2.0, 4.0, 8.0, 10.0)
 START_RETRIES_S = (0.5, 0.5, 0.5)
+FINAL_REFUSALS = frozenset({"bad_request"})  # retrying the same registration can't help
 
 CmdHandler = Callable[[dict[str, Any]], Awaitable[tuple[str, dict[str, Any]]]]
 SupervisionSink = Callable[[dict[str, Any]], None]
@@ -174,7 +179,8 @@ class DaemonLink:
         self._worker = asyncio.ensure_future(self._cmd_worker())
         self._task = asyncio.ensure_future(self._maintain())
 
-    async def _register(self, client: AsyncDaemonClient, first: bool) -> bool:
+    async def _register(self, client: AsyncDaemonClient, first: bool) -> str | None:
+        """None once registered, else the daemon's error code."""
         assert self._reg is not None
         reg = self._reg
         reply = await client.request(
@@ -187,35 +193,37 @@ class DaemonLink:
             started_overridden=reg.started_overridden and first,
         )
         if not reply.get("ok"):
-            log.warning("register_wrapper refused: %s", reply.get("error"))
-            return False
+            return str(reply.get("error") or "refused")
         self.registered = True
         if self._on_supervision is not None:
             with contextlib.suppress(Exception):
                 self._on_supervision(reply)
-        return True
+        return None
+
+    def _backoff(self, attempt: int) -> float:
+        return self.backoff_s[min(attempt, len(self.backoff_s) - 1)]
 
     async def _maintain(self) -> None:
         first = True
-        attempt = 0
+        attempt = 0  # consecutive failed attempts (connect or register)
         while not self._closing:
             client = self.client
             if client is None:
                 client = await self._open()
                 if client is None:
-                    await asyncio.sleep(self.backoff_s[min(attempt, len(self.backoff_s) - 1)])
+                    await asyncio.sleep(self._backoff(attempt))
                     attempt += 1
                     continue
                 self.client = client
                 self.state = "connected"
                 self.connected_event.set()
-            attempt = 0
+            refused: str | None = None
             try:
-                if not await self._register(client, first):
-                    self.state = "unsupervised"
-                    return
-                first = False
-                await self._pump(client)
+                refused = await self._register(client, first)
+                if refused is None:
+                    attempt = 0
+                    first = False
+                    await self._pump(client)
             except DaemonUnavailable:
                 pass
             self.registered = False
@@ -225,9 +233,16 @@ class DaemonLink:
             await client.close()
             if self._closing:
                 return
+            if refused in FINAL_REFUSALS:
+                log.warning("register_wrapper refused (%s): running unsupervised", refused)
+                self.state = "unsupervised"
+                return
+            delay = self._backoff(attempt)
+            if refused is not None:
+                log.warning("register_wrapper refused (%s): retrying in %.1f s", refused, delay)
             self.state = "retrying"
-            await asyncio.sleep(self.backoff_s[0])
-            attempt = 1
+            await asyncio.sleep(delay)
+            attempt += 1
 
     async def _pump(self, client: AsyncDaemonClient) -> None:
         while True:
