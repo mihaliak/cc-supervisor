@@ -15,10 +15,10 @@ Binding project principles. Every plan and implementation must comply. If a deci
 | [0006](0006-process-model.md) | Process model: launchd daemon + PTY launcher | accepted, partly superseded by 0022 |
 | [0007](0007-pause-resume.md) | Pause/resume via PTY keystroke injection | accepted, partly superseded by 0022 |
 | [0008](0008-limit-policy.md) | Limit policy & default thresholds | accepted, partly superseded by 0022 |
-| [0009](0009-display-conventions.md) | Display conventions: colors, times, statusline format | accepted |
+| [0009](0009-display-conventions.md) | Display conventions: colors, times, statusline format | accepted, partly superseded by 0018 |
 | [0010](0010-warmup.md) | Warm-up sessions | accepted, partly superseded by 0022 |
-| [0011](0011-macos-app.md) | macOS app: menu bar agent, macOS 26, local builds, XcodeGen | accepted, partly superseded by 0022 |
-| [0012](0012-widget-data-path.md) | Widget data path & signing | accepted |
+| [0011](0011-macos-app.md) | macOS app: menu bar agent, macOS 26, local builds, XcodeGen | accepted, partly superseded by 0018 and 0022 |
+| [0012](0012-widget-data-path.md) | Widget data path & signing | accepted, partly superseded by 0019 |
 | [0013](0013-python-engineering.md) | Python engineering standards | accepted |
 | [0014](0014-docs-and-workflow.md) | Docs, plans, and git workflow | accepted |
 | [0015](0015-notifications.md) | Notifications | accepted |

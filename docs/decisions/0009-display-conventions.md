@@ -1,6 +1,6 @@
 # ADR-0009: Display conventions: colors, times, statusline format
 
-- Status: accepted
+- Status: accepted; partly superseded by [ADR-0018](0018-menu-bar-label.md)
 - Date: 2026-09-24
 - Source: user decisions (colors, emoji icons, statusline layout "Spec + limits on warn") + planner defaults (time formats)
 
@@ -13,6 +13,7 @@
 
 ### Icons
 - Emoji only, per profile (`profile.emoji`), used identically in the widget, the menu bar, and the statusline.
+  - Menu bar: superseded by [ADR-0018](0018-menu-bar-label.md). The menu bar label shows the profile's letter; the emoji stays in the widgets, the dropdown cards and the statusline.
 
 ### Times (24h, local time zone)
 - **Absolute reset:**

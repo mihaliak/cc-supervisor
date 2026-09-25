@@ -15,7 +15,7 @@ Several readers have different constraints:
 
 ### State dir: `~/.local/state/ccs/` (`$XDG_STATE_HOME/ccs/`)
 ```
-daemon.sock                  unix socket, mode 0600
+daemon.sock                  unix socket, mode 0700 (owner-only)
 daemon.lock                  flock, single daemon instance
 logs/daemon.log              rotating (5 MB x 3)
 usage/<profile_id>.json      UsageSnapshot (normalized, merged)

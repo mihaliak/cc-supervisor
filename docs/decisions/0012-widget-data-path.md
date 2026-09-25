@@ -1,6 +1,6 @@
 # ADR-0012: Widget data path & signing
 
-- Status: accepted (primary path verified as far as possible headless by P00-S1 on 2026-09-24; see Verification)
+- Status: accepted (primary path verified as far as possible headless by P00-S1 on 2026-09-24; see Verification); partly superseded by [ADR-0019](0019-widget-profile-parameter.md)
 - Date: 2026-09-24
 - Source: user decision ("spike ad-hoc first") + planner design
 

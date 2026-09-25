@@ -1,6 +1,6 @@
 # ADR-0011: macOS app: menu bar agent, macOS 26, local builds, XcodeGen
 
-- Status: accepted; partly superseded by [ADR-0022](0022-review-hardening.md)
+- Status: accepted; partly superseded by [ADR-0018](0018-menu-bar-label.md) and [ADR-0022](0022-review-hardening.md)
 - Date: 2026-09-24
 - Source: user decisions (menu bar presence, personal use, built locally, no stores) + planner defaults (XcodeGen, Swift 6)
 
