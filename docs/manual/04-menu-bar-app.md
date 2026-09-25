@@ -9,7 +9,7 @@ Set in Settings → General (`display.menu_bar`):
 
 | Mode | Looks like |
 |------|------------|
-| Letter + session/weekly % (default) | `P 2% ● - 63% ●   W 24% ● - 99% ●`: per profile, the first letter of its name, then session % and a dot, a dash, weekly % and a dot. Only the dots are colored green/yellow/red (gray = no data); `?%` means no data yet (e.g. sign-in required). |
+| Letter + session/weekly % (default) | `P 2% ● 63% ●   W 24% ● 99% ●`: per profile, the first letter of its name, then session % and a dot, then weekly % and a dot. Only the dots are colored green/yellow/red (gray = no data); `?%` means no data yet (e.g. sign-in required). |
 | Icon only | a single gauge icon tinted by the worst level across all profiles |
 
 The label uses a smaller font than the rest of the menu bar. It is drawn as an image so the dot colors survive; the letters and numbers follow the menu bar's light or dark appearance. Configs that still say `emoji_percent` show this letter label.
@@ -67,15 +67,19 @@ The app forwards two [warm-up](08-warm-up.md) triggers to the supervisor, which 
 Both need the supervisor to be running; when it isn't, the trigger is skipped.
 
 ## Settings window
+Standard macOS settings tabs in the toolbar; the window reopens on the tab you used last.
+
 | Tab | Contents |
 |-----|----------|
-| General | **ccs**: path (`ccs_path`, **Browse…**, empty = `~/.local/bin/ccs`) and version. **Menu bar**: label mode. **Notifications**: one toggle per kind ([Notifications](09-notifications.md)) and a shortcut to System Settings › Notifications. **Login item**: Launch at login, with its status. **Daemon**: status (running, pid, uptime) with **Install / Start / Stop / Restart / Show logs**. **Diagnostics**: **Run diagnostics** (`ccs doctor`) lists each check with a fix hint. **Display**: the color thresholds and time format (read-only). |
-| Profiles | Profile list (sign-in dot, ⚠ for invalid settings, **+** / **−**) plus the editor: identity, account, limits, supervisor, statusline, warm-up ([Profiles & sign-in](02-profiles-and-sign-in.md)) |
+| General | **Launch CC Supervisor at login**; **Menu bar** label mode; **Display**: color thresholds and time format (read-only) |
+| Profiles | Profile list (sign-in dot, ⚠ for invalid settings, **+** / **−** below it). The selected profile shows a header (emoji, name, `ccs --flag`, sign-in state) and four pages: **General** (name, emoji, launcher flag, config dir, default profile, Claude account sign-in/out), **Limits** (supervisor on/off, resume prompt, warn/pause grid, Fable warn-only, Spill into credits), **Warm-up** (model, prompt, triggers, active hours, cooldown, schedule, next/last run), **Statusline** (preview, apply/revert). See [Profiles & sign-in](02-profiles-and-sign-in.md). |
+| Notifications | One toggle per kind ([Notifications](09-notifications.md)) and a shortcut to System Settings › Notifications |
+| Advanced | **ccs** path (`ccs_path`, **Browse…**, empty = `~/.local/bin/ccs`) and version; **Daemon** status with **Install / Start / Stop / Restart** and **Show Logs…**; **Diagnostics**: **Run Diagnostics** (`ccs doctor`), problems first, passing checks collapsed |
 
 Changes are saved about half a second after you stop typing and are then checked with `ccs config validate`. Invalid values are marked in red and a banner appears; they stay in the file until you fix them, and the supervisor keeps using the last valid config meanwhile. Settings that change elsewhere while the window is open show up within about 2 seconds; if you and another program changed the same setting, the app asks which to keep.
 
 ## Launch at login
-Settings → General → **Launch at login**. It stays off until you turn it on (or run `make install`, which turns it on). Keep it on: without the app running, notifications fall back to plain script notifications, and app-start and unlock/wake warm-ups don't happen.
+Settings → General → **Launch CC Supervisor at login**. It stays off until you turn it on (or run `make install`, which turns it on). Keep it on: without the app running, notifications fall back to plain script notifications, and app-start and unlock/wake warm-ups don't happen.
 
 For scripts: `"CC Supervisor.app/Contents/MacOS/CC Supervisor" --register-login-item` (or `--unregister-login-item`) sets it and exits.
 

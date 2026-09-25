@@ -33,7 +33,7 @@ Each notification has a title and a body (shown here as *title* — *body*).
 - Overrides (typing into a paused session) are only logged (`limit.override` in `ccs events`), never notified.
 
 ## Turning them on or off
-Settings → General → Notifications, or in the config:
+Settings → Notifications, or in the config:
 ```json
 "notifications": {
   "limit_warn": true, "limit_pause": true, "limit_resume": true,

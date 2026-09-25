@@ -22,7 +22,7 @@ Manage it with `ccs daemon …` ([ccs CLI](05-ccs-cli.md)). Its log is `~/.local
 Claude Code already stops at 100% and continues by itself after the reset. The supervisor stops **earlier**, so some capacity stays free for quick manual work, and so running agents don't drain the window to zero.
 
 ## Limits and defaults
-All thresholds are per profile and editable (Settings → Profiles → Limits, with steppers from 1 to 100 %, or `ccs profile set`). The **Fable warn-only** and **Spill into credits** toggles are in the same section. A warn value that isn't below its pause value is saved but marked invalid, and the supervisor keeps the previous valid limits until you fix it.
+All thresholds are per profile and editable (Settings → Profiles → *profile* → Limits, a Warn/Pause grid from 1 to 100 %, or `ccs profile set`). The **Fable warn-only** and **Spill into credits** toggles are in the same section. A warn value that isn't below its pause value is saved but marked invalid, and the supervisor keeps the previous valid limits until you fix it.
 
 | Limit | Warn | Pause | What gets paused | Resumes when |
 |-------|------|-------|------------------|--------------|
@@ -59,7 +59,7 @@ A limit counts as reached when the percent is **at or above** the threshold.
 - **At reset**, sessions that were interrupted mid-work get the profile's **resume prompt** typed in and submitted:
   > The usage limit window has reset. Continue exactly where you left off.
 
-  Change it in Settings → Profiles → Supervisor, or with `ccs profile set <id> supervisor.resume_prompt="…"`.
+  Change it in Settings → Profiles → *profile* → Limits → Supervisor, or with `ccs profile set <id> supervisor.resume_prompt="…"`.
 - Sessions that were idle when paused get no prompt. They are just un-paused.
 - The resume prompt is typed only once Claude is idle. If Claude is still working 30 s after the reset, the prompt is skipped.
 - The supervisor never types while you're typing. It waits until you've stopped typing for 1.5 s (at most 30 s).
@@ -151,6 +151,6 @@ ccs resume --session 3f9c1a2e
 - The menu bar has the same actions under **Pause / Resume profile**.
 
 ## Turning supervision off
-Settings → Profiles → Supervisor → off (`supervisor.enabled`).
+Settings → Profiles → *profile* → Limits → **Pause `ccs` sessions at the limits** off (`supervisor.enabled`).
 - Usage display, warnings (statusline and notifications), and warm-ups keep working.
 - Nothing is paused. Pauses that are active when you switch it off are lifted right away (interrupted sessions get the resume prompt), and `ccs pause` is refused for that profile.

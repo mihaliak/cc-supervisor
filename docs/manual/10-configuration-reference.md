@@ -12,8 +12,8 @@ Ways to edit it:
 ### Editable in the app vs. CLI only
 | Where | Keys |
 |-------|------|
-| Settings → General | `ccs_path`, `display.menu_bar`, `notifications.*` |
-| Settings → Profiles | `default_profile` (**Make default**), every profile key except `id`: `flag`, `name`, `emoji`, `config_dir`, `limits.*`, `supervisor.*`, `statusline.enabled`, `warmup.*` (cooldown 1–120 min in the app) |
+| Settings → General / Notifications / Advanced | `display.menu_bar` / `notifications.*` / `ccs_path` |
+| Settings → Profiles | `default_profile` (**Default profile** toggle), every profile key except `id`: `flag`, `name`, `emoji`, `config_dir`, `limits.*`, `supervisor.*`, `statusline.enabled`, `warmup.*` (cooldown 1–120 min in the app) |
 | CLI or by hand only | `display.colors.*`, `display.time_format` (only `24h`), `claude_path`, `polling.*`, cooldowns outside 1–120 min. `id` can't be changed at all; `version` and `revision` are managed by the tools. |
 
 The app and `ccs` write the file byte for byte the same way, bump `revision` on every write, and merge concurrent changes to different keys (the app asks when both changed the same key).

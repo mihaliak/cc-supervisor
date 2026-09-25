@@ -84,7 +84,7 @@ If the profile's statusline is enabled (the default), every `ccs --<profile>` se
 
 ### For plain `claude` too: apply
 To also see it when you run `claude` directly with that config dir (for example `CLAUDE_CONFIG_DIR=~/.claude-work claude`), apply it:
-- **App:** Settings → Profiles → *profile* → Statusline → **Apply to settings.json**. The section also shows a colored preview of every state, whether it's applied, the script path, and whether the script is up to date.
+- **App:** Settings → Profiles → *profile* → Statusline → **Apply**. The section also shows a colored preview of every state, whether it's applied, the script path, and whether the script is up to date.
 - **Terminal:** `ccs statusline apply --profile work`
 
 What `apply` does:

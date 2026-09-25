@@ -10,6 +10,14 @@ enum LoginItemController {
         SMAppService.mainApp.status == .enabled
     }
 
+    /// True when macOS needs something from the user (approval, or the app is not where it's registered).
+    static var needsAttention: Bool {
+        switch SMAppService.mainApp.status {
+        case .requiresApproval, .notFound: true
+        default: false
+        }
+    }
+
     static var statusDescription: String {
         switch SMAppService.mainApp.status {
         case .enabled: "enabled"

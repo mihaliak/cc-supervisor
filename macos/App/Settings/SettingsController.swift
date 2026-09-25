@@ -20,9 +20,29 @@ struct WarmupInfo: Equatable, Sendable {
     var lastReason: String?
 }
 
-enum SettingsTab: Hashable {
+/// Settings panes, in toolbar order (ADR-0020).
+enum SettingsTab: String, Hashable, CaseIterable {
     case general
     case profiles
+    case notifications
+    case advanced
+}
+
+/// Pages of the profile editor (segmented control, ADR-0020).
+enum ProfilePage: String, Hashable, CaseIterable {
+    case general
+    case limits
+    case warmup
+    case statusline
+
+    var title: String {
+        switch self {
+        case .general: "General"
+        case .limits: "Limits"
+        case .warmup: "Warm-up"
+        case .statusline: "Statusline"
+        }
+    }
 }
 
 /// State and actions behind the Settings window (P11). Config edits go through
@@ -33,7 +53,11 @@ final class SettingsController {
     let app: AppModel
     let store: ConfigStore
 
-    var selectedTab: SettingsTab = .general
+    /// The visible pane; restored on the next open (HIG: reopen the last viewed pane).
+    var selectedTab: SettingsTab = SettingsController.restoredTab() {
+        didSet { UserDefaults.standard.set(selectedTab.rawValue, forKey: Self.tabKey) }
+    }
+    var profilePage: ProfilePage = .general
 
     // General
     private(set) var ccsVersion: String?
@@ -71,6 +95,12 @@ final class SettingsController {
     /// The client for the current `ccs_path` (it can change while Settings is open).
     private var ccs: CcsClient {
         CcsClient(executablePath: app.config.ccsPath)
+    }
+
+    private static let tabKey = "settings.selectedTab"
+
+    private static func restoredTab() -> SettingsTab {
+        UserDefaults.standard.string(forKey: tabKey).flatMap(SettingsTab.init(rawValue:)) ?? .general
     }
 
     // MARK: - Window lifecycle

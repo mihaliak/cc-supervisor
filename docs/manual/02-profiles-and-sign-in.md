@@ -68,7 +68,7 @@ ccs profile remove client
 - For the default `~/.claude`, `ccs` doesn't set `CLAUDE_CONFIG_DIR` at all, so Claude Code keeps using `~/.claude.json` for its global state, just like plain `claude`.
 
 ## Signing in (via claude.ai)
-- **App:** Settings → Profiles → *profile* → Account → **Sign in…** (**Sign in again…** when already signed in), or click a widget that says *Sign in required*. While it waits for the browser, **Cancel** stops it.
+- **App:** Settings → Profiles → *profile* → General → **Sign In…** (**Sign In Again…** when already signed in), or click a widget that says *Sign in required*. While it waits for the browser, **Cancel** stops it.
 - **Terminal:** `ccs auth login --profile work`
 
 What happens:
@@ -104,7 +104,7 @@ The app shows the same status per profile. When a profile's login expires or is 
 - warm-ups for that profile are skipped
 
 ## Signing out
-- **App:** Settings → Profiles → *profile* → Account → **Sign out…** (the app asks you to confirm).
+- **App:** Settings → Profiles → *profile* → General → **Sign Out…** (the app asks you to confirm).
 - **Terminal:** `ccs auth logout --profile work`, which asks `Log out 💼 Work (~/.claude-work)? [y/N]`.
 
 This signs that config dir out of Claude Code itself, so plain `claude` with that dir is signed out too.

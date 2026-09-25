@@ -111,24 +111,23 @@ struct IssueText: View {
     }
 }
 
-/// A 1–100 % threshold with a stepper.
-struct PercentStepper: View {
+/// A compact 1–100 % field with a stepper (for grids; no label shown).
+struct PercentField: View {
     let title: String
     @Binding var value: Int
     var range: ClosedRange<Int> = 1...100
 
     var body: some View {
-        LabeledContent(title) {
-            HStack(spacing: 6) {
-                TextField(title, value: $value, format: .number)
-                    .labelsHidden()
-                    .multilineTextAlignment(.trailing)
-                    .frame(width: 48)
-                Text("%").foregroundStyle(.secondary)
-                Stepper(title, value: $value, in: range)
-                    .labelsHidden()
-            }
+        HStack(spacing: 4) {
+            TextField(title, value: $value, format: .number)
+                .labelsHidden()
+                .multilineTextAlignment(.trailing)
+                .frame(width: 40)
+            Text("%").foregroundStyle(.secondary)
+            Stepper(title, value: $value, in: range)
+                .labelsHidden()
         }
+        .accessibilityLabel(title)
     }
 }
 

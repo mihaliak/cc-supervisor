@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// The Settings window (P11): General and Profiles tabs over `config.json` and `ccs`.
+/// The Settings window (ADR-0020): a root `TabView`, so macOS shows standard toolbar
+/// tabs and titles the window after the selected pane.
 struct SettingsView: View {
     @Environment(AppModel.self) private var app
     @Environment(SettingsController.self) private var settings
@@ -8,20 +9,20 @@ struct SettingsView: View {
     var body: some View {
         @Bindable var settings = settings
         let store = settings.store
-        VStack(spacing: 0) {
-            SettingsBanners()
-                .padding(.horizontal, 12)
-                .padding(.top, 8)
-            TabView(selection: $settings.selectedTab) {
-                Tab("General", systemImage: "gearshape", value: SettingsTab.general) {
-                    GeneralSettingsView()
-                }
-                Tab("Profiles", systemImage: "person.2", value: SettingsTab.profiles) {
-                    ProfilesSplitView()
-                }
+        TabView(selection: $settings.selectedTab) {
+            Tab("General", systemImage: "gearshape", value: SettingsTab.general) {
+                SettingsPane(width: 520, height: 320) { GeneralSettingsView() }
+            }
+            Tab("Profiles", systemImage: "person.2", value: SettingsTab.profiles) {
+                SettingsPane(width: 800, height: 580) { ProfilesSettingsView() }
+            }
+            Tab("Notifications", systemImage: "bell.badge", value: SettingsTab.notifications) {
+                SettingsPane(width: 520, height: 330) { NotificationsSettingsView() }
+            }
+            Tab("Advanced", systemImage: "gearshape.2", value: SettingsTab.advanced) {
+                SettingsPane(width: 620, height: 560) { AdvancedSettingsView() }
             }
         }
-        .frame(width: 820, height: 660)
         .onAppear { settings.windowAppeared() }
         .onDisappear { settings.windowDisappeared() }
         .onChange(of: app.settingsRequest) { _, _ in settings.handleSettingsRequest() }
@@ -41,37 +42,60 @@ struct SettingsView: View {
     }
 }
 
+/// One pane: config banners (only when there is something to say) above the content,
+/// at a fixed size per pane (settings windows aren't user-resizable).
+struct SettingsPane<Content: View>: View {
+    let width: CGFloat
+    let height: CGFloat
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ConfigBanners()
+            content
+        }
+        .frame(width: width, height: height)
+    }
+}
+
 /// Config file state: missing, unreadable, invalid, save errors.
-private struct SettingsBanners: View {
+private struct ConfigBanners: View {
     @Environment(SettingsController.self) private var settings
 
     var body: some View {
         let store = settings.store
-        VStack(spacing: 6) {
-            if !store.fileExists {
-                HStack {
-                    SettingsBanner(
-                        text: "No config yet at \(store.fileURL.path).",
-                        systemImage: "doc.badge.plus",
-                        tint: .orange
-                    )
-                    Button("Create config") { settings.createConfig() }
-                        .disabled(settings.isBusy("create-config"))
+        let hasAny = !store.fileExists || store.loadError != nil || store.saveError != nil
+            || store.isInvalid || (store.validationProblem != nil && store.fileExists)
+            || settings.message("general") != nil
+        if hasAny {
+            VStack(spacing: 6) {
+                if !store.fileExists {
+                    HStack {
+                        SettingsBanner(
+                            text: "No config yet at \(store.fileURL.path).",
+                            systemImage: "doc.badge.plus",
+                            tint: .orange
+                        )
+                        Button("Create config") { settings.createConfig() }
+                            .disabled(settings.isBusy("create-config"))
+                    }
                 }
+                if let error = store.loadError {
+                    SettingsBanner(text: error)
+                }
+                if let error = store.saveError {
+                    SettingsBanner(text: error)
+                }
+                if store.isInvalid {
+                    SettingsBanner(text: invalidText(store))
+                }
+                if let problem = store.validationProblem, store.fileExists {
+                    SettingsBanner(text: "Couldn't validate the config: \(problem)", systemImage: "questionmark.circle", tint: .orange)
+                }
+                MessageLine(message: settings.message("general"))
             }
-            if let error = store.loadError {
-                SettingsBanner(text: error)
-            }
-            if let error = store.saveError {
-                SettingsBanner(text: error)
-            }
-            if store.isInvalid {
-                SettingsBanner(text: invalidText(store))
-            }
-            if let problem = store.validationProblem, store.fileExists {
-                SettingsBanner(text: "Couldn't validate the config: \(problem)", systemImage: "questionmark.circle", tint: .orange)
-            }
-            MessageLine(message: settings.message("general"))
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
         }
     }
 

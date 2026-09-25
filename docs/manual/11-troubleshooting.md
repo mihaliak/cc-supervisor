@@ -9,7 +9,7 @@ ccs doctor
 It runs every check below in parallel (about a second), prints `✓` / `!` / `✗` per check grouped by global and per profile, and a `fix:` line under every warning or failure. It exits 1 when any check failed.
 - **Read-only:** it never creates the config, never writes state, and never changes a `settings.json`. It runs `claude --version`, `claude --help`, and `claude auth status` per profile.
 - Each check has a deadline: a hung `claude` or socket shows up as a failed check ("timed out"), never as a hang.
-- `ccs doctor --json` prints `{"checks":[{"id","scope","status","message","fix"}],"summary":{"ok","warn","fail"}}` for scripts. Settings › General › **Run diagnostics** shows the same list.
+- `ccs doctor --json` prints `{"checks":[{"id","scope","status","message","fix"}],"summary":{"ok","warn","fail"}}` for scripts. Settings › Advanced › **Run Diagnostics** shows the same list.
 
 ### Global checks
 | Check | ✗ / ! means | Fix |
@@ -82,7 +82,7 @@ ccs daemon install       # (re)install: rewrites the LaunchAgent with your curre
 | "updated … ago" in the menu header is orange | The supervisor hasn't written data for over 5 minutes | `ccs daemon status`; restart with `ccs daemon restart` |
 | Unlock/app-start warm-ups never happen | The app isn't running, or the supervisor was offline when the event happened (the app only forwards triggers while connected) | Start the app; enable Settings → General → Launch at login; check `ccs daemon status` |
 | Notifications come from "Script Editor" | The app isn't running, so the fallback is used | Start the app |
-| No notifications at all | Permission denied or toggles off | System Settings → Notifications → CC Supervisor; Settings → General → Notifications |
+| No notifications at all | Permission denied or toggles off | System Settings → Notifications → CC Supervisor; Settings → Notifications |
 | `ccs --myflag` runs the default profile or errors | Flag unknown, reserved, or not in front of the Claude arguments | `ccs profile list`; put the profile flag first |
 | `ccs: supervisor not installed — running unsupervised` | The LaunchAgent isn't installed | `ccs daemon install`. The session still works, but it can't be paused. |
 | `ccs: supervisor not responding — running unsupervised` | Installed, but it didn't answer after being started | `ccs daemon status`, `ccs daemon logs`. The session registers by itself once the supervisor answers. |
