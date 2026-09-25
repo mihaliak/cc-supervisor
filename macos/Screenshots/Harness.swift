@@ -58,6 +58,10 @@ struct Shots {
             settingsPane(model, settings, tab: .notifications, width: 520, height: 360) { NotificationsSettingsView() }
         }
         // No Advanced pane: its diagnostics show absolute paths of the demo environment.
+        shot("settings-about") {
+            NSApp.applicationIconImage = icon  // the harness is no app bundle; run.sh embeds the version
+            return settingsPane(model, settings, tab: .about, width: 660, height: 600) { AboutSettingsView() }
+        }
         terminals()
     }
 

@@ -188,6 +188,10 @@ Starting a session while its profile is paused asks first. Answering `y` starts 
 
 **Notifications:** a switch for each type, plus a test notification.
 
+<img src="docs/assets/screenshots/settings-about.png" width="732" alt="About pane with every feature">
+
+**About:** the app and `ccs` versions, with a short description of every feature.
+
 ### Command line
 <img src="docs/assets/screenshots/terminal-status.png" width="734" alt="ccs status">
 

@@ -19,9 +19,15 @@ mkdir -p "$WORK" "$OUT"
 echo "==> harness"
 app_sources=()
 while IFS= read -r f; do app_sources+=("$f"); done < <(cd "$ROOT/macos" && find App Shared -name '*.swift' ! -name CCSupervisorApp.swift | sort)
+# Embedded Info.plist: the About pane shows the app's real version (project.yml).
+version="$(sed -n 's/^ *MARKETING_VERSION: *"\(.*\)"/\1/p' "$ROOT/macos/project.yml" | head -1)"
+plutil -create xml1 "$WORK/Info.plist"
+plutil -insert CFBundleShortVersionString -string "${version:-0}" "$WORK/Info.plist"
+plutil -insert CFBundleName -string "CC Supervisor" "$WORK/Info.plist"
 (
     cd "$ROOT/macos"
     swiftc -parse-as-library -swift-version 6 -D SCREENSHOTS -O \
+        -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker "$WORK/Info.plist" \
         -target arm64-apple-macos26.0 -module-name CCSupervisorScreenshots \
         "${app_sources[@]}" \
         Widgets/Views/Components.swift Widgets/Views/FamilyViews.swift Widgets/Timeline/UsageEntry.swift \
