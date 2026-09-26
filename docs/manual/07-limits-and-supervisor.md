@@ -53,14 +53,23 @@ A limit counts as reached when the percent is **at or above** the threshold.
 ## What "pause" does in a `ccs` session
 - **Busy session** (Claude is working, running a tool, or waiting on a permission prompt): the supervisor sends **Esc**, the same as pressing it yourself. Claude stops the current turn. The TUI stays open.
   - It checks again 2 s later and sends one more Esc if Claude is still working, unless you submitted something in the meantime (that's an override, see below).
+  - **Subagents and workflows are stopped too.** Esc alone never stops them, and a session counts as busy while any of them runs, even when the main turn is idle. If the session is still busy after the first Esc, the supervisor:
+    - presses **ctrl+x ctrl+k** twice, which stops all background agents
+    - stops each still-running workflow from the prompt footer (↓, `x`, Backspace)
+    - sends a last Esc for the short turn Claude starts when it's told the agents were stopped
+
+    This takes about 8–20 s. The footer step is skipped when you might have a draft in the prompt (you typed after your last submit), and it stops as soon as you type.
   - If it can't tell whether Claude is busy, it sends the Esc anyway. Such a session gets no resume prompt later, because it may have been idle.
 - **Idle session**: nothing is typed. It's only marked paused.
-- Only Esc and the resume prompt are ever typed for you. Never slash commands.
+- Only Esc, the stop keys above, and the resume prompt are ever typed for you. Never slash commands.
 - The statusline shows **⏸ … paused → resumes HH:MM**. The widget and menu bar show **⏸ Paused**.
 - **At reset**, sessions that were interrupted mid-work get the profile's **resume prompt** typed in and submitted:
   > The usage limit window has reset. Continue exactly where you left off.
 
   Change it in Settings → Profiles → *profile* → Limits → Supervisor, or with `ccs profile set <id> supervisor.resume_prompt="…"`.
+
+  If the pause stopped subagents or workflows, a note is appended so Claude starts them again. Otherwise it would take "stopped by the user" at face value:
+  > Background agents or workflows stopped at the pause were stopped by the usage pause, not by the user: start again any that had not finished.
 - Sessions that were idle when paused get no prompt. They are just un-paused.
 - If you typed anything in the session while it was paused, even without submitting, no prompt is typed, so it can't mix with your draft. Switching windows, clicking, or scrolling doesn't count as typing. This holds even if the session only learned of the pause after reconnecting: typing since the pause began counts.
 - The resume prompt is typed only once Claude is idle. If Claude is still working 30 s after the reset, the prompt is skipped.
@@ -107,7 +116,7 @@ If extra usage is enabled on your account, Claude continues on credits after the
 - The credit warning and pause each fire once per cap. They re-arm only after the credit percent drops below the warn threshold (for example after the monthly reset) or the cap changes, never just because a calendar month started.
 
 ## What is NOT paused
-- **Background agents** (`claude --bg`, the agent view).
+- **Background sessions** (`claude --bg`, the agent view). Subagents and workflows *inside* a `ccs` session are stopped with it (see above).
 - **Plain `claude` sessions** not started with `ccs`.
 
 They're counted and shown as "other sessions" in the menu bar, the large widget, and `ccs sessions`, but never interrupted.

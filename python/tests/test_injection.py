@@ -17,7 +17,11 @@ FAST = Timings(
     submit_delay_s=0.0,
     typing_gap_s=0.0,
     typing_max_s=1.0,
+    esc_gap_s=0.0,
+    key_gap_s=0.0,
+    sweep_settle_s=0.0,
 )
+STOP_AGENTS = list(inject.STOP_AGENTS)
 
 
 class IO:
@@ -90,12 +94,84 @@ def test_pause_unknown_counts_as_busy_single_esc() -> None:
     assert detail["interrupted"] is False
 
 
-def test_pause_still_busy_retries_once() -> None:
+def test_pause_still_busy_retries_esc_and_stops_background_agents() -> None:
+    io, reports = IO(), Reports()
+    h = CommandHandler(io, Script("busy", "busy", "idle"), reports, timings=FAST)
+    _result, detail = run(h, {"cmd_id": "c1", "type": "pause"})
+    # ADR-0023: busy after the ESC = background agents (ESC never stops them) or a lost ESC
+    assert io.written == [inject.ESC, inject.ESC, *STOP_AGENTS]
+    assert detail["interrupted"] is True and h.stopped_background is True
+    assert [d["what"] for _, d in reports.items] == ["esc", "esc", "stop_agents"]
+
+
+def test_pause_stops_workflows_row_by_row_until_idle() -> None:
+    io, reports = IO(), Reports()
+    # busy → ESC → busy → ESC + chord → busy (a workflow) → row 1 → busy → row 2 → idle
+    lookup = Script("busy", "busy", "busy", "busy", "idle")
+    h = CommandHandler(io, lookup, reports, timings=FAST)
+    _result, detail = run(h, {"cmd_id": "c1", "type": "pause"})
+    assert io.written == [
+        inject.ESC,
+        inject.ESC,
+        *STOP_AGENTS,
+        *inject.stop_row(1),
+        *inject.stop_row(2),
+    ]
+    assert inject.stop_row(2) == (inject.DOWN, inject.DOWN, inject.STOP_ROW, inject.BACKSPACE)
+    assert detail["interrupted"] is True
+    whats = [d["what"] for _, d in reports.items]
+    assert whats == ["esc", "esc", "stop_agents", "stop_workflow", "stop_workflow"]
+
+
+def test_pause_sweep_is_bounded_then_esc_for_the_notice_turn() -> None:
+    io = IO()
+    timings = Timings(**{**FAST.__dict__, "sweep_rows": 2, "sweep_passes": 2})
+    h = CommandHandler(io, Script("busy"), timings=timings)
+    _result, detail = run(h, {"cmd_id": "c1", "type": "pause"})
+    rows = [*inject.stop_row(1), *inject.stop_row(2)] * 2
+    assert io.written == [inject.ESC, inject.ESC, *STOP_AGENTS, *rows, inject.ESC]
+    assert detail["interrupted"] is False and detail["status"] == "busy"
+
+
+def test_pause_never_sweeps_the_footer_over_a_draft() -> None:
+    io = IO()
+    h = CommandHandler(io, Script("busy", "busy", "busy", "idle"), timings=FAST)
+    h.on_user_input()  # typed after the last submit: the prompt may hold a draft
+    run(h, {"cmd_id": "c1", "type": "pause"})
+    assert io.written == [inject.ESC, inject.ESC, *STOP_AGENTS, inject.ESC]
+
+
+def test_pause_sweep_stops_when_the_user_types() -> None:
+    io = IO()
+    h = CommandHandler(io, Script("idle"), timings=FAST)
+    statuses = ["busy", "busy", "busy", "busy"]
+
+    async def lookup() -> SessionInfo:
+        if len(statuses) == 1:
+            h.on_user_input()  # the user starts typing during the sweep
+        return SessionInfo("sid-1", statuses.pop(0) if len(statuses) > 1 else statuses[0])
+
+    h.lookup = lookup
+    run(h, {"cmd_id": "c1", "type": "pause"})
+    assert io.written == [inject.ESC, inject.ESC, *STOP_AGENTS, *inject.stop_row(1)]
+
+
+def test_resume_after_stopping_background_work_adds_the_restart_note() -> None:
     io = IO()
     h = CommandHandler(io, Script("busy", "busy", "idle"), timings=FAST)
-    _result, detail = run(h, {"cmd_id": "c1", "type": "pause"})
-    assert io.written == [inject.ESC, inject.ESC]
-    assert detail["interrupted"] is True
+
+    async def body() -> tuple[list[bytes], list[bytes]]:
+        await h.handle({"cmd_id": "c1", "type": "pause", "pause_id": "p1"})
+        await h.handle({"cmd_id": "r1", "type": "resume", "prompt": "Continue."})
+        first, io.written = io.written, []
+        h.lookup = Script("busy", "idle")  # a later pause stops no background work
+        await h.handle({"cmd_id": "c2", "type": "pause", "pause_id": "p2"})
+        await h.handle({"cmd_id": "r2", "type": "resume", "prompt": "Continue."})
+        return first, io.written
+
+    first, second = asyncio.run(body())
+    assert inject.paste(f"Continue. {inject.RESTART_NOTE}") in first
+    assert second == [inject.ESC, inject.paste("Continue."), inject.SUBMIT]
 
 
 def test_resume_with_prompt_pastes_and_submits() -> None:

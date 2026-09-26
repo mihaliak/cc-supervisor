@@ -1,6 +1,6 @@
 # ADR-0007: Pause/resume via PTY keystroke injection
 
-- Status: accepted (verified by P00-S3 on 2026-09-24; see Verification); partly superseded by [ADR-0022](0022-review-hardening.md)
+- Status: accepted (verified by P00-S3 on 2026-09-24; see Verification); partly superseded by [ADR-0022](0022-review-hardening.md) and [ADR-0023](0023-pause-stops-background-work.md)
 - Date: 2026-09-24
 - Source: user decisions (pause mechanism, pause scope, paused-input behavior)
 

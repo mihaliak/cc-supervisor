@@ -9,6 +9,11 @@ ADR-0022: a pause on `unknown` status still injects ESC but acks `was_busy: None
 prompt on a guess); no ESC once the user submitted during the pause; no resume prompt when the
 user typed anything since the pause (it would merge with a draft).
 
+ADR-0023: a session still busy after the ESC has background agents or workflows running (ESC
+never stops them). The launcher stops the agents with the kill chord and the workflows through
+the prompt footer, then interrupts the turn their "stopped" notices start. The resume prompt of
+such a pause gets a note to start them again.
+
 Pauses carry a `pause_id`. The daemon resends a pause whose ack it never got when the launcher
 re-registers: a pause already carried out answers with its first ack (no second ESC), and a
 pause first learned from the `register_wrapper` reply keeps the typing and submits made since
@@ -47,6 +52,11 @@ class Timings:
     submit_delay_s: float = 0.05
     typing_gap_s: float = 1.5
     typing_max_s: float = 30.0
+    esc_gap_s: float = 0.5  # after an ESC that more keys follow
+    key_gap_s: float = 0.15  # between keys of a multi-key injection (chords, footer moves)
+    sweep_settle_s: float = 1.0  # after stopping one footer row, before the status check
+    sweep_rows: int = 4  # footer rows tried per pass
+    sweep_passes: int = 2  # a stopped row shifts the next one up: sweep again
 
 
 async def _no_report(kind: str, detail: dict[str, Any]) -> bool:
@@ -83,6 +93,7 @@ class CommandHandler:
         self._done: tuple[str, Ack] | None = None  # the last pause carried out, and its ack
         self._typed_at: float | None = None  # wall-clock time of the last typing / submit
         self._submitted_at: float | None = None
+        self.stopped_background = False  # this pause stopped background agents / workflows
         self._tasks: set[asyncio.Task[None]] = set()
 
     # ---------------------------------------------------------------- supervision state
@@ -119,6 +130,7 @@ class CommandHandler:
         self.submitted = False
         self.typed = False
         self.override_reported = False
+        self.stopped_background = False
 
     def _missed_pause(self, pause_id: str | None, paused_at: Any) -> None:
         """A pause that began before this launcher heard of it (same wall clock as the daemon).
@@ -219,27 +231,67 @@ class CommandHandler:
             return "skipped", {"was_busy": False, "session_id": info.session_id}
         # `unknown` still gets an ESC, but only a known-busy session earns a resume prompt
         was_busy = True if is_known_busy(info.status) else None
+        draft = self._draft_likely()  # before our own keys; the ESC may restore a prompt
         await self._guard()
         if self.submitted:
             return self._overridden(info.session_id)
-        self.io.write_to_child(inject.ESC)
-        await self.report("injected", {"cmd_id": cmd_id, "what": "esc"})
+        await self._inject(cmd_id, "esc", inject.ESC)
         await asyncio.sleep(self.t.esc_verify_s)
         after = await self.lookup()
         if is_known_busy(after.status):
             if self.submitted:  # the user's own turn is running now: leave it alone
                 return self._overridden(after.session_id or info.session_id)
-            # still working: one more ESC (a lone ESC can be read as an escape-sequence prefix)
-            self.io.write_to_child(inject.ESC)
-            await self.report("injected", {"cmd_id": cmd_id, "what": "esc"})
+            # still working: the ESC was lost (a lone ESC can be read as an escape-sequence
+            # prefix), or background agents / workflows keep the session busy (ADR-0023)
+            await self._inject(cmd_id, "esc", inject.ESC)
+            await asyncio.sleep(self.t.esc_gap_s)  # never read as ESC-prefixed (Alt) keys
+            await self._guard()  # a key typed mid-chord breaks it (ctrl+k alone kills a line)
+            await self._inject(cmd_id, "stop_agents", *inject.STOP_AGENTS)
+            self.stopped_background = True
             await asyncio.sleep(self.t.esc_verify_s)
             after = await self.lookup()
+            if after.status == "busy" and not draft:
+                after = await self._stop_workflows(cmd_id, after)
+            if after.status == "busy" and not (self.submitted or self.typed):
+                # the "stopped" notices start a turn of their own
+                await self._inject(cmd_id, "esc", inject.ESC)
+                await asyncio.sleep(self.t.esc_verify_s)
+                after = await self.lookup()
         return "injected", {
             "was_busy": was_busy,
             "interrupted": after.status == "idle",
             "status": after.status,
             "session_id": after.session_id or info.session_id,
         }
+
+    async def _inject(self, cmd_id: Any, what: str, *keys: bytes) -> None:
+        """Write `keys` one by one (`key_gap_s` apart) and log it as one `wrapper_event`."""
+        for i, key in enumerate(keys):
+            if i:
+                await asyncio.sleep(self.t.key_gap_s)
+            self.io.write_to_child(key)
+        await self.report("injected", {"cmd_id": cmd_id, "what": what})
+
+    def _draft_likely(self) -> bool:
+        """The user typed after their last submit: the prompt may hold a draft."""
+        if self._typed_at is None:
+            return False
+        return self._submitted_at is None or self._typed_at > self._submitted_at
+
+    async def _stop_workflows(self, cmd_id: Any, info: SessionInfo) -> SessionInfo:
+        """ADR-0023: stop running workflows row by row through the prompt footer.
+
+        The row order is not known, so each pass tries rows 1..`sweep_rows` until the session
+        is no longer busy. Stops as soon as the user types: the keys must never mix with input.
+        """
+        for _ in range(self.t.sweep_passes):
+            for depth in range(1, self.t.sweep_rows + 1):
+                if info.status != "busy" or self.typed or self.submitted:
+                    return info
+                await self._inject(cmd_id, "stop_workflow", *inject.stop_row(depth))
+                await asyncio.sleep(self.t.sweep_settle_s)
+                info = await self.lookup()
+        return info
 
     def _overridden(self, session_id: str | None) -> tuple[str, dict[str, Any]]:
         return "skipped", {"reason": "overridden", "session_id": session_id}
@@ -261,6 +313,8 @@ class CommandHandler:
         await self._guard()
         if self.typed:  # typed while we waited for idle: never merge with a draft
             return "skipped", {"reason": "user_input"}
+        if self.stopped_background:
+            prompt = f"{prompt} {inject.RESTART_NOTE}"
         self.io.write_to_child(inject.paste(prompt))
         await asyncio.sleep(self.t.submit_delay_s)
         self.io.write_to_child(inject.SUBMIT)

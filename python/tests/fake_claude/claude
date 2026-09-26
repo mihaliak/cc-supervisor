@@ -39,7 +39,9 @@ Behavior is driven by a JSON scenario file (env FAKE_CLAUDE_SCENARIO) keyed by m
                  Raw mode on its tty; every read chunk is logged as {"recv": <hex>} to
                  $FAKE_CLAUDE_TUI_LOG (default "$FAKE_CLAUDE_LOG.tui"), SIGWINCH as {"winsize": [r, c]}.
                  Ctrl-D (0x04) or "/exit\r" exits with "exit". A lone ESC sets the activity to
-                 "after_esc", a submit (\r) to "after_submit" (if set). "stop_on": "\u001a" makes it
+                 "after_esc", a submit (\r) to "after_submit" (if set). The stop-agents chord
+                 (^X^K^X^K) sets it to "after_stop_agents", a footer stop (Down then "x") to
+                 "after_stop_row" (each if set). "stop_on": "\u001a" makes it
                  SIGTSTP itself when that byte arrives. The activity is published in
                  $FAKE_CLAUDE_STATE_DIR/<pid>.json (default "$FAKE_CLAUDE_LOG.state/") for
                  `agents` with {"from_state": true}.
@@ -468,6 +470,12 @@ def run_interactive(spec: dict[str, Any], argv: list[str]) -> int:
                 publish_status(status)
             elif b"\r" in chunk and spec.get("after_submit"):
                 status = str(spec["after_submit"])
+                publish_status(status)
+            elif buf.endswith(b"\x18\x0b\x18\x0b") and spec.get("after_stop_agents"):
+                status = str(spec["after_stop_agents"])
+                publish_status(status)
+            elif buf.endswith(b"\x1b[Bx") and spec.get("after_stop_row"):
+                status = str(spec["after_stop_row"])
                 publish_status(status)
             if isinstance(stop_on, str) and stop_on.encode() in chunk:
                 os.kill(os.getpid(), signal.SIGTSTP)

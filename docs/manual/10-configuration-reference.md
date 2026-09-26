@@ -95,7 +95,7 @@ Thresholds in percent ([Limits & supervisor](07-limits-and-supervisor.md)).
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `supervisor.enabled` | bool | `true` | Supervise this profile's `ccs` sessions (pause and resume). `false`: warnings and warm-ups still work; active pauses are lifted and `ccs pause` is refused |
-| `supervisor.resume_prompt` | string | `"The usage limit window has reset. Continue exactly where you left off."` | Typed into sessions that were interrupted mid-work (busy when paused), when they resume. Idle or overridden sessions get nothing |
+| `supervisor.resume_prompt` | string | `"The usage limit window has reset. Continue exactly where you left off."` | Typed into sessions that were interrupted mid-work (busy when paused), when they resume. Idle or overridden sessions get nothing. If the pause stopped subagents or workflows, a note asking Claude to start them again is appended |
 
 ### `statusline`
 | Key | Type | Default | Description |

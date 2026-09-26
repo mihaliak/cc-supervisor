@@ -190,6 +190,38 @@ def test_pause_resume_override_end_to_end(setup: Setup) -> None:
     assert kinds.count("injected") >= 2
 
 
+def test_pause_stops_background_agents_and_workflows_end_to_end(setup: Setup) -> None:
+    """ADR-0023: busy after the ESC → the stop-agents chord, then the footer sweep."""
+    env, log = setup(
+        {**TUI_BUSY, "after_esc": "busy", "after_stop_agents": "busy", "after_stop_row": "idle"}
+    )
+    with ThreadedDaemon() as td:
+        t = Term(["--work"], env)
+        try:
+            t.wait_output(b"FAKE-TUI ready")
+            t.wait_for(lambda: len(wrappers(td)) == 1)
+            wid = wrappers(td)[0]
+
+            ack = run_cmd(
+                td, lambda d: d.send_cmd(wid, "pause", {"holds": ["session"]}, timeout=40), 45
+            )
+            assert ack["result"] == "injected", ack
+            assert ack["detail"]["was_busy"] is True and ack["detail"]["interrupted"] is True
+            got = received(log)
+            assert b"".join(inject.STOP_AGENTS) in got
+            assert b"".join(inject.stop_row(1)) in got
+
+            ack = run_cmd(td, lambda d: d.send_cmd(wid, "resume", {"prompt": "Go."}, timeout=25))
+            assert ack["result"] == "injected", ack
+            note = inject.paste(f"Go. {inject.RESTART_NOTE}")
+            t.wait_for(lambda: note in received(log))
+
+            t.send(b"\x04")
+            assert t.wait() == 0
+        finally:
+            t.close()
+
+
 def held(hold: dict[str, Any], seen: list[bool]) -> Callable[[Daemon], None]:
     def install(daemon: Daemon) -> None:
         resume = hold.get("resets_at")

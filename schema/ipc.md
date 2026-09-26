@@ -92,7 +92,7 @@ Removes the record and emits `session.ended` (`reason: "exited"`).
 ```
 
 ### `wrapper_event` (launcher)
-`kind`: `input_submitted_while_paused` | `injected` | `inject_failed`. Logged and forwarded to hooks. P06: `input_submitted_while_paused` turns a paused session into `overridden` (a `limit.override` event, never notified).
+`kind`: `input_submitted_while_paused` | `injected` | `inject_failed`. `injected` carries `what`: `esc` | `stop_agents` | `stop_workflow` | `resume_prompt` (ADR-0023). Logged and forwarded to hooks. P06: `input_submitted_while_paused` turns a paused session into `overridden` (a `limit.override` event, never notified).
 ```json
 → {"proto":1,"id":8,"op":"wrapper_event","wrapper_id":"9f…","kind":"injected","detail":{"cmd_id":"…","what":"esc"}}
 ← {"proto":1,"id":8,"ok":true}

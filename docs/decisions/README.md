@@ -13,7 +13,7 @@ Binding project principles. Every plan and implementation must comply. If a deci
 | [0004](0004-config-and-profiles.md) | Config file & profile model | accepted, partly superseded by 0022 |
 | [0005](0005-state-and-ipc.md) | State directory, file formats, daemon IPC | accepted |
 | [0006](0006-process-model.md) | Process model: launchd daemon + PTY launcher | accepted, partly superseded by 0022 |
-| [0007](0007-pause-resume.md) | Pause/resume via PTY keystroke injection | accepted, partly superseded by 0022 |
+| [0007](0007-pause-resume.md) | Pause/resume via PTY keystroke injection | accepted, partly superseded by 0022 and 0023 |
 | [0008](0008-limit-policy.md) | Limit policy & default thresholds | accepted, partly superseded by 0022 |
 | [0009](0009-display-conventions.md) | Display conventions: colors, times, statusline format | accepted, partly superseded by 0018 |
 | [0010](0010-warmup.md) | Warm-up sessions | accepted, partly superseded by 0022 |
@@ -29,6 +29,7 @@ Binding project principles. Every plan and implementation must comply. If a deci
 | [0020](0020-settings-window.md) | Settings window layout | accepted |
 | [0021](0021-app-icon.md) | App icon: orange usage gauge | accepted |
 | [0022](0022-review-hardening.md) | Review hardening | accepted |
+| [0023](0023-pause-stops-background-work.md) | Pause stops background agents and workflows | accepted |
 
 ## Template
 
