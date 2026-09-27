@@ -36,6 +36,7 @@ TOGGLES: dict[str, str] = {
     "limit.warn": "limit_warn",
     "limit.pause": "limit_pause",
     "limit.resume": "limit_resume",
+    "limit.resume_skipped": "limit_resume",
     "warmup.succeeded": "warmup",
     "warmup.failed": "warmup",
     "auth.required": "errors",
@@ -52,6 +53,7 @@ TYPES = frozenset(
         "limit.warn",
         "limit.pause",
         "limit.resume",
+        "limit.resume_skipped",
         "limit.override",
         "warmup.started",
         "warmup.skipped",
@@ -236,6 +238,24 @@ def _limit_resume(profile: Profile | None, data: dict[str, Any], now: datetime) 
     return f"{_prefix(profile)} resumed", body
 
 
+_RESUME_SKIPPED = {
+    "user_input": "you typed in it while it was paused. Continue it yourself.",
+    "busy": "Claude was still busy after the reset.",
+}
+
+
+def _limit_resume_skipped(
+    profile: Profile | None, data: dict[str, Any], now: datetime
+) -> tuple[str, str]:
+    cwd = data.get("cwd")
+    where = os.path.basename(cwd.rstrip("/")) if isinstance(cwd, str) else ""
+    reason = data.get("reason")
+    text = _RESUME_SKIPPED.get(str(reason))
+    if text is None:
+        text = f"the prompt could not be typed ({reason}). Continue it yourself."
+    return f"{_prefix(profile)}: resume prompt not sent", f"{where or 'A session'}: {text}"
+
+
 _WARMUP_REASONS = {
     "timeout": "claude did not answer within the timeout",
     "window_not_started": "the session window did not start",
@@ -275,6 +295,7 @@ register_text("config.invalid", _config_invalid)
 register_text("limit.warn", _limit_warn)
 register_text("limit.pause", _limit_pause)
 register_text("limit.resume", _limit_resume)
+register_text("limit.resume_skipped", _limit_resume_skipped)
 register_text("warmup.succeeded", _warmup_succeeded)
 register_text("warmup.failed", _warmup_failed)
 

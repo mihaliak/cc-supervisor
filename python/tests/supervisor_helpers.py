@@ -44,10 +44,18 @@ def set_usage(scenario_file: Path, payload: dict[str, Any]) -> None:
 class FakeLauncher:
     """Speaks the launcher side of the IPC protocol and auto-acks commands (P05 shapes)."""
 
-    def __init__(self, wrapper_id: str, *, busy: bool = True, profile_id: str = "work") -> None:
+    def __init__(
+        self,
+        wrapper_id: str,
+        *,
+        busy: bool = True,
+        profile_id: str = "work",
+        resume_ack: tuple[str, dict[str, Any]] | None = None,
+    ) -> None:
         self.wrapper_id = wrapper_id
         self.profile_id = profile_id
         self.busy = busy
+        self.resume_ack = resume_ack  # `(result, detail)` for a resume with a prompt
         self.cmds: list[dict[str, Any]] = []
         self.reply: dict[str, Any] = {}
         self.client = AsyncDaemonClient()
@@ -84,6 +92,8 @@ class FakeLauncher:
                     "session_id": f"s-{self.wrapper_id}",
                 }
                 self.busy = False
+            elif cmd.get("prompt") and self.resume_ack is not None:
+                result, detail = self.resume_ack
             else:
                 result = "injected" if cmd.get("prompt") else "skipped"
                 detail = {} if cmd.get("prompt") else {"reason": "no_prompt"}

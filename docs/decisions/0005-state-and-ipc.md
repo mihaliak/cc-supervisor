@@ -1,6 +1,6 @@
 # ADR-0005: State directory, file formats, daemon IPC
 
-- Status: accepted
+- Status: accepted, partly superseded by [ADR-0024](0024-report-skipped-resumes.md)
 - Date: 2026-09-24
 - Source: planner default
 

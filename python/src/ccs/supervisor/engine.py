@@ -314,11 +314,35 @@ class SupervisorEngine:
             was_busy_at_pause=False,
             pause_pending=False,
         )
+        self._send_resume(pid, wrapper_id, prompt)
+
+    def _send_resume(self, pid: str, wrapper_id: str, prompt: str | None) -> None:
+        """Send `resume`; a prompt that did not go in is reported (ADR-0024)."""
 
         def on_ack(ack: dict[str, Any]) -> None:
-            log.info("resume of %s: %s %s", wrapper_id, ack.get("result"), ack.get("detail"))
+            result = ack.get("result")
+            raw = ack.get("detail")
+            detail: dict[str, Any] = raw if isinstance(raw, dict) else {}
+            log.info("resume of %s: %s %s", wrapper_id, result, detail)
+            if prompt and result != "injected":
+                # the launcher's reason for a skip, else the delivery failure itself
+                reason = detail.get("reason") if result == "skipped" else result
+                self._report_skipped_resume(pid, wrapper_id, _str(reason) or "unknown")
 
         self._spawn_cmd(pid, wrapper_id, "resume", {"prompt": prompt}, on_ack)
+
+    def _report_skipped_resume(self, pid: str, wrapper_id: str, reason: str) -> None:
+        rec = self.daemon.sessions.get(wrapper_id)
+        if rec is None:  # the session ended meanwhile: nothing left to continue
+            return
+        self.daemon.emit(
+            Event(
+                "limit.resume_skipped",
+                pid,
+                None,
+                {"wrapper_id": wrapper_id, "cwd": _str(rec.get("cwd")), "reason": reason},
+            )
+        )
 
     def _spawn_cmd(
         self,
@@ -632,7 +656,7 @@ class SupervisorEngine:
                 )
                 st = self.state(pid)
                 self._save(pid, dataclasses.replace(st, ledger=ledger.append(st.ledger, [entry])))
-                self._spawn_cmd(pid, wid, "resume", {"prompt": prompt}, lambda ack: None)
+                self._send_resume(pid, wid, prompt)
                 resumed = 1
         if cleared or resumed:
             self.daemon.emit(

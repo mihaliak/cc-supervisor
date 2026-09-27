@@ -59,7 +59,7 @@ All are booleans, default `true` ([Notifications](09-notifications.md)).
 |-----|--------|
 | `notifications.limit_warn` | warn thresholds reached |
 | `notifications.limit_pause` | sessions paused |
-| `notifications.limit_resume` | sessions resumed |
+| `notifications.limit_resume` | sessions resumed, and resume prompts that were not sent |
 | `notifications.warmup` | warm-up started a window, or failed |
 | `notifications.errors` | sign-in required, usage unreadable, config invalid |
 

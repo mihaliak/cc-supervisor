@@ -11,7 +11,7 @@ Binding project principles. Every plan and implementation must comply. If a deci
 | [0002](0002-usage-data-source.md) | Usage data source: Claude Code `get_usage` + statusline live data | accepted, partly superseded by 0022 |
 | [0003](0003-authentication.md) | Authentication: Claude Code's own login per config dir | accepted |
 | [0004](0004-config-and-profiles.md) | Config file & profile model | accepted, partly superseded by 0022 |
-| [0005](0005-state-and-ipc.md) | State directory, file formats, daemon IPC | accepted |
+| [0005](0005-state-and-ipc.md) | State directory, file formats, daemon IPC | accepted, partly superseded by 0024 |
 | [0006](0006-process-model.md) | Process model: launchd daemon + PTY launcher | accepted, partly superseded by 0022 |
 | [0007](0007-pause-resume.md) | Pause/resume via PTY keystroke injection | accepted, partly superseded by 0022 and 0023 |
 | [0008](0008-limit-policy.md) | Limit policy & default thresholds | accepted, partly superseded by 0022 |
@@ -21,7 +21,7 @@ Binding project principles. Every plan and implementation must comply. If a deci
 | [0012](0012-widget-data-path.md) | Widget data path & signing | accepted, partly superseded by 0019 |
 | [0013](0013-python-engineering.md) | Python engineering standards | accepted |
 | [0014](0014-docs-and-workflow.md) | Docs, plans, and git workflow | accepted |
-| [0015](0015-notifications.md) | Notifications | accepted |
+| [0015](0015-notifications.md) | Notifications | accepted, partly superseded by 0024 |
 | [0016](0016-identifiers.md) | Names, identifiers, paths | accepted |
 | [0017](0017-cli-surface.md) | `ccs` CLI surface | accepted |
 | [0018](0018-menu-bar-label.md) | Menu bar label: letter, session and weekly percent, colored dots | accepted |
@@ -30,6 +30,7 @@ Binding project principles. Every plan and implementation must comply. If a deci
 | [0021](0021-app-icon.md) | App icon: orange usage gauge | accepted |
 | [0022](0022-review-hardening.md) | Review hardening | accepted |
 | [0023](0023-pause-stops-background-work.md) | Pause stops background agents and workflows | accepted |
+| [0024](0024-report-skipped-resumes.md) | Report skipped resume prompts | accepted |
 
 ## Template
 

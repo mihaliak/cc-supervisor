@@ -143,6 +143,24 @@ def text(etype: str, data: dict[str, Any]) -> tuple[str, str]:
             "Resumed manually",
         ),
         (
+            "limit.resume_skipped",
+            {"wrapper_id": "w1", "cwd": "/Users/me/Code/roundly", "reason": "user_input"},
+            "💼 Work: resume prompt not sent",
+            "roundly: you typed in it while it was paused. Continue it yourself.",
+        ),
+        (
+            "limit.resume_skipped",
+            {"wrapper_id": "w1", "cwd": "/Users/me/Code/roundly/", "reason": "busy"},
+            "💼 Work: resume prompt not sent",
+            "roundly: Claude was still busy after the reset.",
+        ),
+        (
+            "limit.resume_skipped",
+            {"wrapper_id": "w1", "cwd": None, "reason": "timeout"},
+            "💼 Work: resume prompt not sent",
+            "A session: the prompt could not be typed (timeout). Continue it yourself.",
+        ),
+        (
             "warmup.succeeded",
             {"trigger": "unlock_wake", "resets_at": "2026-09-24T21:48:00Z"},
             "💼 Work: session window started",

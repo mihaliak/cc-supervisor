@@ -136,6 +136,46 @@ def test_pause_then_reset_resumes_with_prompt_only_for_busy(scen: Path) -> None:
     h.run(body)
 
 
+def test_skipped_resume_prompt_is_reported(scen: Path) -> None:
+    h = Harness()
+
+    async def body(daemon: Daemon) -> None:
+        await wait_until(lambda: "work" in daemon.snapshots)
+        typed = ("skipped", {"reason": "user_input"})
+        w1 = FakeLauncher("w1", busy=True, resume_ack=typed)
+        w2 = FakeLauncher("w2", busy=False)
+        await w1.start()
+        await w2.start()
+        set_usage(scen, usage_payload((95, RESET)))
+        await daemon.request_poll("work")
+        await wait_until(lambda: sup(daemon, "w1").get("was_busy_at_pause") is True)
+        await wait_until(lambda: sup(daemon, "w2").get("was_busy_at_pause") is False)
+        set_usage(scen, usage_payload((3, RESET + timedelta(hours=5))))
+        h.clock.set(RESET + timedelta(seconds=20))
+        await wait_until(lambda: "resume" in w1.types() and "resume" in w2.types(), timeout=10)
+        await h.eng.idle()
+        # only the prompt that did not go in is reported; w2 never had one
+        (skipped,) = events_of("limit.resume_skipped")
+        assert skipped["data"]["wrapper_id"] == "w1" and skipped["data"]["reason"] == "user_input"
+        assert skipped["data"]["cwd"] == "/tmp/project" and skipped["data"]["notify"] is True
+        assert skipped["data"]["body"].startswith("project: you typed in it")
+        assert validate(skipped, "event.schema.json") == []
+        # a manual resume of one session reports its skipped prompt too
+        c = await cli()
+        w1.busy, w1.resume_ack = True, ("failed", {"reason": "boom"})
+        await c.request("pause", wrapper_id="w1")
+        await wait_until(lambda: sup(daemon, "w1").get("was_busy_at_pause") is True)
+        await h.eng.idle()
+        await c.request("resume", wrapper_id="w1")
+        await wait_until(lambda: len(events_of("limit.resume_skipped")) == 2, timeout=10)
+        assert events_of("limit.resume_skipped")[1]["data"]["reason"] == "failed"
+        await c.close()
+        await w1.close()
+        await w2.close()
+
+    h.run(body)
+
+
 def test_override_gets_no_resume_prompt(scen: Path) -> None:
     h = Harness()
 

@@ -1,6 +1,6 @@
 # ADR-0015: Notifications
 
-- Status: accepted
+- Status: accepted, partly superseded by [ADR-0024](0024-report-skipped-resumes.md)
 - Date: 2026-09-24
 - Source: user requirement (macOS notification when the session limit is approaching) + planner design
 
