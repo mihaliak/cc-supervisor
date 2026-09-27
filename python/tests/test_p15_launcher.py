@@ -203,9 +203,22 @@ def test_is_typing_ignores_terminal_reports() -> None:
         b"\x1b[?62;22c",
         b"\x1b]11;rgb:0000/0000/0000\x1b\\",
         b"\x1b]10;rgb:ffff/ffff/ffff\x07",
+        b"\x1b[6;17;8t",  # cell size: claude asks again on every focus-in and resize
+        b"\x1b[I\x1b[6;17;8t",
+        b"\x1b[48;50;120;1000;2400t",  # in-band resize
+        b"\x1b_Gi=31;OK\x1b\\",  # kitty graphics reply (APC)
     ):
         assert is_typing(report) is False, report
-    for typed in (b"a", b"\x7f", b"\x1b[A", b"\x1b[I" + b"x", b"\x1b[97u", PASTE_START + b"p"):
+    for typed in (
+        b"a",
+        b"\x7f",
+        b"\x1b[A",
+        b"\x1b[1;5A",
+        b"\x1b[3~",
+        b"\x1b[I" + b"x",
+        b"\x1b[97u",
+        PASTE_START + b"p",
+    ):
         assert is_typing(typed) is True, typed
 
 
@@ -240,6 +253,8 @@ def feed_reads(*chunks: bytes) -> tuple[list[str], float]:
         (b"\x1b]11;rgb:ffff/ff", b"ff/ffff\x1b\\"),  # OSC color reply
         (b"\x1b]11;rgb:ffff/ffff/ffff\x1b", b"\\"),  # … cut inside its ST
         (b"\x1b[?62;2", b"2c"),  # device attributes reply
+        (b"\x1b[I\x1b[6;1", b"7;8t"),  # focus-in, then the cell size reply claude asks for
+        (b"\x1b_Gi=31;O", b"K\x1b\\"),  # kitty graphics reply
         (b"\x1b[I",),  # focus
     ],
 )
@@ -256,11 +271,39 @@ def test_reports_split_across_reads_are_not_typing(chunks: tuple[bytes, ...]) ->
         (b"\x1b[<64;1", b"0;5Mx"),  # a key after a split report
         (b"\x1b[<6", b"zz"),  # never became a report
         (b"\x1b]",),  # Alt+] alone: counted once the hold ends
+        (b"\x1b[1;5", b"A"),  # Ctrl+Up cut by a read boundary
+        (b"\x1b[1;5",),  # never became a report
     ],
 )
 def test_keys_still_count_as_typing(chunks: tuple[bytes, ...]) -> None:
     typed, last_input = feed_reads(*chunks)
     assert typed == ["typed"] and last_input > 0
+
+
+def test_window_switches_while_paused_keep_the_resume_prompt() -> None:
+    """Regression: claude asks for the cell size on every focus-in; the reply is not a draft."""
+    io = IO()
+    h = CommandHandler(io, Script("busy", "idle"), timings=FAST)
+    r, w = os.pipe()
+    proxy = PtyProxy(["true"], {}, stdin_fd=r)
+    proxy.on_user_input = h.on_user_input
+
+    async def body() -> tuple[str, dict[str, Any]]:
+        proxy._loop = asyncio.get_running_loop()
+        await h.handle({"cmd_id": "p", "type": "pause"})
+        for chunk in (b"\x1b[O", b"\x1b[I", b"\x1b[6;17;8t", b"\x1b[O\x1b[I\x1b[6;17;8t"):
+            os.write(w, chunk)
+            proxy._on_stdin()
+        await asyncio.sleep(0.1)  # held bytes flush after INPUT_HOLD_S
+        return await h.handle({"cmd_id": "r", "type": "resume", "prompt": "go"})
+
+    try:
+        result = asyncio.run(body())
+    finally:
+        os.close(r)
+        os.close(w)
+    assert result == ("injected", {"session_id": "sid-1"})
+    assert io.written == [inject.ESC, inject.paste("go"), inject.SUBMIT]
 
 
 # ---------------------------------------------------------------- 6. submit detection

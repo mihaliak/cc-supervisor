@@ -71,7 +71,7 @@ A limit counts as reached when the percent is **at or above** the threshold.
   If the pause stopped subagents or workflows, a note is appended so Claude starts them again. Otherwise it would take "stopped by the user" at face value:
   > Background agents or workflows stopped at the pause were stopped by the usage pause, not by the user: start again any that had not finished.
 - Sessions that were idle when paused get no prompt. They are just un-paused.
-- If you typed anything in the session while it was paused, even without submitting, no prompt is typed, so it can't mix with your draft. Switching windows, clicking, or scrolling doesn't count as typing. This holds even if the session only learned of the pause after reconnecting: typing since the pause began counts.
+- If you typed anything in the session while it was paused, even without submitting, no prompt is typed, so it can't mix with your draft. Switching windows or tabs, resizing, clicking, or scrolling doesn't count as typing. This holds even if the session only learned of the pause after reconnecting: typing since the pause began counts.
 - The resume prompt is typed only once Claude is idle. If Claude is still working 30 s after the reset, the prompt is skipped.
 - The supervisor never types while you're typing. It waits until you've stopped typing for 1.5 s (at most 30 s). Mouse and focus events don't count as typing, so they don't delay it.
 

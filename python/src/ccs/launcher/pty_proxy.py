@@ -48,14 +48,15 @@ _MARKER_MAX = max(len(m) for m in (*_OUTSIDE_MARKERS, PASTE_END))
 # How long a possibly split marker waits for the rest of it (a key arrives in one write).
 INPUT_HOLD_S = 0.02
 # Terminal reports that reach stdin without the user typing: focus in/out, mouse, replies to
-# queries (`CSI ? … c|u|y`, `CSI > … c`) and OSC/DCS strings.
+# queries (`CSI ? … c|u|y`, `CSI > … c`), window reports (`CSI … t`: claude re-asks the cell
+# size on every focus-in and resize) and OSC/DCS/APC strings (APC: kitty graphics replies).
 _REPORTS = re.compile(
-    rb"\x1b\[[IO]|\x1b\[<[0-9;]*[Mm]|\x1b\[M[\x20-\xff]{3}"
-    rb"|\x1b\[[?>][0-9;:$]*[A-Za-z]|\x1b[\]P][^\x07\x1b]*(?:\x07|\x1b\\)"
+    rb"\x1b\[[IO]|\x1b\[<[0-9;]*[Mm]|\x1b\[M[\x20-\xff]{3}|\x1b\[[0-9;]*t"
+    rb"|\x1b\[[?>][0-9;:$]*[A-Za-z]|\x1b[\]P_][^\x07\x1b]*(?:\x07|\x1b\\)"
 )
 # A report cut off by the end of a read (its rest comes with the next read).
 _PARTIAL_REPORT = re.compile(
-    rb"\x1b(?:\[(?:<[0-9;]*|M[\x20-\xff]{0,2}|[?>][0-9;:$]*)?|[\]P][^\x07\x1b]*\x1b?)?"
+    rb"\x1b(?:\[(?:<[0-9;]*|M[\x20-\xff]{0,2}|[0-9;]+|[?>][0-9;:$]*)?|[\]P_][^\x07\x1b]*\x1b?)?"
 )
 REPORT_HOLD_MAX = 4096  # a longer "report" is not one
 FORWARDED_SIGNALS = (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)
