@@ -75,10 +75,18 @@ def test_direct_refresh_prints_without_writing(
 
 
 def test_reads_file_and_merges_live_reports(
-    tmp_xdg: XdgDirs, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_xdg: XdgDirs,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
+    from ccs.clock import FakeClock
+    from ccs.usage import cli as usage_cli
+
+    # pinned before the fixture's weekly reset, else the weekly window renders as "reset"
+    now = datetime(2026, 9, 24, 18, 0, tzinfo=UTC)
+    monkeypatch.setattr(usage_cli, "SystemClock", lambda: FakeClock(now))
     write_config(tmp_path)
-    now = datetime.now(UTC).replace(microsecond=0)
     write_snapshot(
         normalize(payload("ok_max.json"), profile_id="work", fetched_at=now - timedelta(minutes=1))
     )

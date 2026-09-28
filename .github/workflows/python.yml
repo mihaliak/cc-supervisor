@@ -15,4 +15,6 @@ jobs:
         with:
           python-version: "3.13"
       - name: pytest, ruff, mypy
+        env:
+          CCS_STATUSLINE_BUDGET_MS: "100"  # shared runners are noisier than a dev Mac
         run: make test-python lint
